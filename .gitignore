@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+
+# LOCAL PLUMBING, never shared. These belong to whoever's machine this
+# is — the ticket tracker's project config, the MCP servers a session
+# connects to, and the harness settings for this checkout. They stay on
+# disk; they simply do not travel in the repository.
+#
+# `.claude/settings.json` in particular is what `jobbox init` writes:
+# tracking it would ship one machine's wiring to everybody who clones.
+.aiball.yaml
+.aiball-session_id
+.mcp.json
+.claude/
