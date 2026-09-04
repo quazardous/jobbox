@@ -434,7 +434,10 @@ def test_A_CLIENT_NAME_READS_AS_TWO_COLUMNS():
     assert split_client("cc-92183ccf") == ("", "92183ccf")
     # NO SESSION HALF — kept whole rather than cut at the last dash.
     assert split_client("ci-runner") == ("ci-runner", "")
-    assert split_client("default") == ("default", "")
+    # `default` IS THE SHARED MAILBOX, not a project — and it was being
+    # printed in a project column beside a source column that also said
+    # `default`, for an unrelated reason.
+    assert split_client("default") == ("", "")
     assert split_client("deploy-nightly") == ("deploy-nightly", "")
 
 

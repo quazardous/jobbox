@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented.
 - `jobbox status` says which project and session queued the job, and
   `jobbox clients` splits the name into the same columns `list` uses.
+- `jobbox config` prints values plainly and names the environment
+  variables that override anything on a single line — it used to repeat
+  the word `default` down a column, beside a client whose value is also
+  `default`, which is one word meaning two things in the verb meant to
+  remove confusion.
 - `jobbox config` shows every setting in effect and **where each came
   from** — and says when this directory's settings file asks for
   something a running session has not picked up yet, which is the gap

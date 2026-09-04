@@ -417,3 +417,39 @@ def test_CONFIG_STARTS_NOTHING():
     assert code == jobbox.OK
     assert not socket.exists(), "config must not bring a daemon into being"
     assert "new queue" in out.getvalue(), out.getvalue()
+
+
+def test_CONFIG_NEVER_SAYS_ONE_WORD_FOR_TWO_THINGS():
+    """`default default` WAS A REAL LINE, AND IT MEANT TWO THINGS.
+
+    The value of an unnamed client IS the word `default` — the mailbox
+    everything unnamed shares. It sat beside a column that said
+    `default` to mean "not overridden by an environment variable". One
+    word, two meanings, in the verb whose whole job is to remove
+    confusion.
+
+    The origin column is gone: overrides are named once, at the bottom,
+    and there is nothing to print when there are none.
+    """
+    here = os.getcwd()
+    previous = os.environ.get(jobbox._SESSION_ENV)
+    with tempfile.TemporaryDirectory() as tmp, _scratch_state(tmp):
+        try:
+            os.chdir(tmp)
+            os.environ.pop(jobbox._SESSION_ENV, None)
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                jobbox.main(["config"])
+        finally:
+            if previous is not None:
+                os.environ[jobbox._SESSION_ENV] = previous
+            os.chdir(here)
+
+    out = buffer.getvalue()
+    client = [l for l in out.splitlines() if l.strip().startswith("client")][0]
+    assert client.split() == ["client", jobbox.UNCLAIMED], (
+        f"the value alone, with nothing beside it — got {client!r}")
+    assert "set by env   nothing" in out, out
+    # AND THE PLACEHOLDER IS NOT PRINTED AS A PROJECT NAME.
+    project = [l for l in out.splitlines() if l.strip().startswith("project")][0]
+    assert jobbox.UNCLAIMED not in project, project

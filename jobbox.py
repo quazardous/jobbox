@@ -587,14 +587,17 @@ def split_client(client: str) -> tuple[str, str]:
     queued outside jobbox — the whole thing is the project and the
     session is empty.
 
-    AND `cc` IS NOT A PROJECT. It is the prefix a session falls back to
-    before `jobbox init` has named one, and showing it in a project
-    column was answering the question wrongly rather than not at all.
+    AND NEITHER `cc` NOR `default` IS A PROJECT. One is the prefix a
+    session falls back to before `jobbox init` names one; the other is
+    the mailbox everything unnamed shares. Both were being shown in a
+    project column, which answers the question wrongly rather than not at
+    all — and `default` did it beside a "source" column that also said
+    `default`, for a different reason.
     """
     project, _, tail = client.rpartition("-")
     if project and _SESSION_HALF.match(tail):
         return ("" if project == NO_PROJECT else project), tail
-    return client, ""
+    return ("" if client == UNCLAIMED else client), ""
 
 
 def _mailbox(client: str, audience: str) -> Path:
@@ -1335,53 +1338,58 @@ def _config() -> int:
     answer short of reading this file. A setting you cannot trace is a
     setting you cannot change with any confidence.
     """
-    def source(name: str) -> str:
-        return name if os.environ.get(name) else "default"
+    def short(path: str) -> str:
+        home = str(Path.home())
+        return f"~{path[len(home):]}" if path.startswith(home) else path
 
     me = _client()
     project, session = split_client(me)
+    asked = _declared_env()
+
     emit(f"  version      {VERSION}")
     emit("")
-    # WHAT THE SETTINGS FILE ASKS FOR, which is not always what is in
-    # effect: `env` is applied when a session starts, so between `init`
-    # and the next session the two disagree — and that gap is exactly
-    # what makes someone ask why the client is not what they just set.
-    asked = _declared_env()
-    def pending(name: str, live: str) -> str:
-        want = asked.get(name)
-        return (f"  ← ./.claude/settings.json says {want}, "
-                f"from your next session" if want and want != live else "")
 
-    emit(f"  client       {me:<34} {source('JOBBOX_CLIENT')}"
-         f"{pending('JOBBOX_CLIENT', os.environ.get('JOBBOX_CLIENT', ''))}")
-    emit(f"  project      {project or '(none yet)':<34} "
-         f"{source('JOBBOX_PROJECT')}"
-         f"{pending('JOBBOX_PROJECT', os.environ.get('JOBBOX_PROJECT', ''))}")
-    where = (project_paths().get(project)
+    # THE VALUE PLAIN, AND ITS ORIGIN ONLY WHEN THERE IS ONE.
+    #
+    # This used to print a "source" column that said `default` on nearly
+    # every row — beside a client whose VALUE is also the word `default`.
+    # Two meanings of one word, side by side, in the verb whose whole job
+    # is to remove confusion.
+    if session:
+        emit(f"  client       {me}")
+        emit(f"  session      {session}")
+    else:
+        emit(f"  client       {me}")
+        emit( "               no session id here — this is a plain shell, "
+              "so jobs")
+        emit( "               land in the mailbox everyone unnamed shares")
+
+    emit(f"  project      {project or '(none yet)'}")
+    want = asked.get("JOBBOX_PROJECT")
+    if want and want != project:
+        # THE GAP BETWEEN `init` AND THE NEXT SESSION, which is where
+        # somebody asks why `init` seemed to do nothing.
+        emit(f"               ./.claude/settings.json sets {want},")
+        emit( "               from your next session")
+    where = (project_paths().get(project) or project_paths().get(want or "")
              or os.environ.get("JOBBOX_PROJECT_PATH")
-             or asked.get("JOBBOX_PROJECT_PATH")
-             or "(unknown — `jobbox init` names it)")
-    emit(f"  directory    {where}")
-    emit(f"  session      {session or '(none — not inside a harness)'}")
-    emit("")
-    emit(f"  logs         {str(ROOT):<34} {source('JOBBOX_DIR')}")
-    emit(f"  socket       {str(SOCKET):<34} {source('JOBBOX_SOCKET')}")
-    emit(f"  mute after   {int(_mute_after())}s{'':<30} "
-         f"{source('JOBBOX_MUTE_AFTER')}")
-    emit("")
+             or asked.get("JOBBOX_PROJECT_PATH"))
+    if where:
+        emit(f"  directory    {short(where)}")
 
-    # THE SETTING, NOT THE LIVE QUEUE.
-    #
-    # This verb answers "what is configured and where did it come from".
-    # The width a daemon is actually running at is live state, and it
-    # belongs to `health` — printing it here made three verbs say the
-    # same number, and worse: reading it meant asking `tsp`, which STARTS
-    # a daemon. An informational command that creates something is not
-    # informational.
-    #
-    # `jobbox config` now touches nothing and needs no daemon.
-    emit(f"  new queue    {wanted_slots()} slot(s){'':<25} "
-         f"{source('JOBBOX_SLOTS')}")
+    emit("")
+    emit(f"  logs         {short(str(ROOT))}")
+    emit(f"  socket       {short(str(SOCKET))}")
+    emit(f"  mute after   {int(_mute_after())}s")
+    emit(f"  new queue    {wanted_slots()} slot(s)")
+
+    emit("")
+    # ONE LINE FOR EVERYTHING THAT IS NOT THE BUILT-IN BEHAVIOUR, instead
+    # of the word "default" repeated down a column.
+    overridden = [n for n in ("JOBBOX_DIR", "JOBBOX_SOCKET", "JOBBOX_CLIENT",
+                              "JOBBOX_PROJECT", "JOBBOX_SLOTS",
+                              "JOBBOX_MUTE_AFTER") if os.environ.get(n)]
+    emit(f"  set by env   {', '.join(overridden) if overridden else 'nothing'}")
     emit("")
     wired = Path.cwd() / ".claude" / "settings.json"
     declared = []
@@ -1396,7 +1404,7 @@ def _config() -> int:
     emit(f"  hooks here   {len(ours)} declared in ./.claude/settings.json"
          if ours else
          "  hooks here   none — `jobbox init` wires this directory")
-    emit(f"  skill        {SKILL_HOME}"
+    emit(f"  skill        {short(str(SKILL_HOME))}"
          if SKILL_HOME.exists() else
          "  skill        not installed — `jobbox init` installs it")
     return OK
