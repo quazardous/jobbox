@@ -1081,6 +1081,13 @@ def _status(ref: str) -> int:
     emit(f"  id         {j['uid'] or '(queued outside jobbox)'}")
     emit(f"  queue id   {j['id']}   — tsp's number, reused after a restart")
     emit(f"  intent     {j['intent']}")
+    # WHOSE JOB THIS IS. `list` has said so since it had columns, and
+    # `status` — the verb you reach for once you have picked a line out
+    # of that list — said nothing at all.
+    project, session = split_client(j["client"])
+    emit(f"  project    {project or '(none)'}")
+    if session:
+        emit(f"  session    {session}")
     emit(f"  state      {j['state']}")
     emit(f"  command    {j['command']}")
     if j["code"] is not None:
@@ -1363,20 +1370,18 @@ def _config() -> int:
          f"{source('JOBBOX_MUTE_AFTER')}")
     emit("")
 
-    # THE QUEUE'S WIDTH IS THE DAEMON'S, not this process's idea of it:
-    # `JOBBOX_SLOTS` only applies to a queue jobbox itself opens, so
-    # printing the variable would answer a question nobody asked.
-    if shutil.which("tsp") is None:
-        emit("  slots        (task-spooler is not installed)")
-    else:
-        counted = slots(_tsp("-l").stdout)
-        wanted = wanted_slots()
-        live = f"{counted[1]}" if counted else "?"
-        emit(f"  slots        {live:<34} live queue")
-        if counted and counted[1] != wanted:
-            emit(f"               a new queue would open at {wanted} "
-                 f"({source('JOBBOX_SLOTS')})")
-
+    # THE SETTING, NOT THE LIVE QUEUE.
+    #
+    # This verb answers "what is configured and where did it come from".
+    # The width a daemon is actually running at is live state, and it
+    # belongs to `health` — printing it here made three verbs say the
+    # same number, and worse: reading it meant asking `tsp`, which STARTS
+    # a daemon. An informational command that creates something is not
+    # informational.
+    #
+    # `jobbox config` now touches nothing and needs no daemon.
+    emit(f"  new queue    {wanted_slots()} slot(s){'':<25} "
+         f"{source('JOBBOX_SLOTS')}")
     emit("")
     wired = Path.cwd() / ".claude" / "settings.json"
     declared = []
@@ -1430,25 +1435,30 @@ def _clients() -> int:
         except OSError:
             return 0
 
-    # THE SHARED ONES FIRST, because they belong to nobody and would
+    forgotten = _forget_empty_mailboxes(me)
+    rows = []
+    # THE SHARED ONE FIRST, because it belongs to nobody and would
     # otherwise read as a client with a strange name.
     for audience in SHARED_AUDIENCES:
         count = _count(_mailbox(me, audience))
-        emit(f"  {'(' + audience + ', shared)':<28} "
-             f"{count if count else 'empty'}")
+        rows.append((f"(shared, {audience})", "",
+                     str(count) if count else "", ""))
 
-    forgotten, seen = _forget_empty_mailboxes(me), False
     for folder in sorted(SIGNALS.iterdir()):
         if not folder.is_dir():
             continue
-        pending = [(a, _count(folder / f"{a}.jsonl")) for a in AUDIENCES
-                   if a not in SHARED_AUDIENCES]
-        seen = True
-        detail = " ".join(f"{a}={n}" for a, n in pending if n) or "empty"
-        mark = " ← you" if folder.name == me else ""
-        emit(f"  {folder.name:<28} {detail}{mark}")
-    if not seen:
+        held = sum(_count(folder / f"{a}.jsonl") for a in AUDIENCES
+                   if a not in SHARED_AUDIENCES)
+        # SPLIT THE SAME WAY `list` SPLITS IT. One name shown two ways is
+        # two things to learn about one thing.
+        project, session = split_client(folder.name)
+        rows.append((project or "(none)", session,
+                     str(held) if held else "",
+                     "← you" if folder.name == me else ""))
+
+    if len(rows) == len(SHARED_AUDIENCES):
         say("  no session mailbox — nothing of yours is waiting")
+    _table(("project", "session", "unread", ""), rows)
     if forgotten:
         say(f"  forgot {forgotten} empty mailbox(es) of finished sessions")
     return OK

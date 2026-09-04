@@ -36,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `doc/`, including how to use jobbox from a CLI other than Claude Code —
   or from no harness at all, which was always possible and never
   documented.
+- `jobbox status` says which project and session queued the job, and
+  `jobbox clients` splits the name into the same columns `list` uses.
 - `jobbox config` shows every setting in effect and **where each came
   from** — and says when this directory's settings file asks for
   something a running session has not picked up yet, which is the gap

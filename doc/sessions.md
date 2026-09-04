@@ -23,9 +23,10 @@ So **each session drains only its own**.
 
 ```console
 $ jobbox clients
-  (user, shared)               2
-  myproject-1de7-92183ccf      agent=1 ← you
-  myproject-1de7-d4a69872      empty
+  project            session   unread
+  (shared, user)               2
+  BookShepherd-f7e5  92183ccf  1       ← you
+  imagematch-4a01    d4a69872  1
 ```
 
 **Your copy as a human stays shared**, on purpose. One person wants every

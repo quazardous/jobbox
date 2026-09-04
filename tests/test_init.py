@@ -387,5 +387,33 @@ def test_CONFIG_SAYS_WHEN_THE_SETTINGS_FILE_AND_THE_SESSION_DISAGREE():
     assert "next session" in out, out
     # AND THE THINGS THAT DECIDE BEHAVIOUR ARE ALL THERE.
     for expected in ("version", "client", "logs", "socket", "mute after",
-                     "slots", "hooks here", "skill"):
+                     "new queue", "hooks here", "skill"):
         assert expected in out, f"{expected!r} missing from config"
+
+
+def test_CONFIG_STARTS_NOTHING():
+    """AN INFORMATIONAL COMMAND THAT CREATES SOMETHING IS NOT ONE.
+
+    It used to print the live queue width, which meant asking `tsp` —
+    and any `tsp` call starts a daemon when none is running. Somebody
+    reading their settings brought a queue into being.
+
+    The live width belongs to `health`; the setting belongs here.
+    """
+    here = os.getcwd()
+    socket = Path("/tmp") / f"jobbox-cfg-{os.getpid()}.sock"
+    socket.unlink(missing_ok=True)
+    previous = jobbox.SOCKET
+    with tempfile.TemporaryDirectory() as tmp, _scratch_state(tmp):
+        try:
+            os.chdir(tmp)
+            jobbox.SOCKET = socket
+            with redirect_stdout(io.StringIO()) as out:
+                code = jobbox.main(["config"])
+        finally:
+            jobbox.SOCKET = previous
+            os.chdir(here)
+
+    assert code == jobbox.OK
+    assert not socket.exists(), "config must not bring a daemon into being"
+    assert "new queue" in out.getvalue(), out.getvalue()

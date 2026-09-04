@@ -200,7 +200,11 @@ def test_CLIENTS_SHOWS_WHAT_NOBODY_IS_COMING_BACK_FOR():
 
     out = buffer.getvalue()
     assert code == jobbox.OK
-    assert "gone-session" in out and "agent=1" in out, out
+    # THE COLUMNS ARE `list`'s COLUMNS NOW: a project, a session, and how
+    # many endings are waiting — not a name glued back together.
+    assert "gone-session" in out, out
+    assert "project" in out and "unread" in out, out
+    assert "1" in out.split("gone-session")[1].split("\n")[0], out
 
 
 def test_A_SESSION_NAMES_ITSELF_WITHOUT_ANY_CONFIGURATION():
