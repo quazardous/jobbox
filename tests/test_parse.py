@@ -456,3 +456,45 @@ def test_THE_CLIENT_COLUMN_IS_ALWAYS_FILLED():
 
     assert "client" in out.splitlines()[0]
     assert "cc-92183ccf" in out and "default" in out, out
+
+
+def test_EVERY_FLAG_THE_TOOL_ACCEPTS_IS_WRITTEN_DOWN_SOMEWHERE():
+    """A FLAG NOBODY DOCUMENTS IS A FLAG NOBODY FINDS.
+
+    And the reverse costs more: documentation naming an option that no
+    longer exists sends a reader to a failure. Both were found by hand —
+    `--prune` survived its own removal in the changelog, and three flags
+    had never been written down at all.
+
+    `--help` alone does not count: it is where you look once you already
+    know the verb exists.
+    """
+    import re
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parent.parent
+    prose = "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in list(root.glob("*.md")) + list(root.glob("doc/*.md"))
+        + [root / "skills" / "jobbox" / "SKILL.md"])
+
+    top = subprocess.run([sys.executable, str(root / "jobbox.py"), "--help"],
+                         capture_output=True, text=True).stdout
+    verbs = sorted(set(re.findall(r"^\s{4}(\S+)", top.split("VERB")[-1], re.M)))
+    assert verbs, top
+
+    missing = []
+    for verb in verbs:
+        # THE PLUMBING IS DELIBERATELY UNDOCUMENTED: `tsp` and the hooks
+        # call these, never a person.
+        if verb in ("onfinish", "observe", "claude-hook"):
+            continue
+        page = subprocess.run(
+            [sys.executable, str(root / "jobbox.py"), verb, "--help"],
+            capture_output=True, text=True).stdout
+        for flag in set(re.findall(r"(--[a-z][a-z-]+)", page)) - {"--help"}:
+            if flag not in prose:
+                missing.append(f"{verb} {flag}")
+
+    assert not missing, f"accepted but written down nowhere: {missing}"

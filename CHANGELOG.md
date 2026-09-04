@@ -18,166 +18,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.4.0] - 2026-09-03
+## [0.4.0] - 2026-09-04
+
+First public release. The versions before it were bookkeeping inside a
+single afternoon — none was tagged, none was installed by anybody, and a
+changelog that adds a flag in one of them and removes it in the next is
+not history, it is noise a reader has to parse.
 
 ### Added
 
-- `jobbox timings` reports what actually takes time in a session, ranked
-  by total time spent waiting rather than by the slowest single call —
-  the forty-second command run thirty times costs more than the one
-  ten-minute build, and only the ranking shows it. `jobbox init` wires
-  the pair of hooks that collect it.
-- The measurement stores only a command's shape, never the line as
-  typed: a command can carry a secret inline, and the table lives in a
-  cache directory for weeks.
-- `jobbox --version` says which copy you have — an installed command that
-  cannot answer that turns every report into a conversation.
-- The README is now a pitch and a quickstart; the explanations moved to
-  `doc/`, including how to use jobbox from a CLI other than Claude Code —
-  or from no harness at all, which was always possible and never
-  documented.
-- `jobbox status` says which project and session queued the job, and
-  `jobbox clients` splits the name into the same columns `list` uses.
-- `jobbox init` now means something outside the harness: the project
-  name it writes is read back from the project's own settings file, so a
-  job queued by hand from any subdirectory is filed under the right
-  project instead of none.
-- `jobbox config` prints values plainly and names the environment
-  variables that override anything on a single line — it used to repeat
-  the word `default` down a column, beside a client whose value is also
-  `default`, which is one word meaning two things in the verb meant to
-  remove confusion.
-- `jobbox config` shows every setting in effect and **where each came
-  from** — and says when this directory's settings file asks for
-  something a running session has not picked up yet, which is the gap
-  that makes people ask why `init` seemed to do nothing.
-- `jobbox slots` and `jobbox health` say `6 — 0 running, 2 waiting`
-  instead of `0/6 busy`, which read in two directions.
-- `jobbox list` has `project` and `session` columns instead of an opaque
-  `cc-92183ccf`, so a shared queue says whose work each job is. A project
-  is identified by its directory rather than its name, so two checkouts
-  called `jobbox` do not share a mailbox, and `--project-path` shows the
-  directory behind each tag. `jobbox
-  init` captures the project name once rather than deriving it from the
-  working directory, which would rename the client — and split its
-  mailbox — whenever a command ran from a subdirectory.
-- **Jobs now carry an id jobbox mints, and it is never reused.**
-  `task-spooler` numbers from zero and starts over when its daemon dies,
-  so a number kept from yesterday could name a different job today and
-  hand back the wrong log without a word. A stale minted id is refused
-  instead. `tsp`'s number is still accepted wherever a job is named.
-- `jobbox list --all` spells out the default — every job on the machine
-  — as the counterpart to `--mine`.
-- `jobbox list` has headings, and columns sized to what is in them. The
-  `client` column — a session naming itself, `cc-` plus the first eight
-  characters of the harness's session id — appears only when somebody
-  else queued the job, and a column nobody filled is not printed at all.
-- **jobbox no longer depends on `click`.** One file, Python 3.11+, and
-  `task-spooler` — nothing to install first, and it runs with
-  site-packages switched off. The command-line behaviour is unchanged.
-- The measurement answered the question it was built for: a hook that
-  sends long commands to the background by itself **would not work
-  here**, so it was not built. Four of five long command shapes had been
-  seen exactly once, and no rule can catch what it has never seen.
-  `jobbox timings --detail` remains, and would answer the question again
-  if the work changed shape.
-- `jobbox init` now recognises its own declarations by verb rather than
-  by their exact text, so a declaration that gains a flag replaces the
-  old one instead of piling up beside it.
-- Empty mailboxes left by finished sessions are now forgotten
-  automatically, from `jobbox clients` and behind every job that ends —
-  the `--prune` flag is gone. One holding an ending is never removed, at
-  any age.
-- `jobbox timings --detail` reads the table for you: bands, what a guard
-  at each threshold would buy against how often it would interrupt, and
-  the per-session split — plus a warning when one call carries most of
-  the total, or when it all comes from one session. `--session` narrows
-  it to one.
-- `jobbox init` installs a skill describing **when** to use a background
-  queue at all — the judgement that does not fit in `--help`, and that
-  used to live in whichever project happened to host the tool. An edited
-  copy is never overwritten without `--force`.
-- `jobbox timings` says how many sessions its table covers, and each row
-  records which one made the call. The table is machine-wide, so a
-  reading drawn from one session is not the same claim as one drawn from
-  several — and nothing in it could tell them apart.
+- **Queue a long command and be told when it ends.** `jobbox run <intent>
+  -- <command>` returns immediately; the ending reaches whoever needs it
+  without anyone remembering to look.
+- **A mandatory intent**, because a queue of `bash -c …` lines cannot be
+  read back three hours later.
+- **Liveness, not just "running".** jobbox reads the date of the last
+  byte written to a job's log, so a job that has said nothing for ten
+  minutes is named by `jobbox health` — without any script having to
+  cooperate.
+- **Claude Code in one command.** `jobbox init` merges its hooks into
+  `.claude/settings.json` without removing anybody else's, and installs a
+  skill describing when a queue is the right move. Any other CLI — or
+  none — can read `jobbox signals <audience> --json`.
+- **Several sessions on one queue, without stealing each other's
+  notifications.** Sessions name themselves, so this needs no
+  configuration; the human's copy stays shared because one person wants
+  every ending. A project is identified by its directory, so two
+  checkouts of the same name are two projects.
+- **Ids jobbox mints and never reuses**, so a reference to a queue that
+  no longer exists is refused rather than answered with somebody else's
+  job.
+- **`jobbox config`**, which says every setting in effect and names the
+  environment variables overriding anything.
+- **`jobbox timings`**, which measures what shell commands actually cost.
+  It was built to settle whether a hook should force long commands into
+  the background by itself, and it settled it: no. See CONTRIBUTING.
 
-## [0.3.0] - 2026-09-03
+### Notes
 
-### Added
-
-- Sessions now name themselves, so two of them stop taking each other's
-  notifications without anyone configuring anything. `JOBBOX_CLIENT` is
-  still there to pin one fixed name — for a CI runner or a shared worker.
-- `jobbox slots` reads and sets how many jobs may run at once, and
-  `jobbox health` now says how wide the queue is and how many jobs are
-  waiting. One slot is the default, so jobs run strictly one after
-  another; that is the usual answer to "why has my job not started".
-- `jobbox clients --prune` forgets the empty mailboxes of sessions that
-  have closed. It never touches one that still holds an ending.
-- `jobbox health` now reports endings waiting in mailboxes other than
-  yours, and `jobbox signals --client <name>` reads one. Who a client is
-  comes from the harness, so a job filed under a name nobody comes back
-  to is possible — this makes it visible instead of silent.
-
-### Changed
-
-- The human's mailbox is no longer split per session. One person wants
-  every ending, whichever session started it — splitting it would have
-  lost the endings of jobs whose session closed first.
-
-## [0.2.0] - 2026-09-03
-
-### Added
-
-- Several sessions can now use jobbox at the same time without stealing
-  each other's notifications. Name a session with `JOBBOX_CLIENT` and it
-  gets its own mailbox; the queue itself stays shared, so ordering and
-  parallelism still protect the machine.
-- `jobbox clients` lists every mailbox and what is still waiting in it,
-  so endings left behind by a session that closed are visible instead of
-  silently piling up.
-- `install.sh` installs jobbox into `~/.local` — no root, reentrant, with
-  `--symlink` for development and `--uninstall` to remove it.
-- `jobbox init` wires jobbox into the project in the current directory by
-  merging its hooks into `.claude/settings.json`. It never overwrites
-  hooks that belong to other tools, and running it again is safe.
-- `jobbox claude-hook` shapes pending endings for Claude Code, so an
-  integrator no longer has to write that bridge themselves.
-- `JOBBOX_SOCKET` selects the queue to talk to, which is what makes a
-  second, isolated instance possible — and what lets the test suite
-  exercise the real notification chain without touching a live queue.
-- `jobbox list --mine` narrows a shared queue to the current client.
-
-### Changed
-
-- **Breaking:** the JSON returned by `jobbox signals --json` now uses
-  English field names — `log`, `intent`, `command`, `finished_at` — and
-  carries the new `client` field. Integrators reading the previous French
-  names must update.
-- **Breaking:** the muteness threshold is now `JOBBOX_MUTE_AFTER`
-  (previously `JOBBOX_MUET_DEPUIS`).
-- `jobbox health` now says when the daemon was started *by the check
-  itself*. Asking `tsp` whether it is alive is what brings it back, so
-  the old answer was always "alive" — including right after a queue had
-  died with its daemon.
-- Everything the project ships — code, comments, documentation — is now
-  in English.
-
-### Fixed
-
-- A job ending that arrived while `signals` was reading could be erased
-  before anyone saw it. The mailbox is now claimed atomically first, so a
-  concurrent ending lands in a fresh file instead.
-- An unparseable `JOBBOX_MUTE_AFTER` no longer makes every command,
-  `--help` included, fail with a traceback.
-- An over-long socket path is now refused with an explanation instead of
-  segfaulting `tsp`.
-
-## [0.1.0] - 2026-09-03
-
-### Added
-
-- Initial release: queue a long command with a readable intent, list what
-  is waiting, running and finished, follow a log, kill a job, and be told
-  when something ends.
+- One file, the standard library, and `task-spooler`. It runs under
+  `python3 -S`.
+- The queue does not outlive its `task-spooler` daemon. Acceptable for
+  development work — worth knowing, not worth hiding.

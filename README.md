@@ -43,16 +43,22 @@ returns facts, and any CLI — or none — can read them.
 ## The verbs
 
 ```
-jobbox run <intent> -- <command>    queue it, print the id
-jobbox list [--mine|--all]          waiting · running · finished
-jobbox status <id>                  state, exit code, times, log
-jobbox tail <id> [-f]               the log
-jobbox kill <id>                    stop it
-jobbox health                       is the daemon there, who is stuck
-jobbox clients                      whose endings are still unread
-jobbox config                       every setting, and where it came from
-jobbox slots [n]                    how many jobs may run at once
-jobbox timings [--detail]           what actually takes time, measured
+jobbox run <intent> -- <command>       queue it, print the id
+jobbox list [--mine|--all]             waiting · running · finished
+           [--project-path]            …showing directories, not tags
+jobbox status <id>                     state, exit code, times, log
+jobbox tail <id> [-f|--follow]         the log
+              [-n|--lines N]           …how many lines
+jobbox kill <id>                       stop it
+jobbox health                          is the daemon there, who is stuck
+jobbox clients                         whose endings are still unread
+jobbox config                          every setting, and where it came from
+jobbox slots [n]                       how many jobs may run at once
+jobbox timings [--detail]              what actually takes time, measured
+              [-n|--top N] [--session] …how many shapes, whose calls
+              [--reset]                …forget everything measured
+jobbox signals <audience> [--json]     consume endings, for an integrator
+jobbox init [--force] [--client|--project]
 ```
 
 ```console
