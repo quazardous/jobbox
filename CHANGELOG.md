@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cache directory for weeks.
 - `jobbox --version` says which copy you have — an installed command that
   cannot answer that turns every report into a conversation.
-- Client names now read as `project-session` instead of an opaque
+- `jobbox list` has `project` and `session` columns instead of an opaque
   `cc-92183ccf`, so a shared queue says whose work each job is. `jobbox
   init` captures the project name once rather than deriving it from the
   working directory, which would rename the client — and split its

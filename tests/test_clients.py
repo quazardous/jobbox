@@ -410,3 +410,22 @@ def test_A_PROJECT_NAME_IS_REDUCED_NOT_DROPPED():
     # A NAME THAT CANNOT START A DIRECTORY IS NO NAME AT ALL.
     assert _sane("...") == "" and _sane("") == ""
     assert len(_sane("x" * 100)) <= 32
+
+
+def test_A_CLIENT_NAME_READS_AS_TWO_COLUMNS():
+    """PRESENTATION, NOT INFERENCE: a client IS `project-session`.
+
+    And it cannot lose anything. A name pinned with `--client` has no
+    session half, and neither does a job queued outside jobbox — both
+    keep their whole name in the project column rather than being cut
+    somewhere arbitrary.
+    """
+    from jobbox import split_client
+
+    assert split_client("BookShepherd-92183ccf") == ("BookShepherd", "92183ccf")
+    assert split_client("mon-projet-92183ccf") == ("mon-projet", "92183ccf")
+    assert split_client("cc-92183ccf") == ("cc", "92183ccf")
+    # NO SESSION HALF — kept whole rather than cut at the last dash.
+    assert split_client("ci-runner") == ("ci-runner", "")
+    assert split_client("default") == ("default", "")
+    assert split_client("deploy-nightly") == ("deploy-nightly", "")

@@ -18,9 +18,9 @@ jobbox timings                      what actually takes time, measured
 $ jobbox run build-the-front -- npm run build
 j7f3a91c
 $ jobbox list
-        id  state     intent           exit  client
-  j7f3a91c  running   build-the-front        cc-92183ccf
-  j2b8e04d  queued    nightly-backup         cc-d4a69872
+        id  state     intent           exit  project       session
+  j7f3a91c  running   build-the-front        BookShepherd  92183ccf
+  j2b8e04d  queued    nightly-backup         imagematch    d4a69872
 $ jobbox status j7f3a91c
   intent     build-the-front
   state      finished
@@ -137,9 +137,9 @@ $ jobbox clients
 
 ### Reading `list`
 
-The `client` column says which session queued each job, yours included —
-`BookShepherd-92183ccf` is a project name and a session id, and it needs
-both. The session alone is unique and tells you nothing about whose work
+The `project` and `session` columns say who queued each job, yours
+included. They are one client name — `BookShepherd-92183ccf` — shown in
+two halves, and it needs both. The session alone is unique and tells you nothing about whose work
 a job is; the project alone would put two windows on one project back in
 one mailbox, which is the theft this design removed.
 
@@ -149,8 +149,9 @@ a client renamed because a command ran from a subdirectory would split
 its mailbox mid-session and strand whatever was in it. `--project`
 overrides the name, `--client` pins the whole thing.
 
-A job queued by hand with `tsp -L` shows `default`, the mailbox its
-ending lands in.
+A name with no session half keeps its whole self under `project`: one
+pinned with `--client`, or a job queued by hand with `tsp -L`, which
+shows `default` — the mailbox its ending lands in.
 
 `jobbox clients` marks which one is yours.
 

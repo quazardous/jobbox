@@ -519,6 +519,26 @@ def _client() -> str:
     return raw
 
 
+#: THE SESSION HALF OF A CLIENT NAME: exactly the eight hex characters
+#: `_client` takes from the harness's session id.
+_SESSION_HALF = re.compile(r"^[0-9a-f]{8}$")
+
+
+def split_client(client: str) -> tuple[str, str]:
+    """A client name as (project, session) — for reading, not for keys.
+
+    A client IS `project-session` by construction, so this is
+    presentation rather than inference. It cannot lose anything: when the
+    tail is not a session id — a name pinned with `--client`, or a job
+    queued outside jobbox — the whole thing is the project and the
+    session is empty.
+    """
+    project, _, tail = client.rpartition("-")
+    if project and _SESSION_HALF.match(tail):
+        return project, tail
+    return client, ""
+
+
 def _mailbox(client: str, audience: str) -> Path:
     """Where endings wait — per client, or shared, depending on the reader.
 
@@ -945,9 +965,9 @@ def _list(mine: bool) -> int:
             # column. Hiding it made blank mean "mine" — a convention the
             # reader has to hold, against a heading that explains itself.
             # A job queued outside jobbox shows the mailbox it lands in.
-            j["client"],
+            *split_client(j["client"]),
         ))
-    _table(("id", "state", "intent", "exit", "", "client"), rows)
+    _table(("id", "state", "intent", "exit", "", "project", "session"), rows)
     return OK
 
 
