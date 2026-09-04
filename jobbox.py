@@ -1683,7 +1683,13 @@ def _detail(waited: list[dict[str, Any]], total: float) -> None:
 
 
 def _init(force: bool, client: str | None, project: str | None) -> int:
-    """LAY DOWN THE LOCAL CONFIGURATION, AND SAY WHAT CHANGED.
+    """WIRE THIS HARNESS, AND SAY WHAT CHANGED.
+
+    NAMED FOR CLAUDE CODE IN ITS HELP, because that is the only harness
+    it knows how to write settings for. A second one is a second verb
+    beside this, not a flag inside it — and nothing above this line has
+    to move for that to happen.
+
 
     IT MERGES, IT DOES NOT OVERWRITE. A project's `.claude/settings.json`
     almost always already carries hooks that have nothing to do with us;
@@ -1929,7 +1935,7 @@ def _parser() -> argparse.ArgumentParser:
     timings.add_argument("--session", default=None,
                          help="read one session's calls only")
 
-    init = verb("init", "Wire jobbox into the project in this directory.",
+    init = verb("init", "Wire jobbox into Claude Code, in this directory.",
                 lambda ns: _init(ns.force, ns.client, ns.project))
     init.add_argument("--force", action="store_true",
                       help="rewrite the entries even if already declared")

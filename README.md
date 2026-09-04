@@ -1,6 +1,42 @@
 # jobbox
 
-Start a long command, and find it again later.
+**Your agent runs a five-minute build and then sits there.** So do you.
+Each wait is short; it is their sum that costs.
+
+jobbox queues the command instead and **tells whoever needs to know when
+it ends** — the model on its next turn, you when the session stops.
+Nobody has to remember to look.
+
+One file, the standard library, and
+[`task-spooler`](https://vicerveza.homeunix.net/~viric/soft/ts/).
+
+## Quickstart
+
+```console
+$ sudo dnf install task-spooler     # or apt, brew, pkg…
+$ ./install.sh                      # into ~/.local, no root
+$ cd your-project && jobbox init    # wires Claude Code, merges safely
+```
+
+Open a new session, then:
+
+```console
+$ jobbox run build-the-front -- npm run build
+j7f3a91c
+```
+
+Go and do something else. When it ends, the model is told on its next
+turn and you are told when the session stops — a failure holds the
+session open and points at the log.
+
+→ **[doc/claude-code.md](doc/claude-code.md)** for what `init` writes and
+how the telling works.
+
+**Not tied to Claude Code.** Two verbs know that harness; everything else
+returns facts, and any CLI — or none — can read them.
+→ [doc/other-harnesses.md](doc/other-harnesses.md)
+
+## The verbs
 
 ```
 jobbox run <intent> -- <command>    queue it, print the id
@@ -8,373 +44,72 @@ jobbox list [--mine|--all]          waiting · running · finished
 jobbox status <id>                  state, exit code, duration, log
 jobbox tail <id> [-f]               the log
 jobbox kill <id>                    stop it
-jobbox health                       is the daemon there, who is mute
-jobbox clients                      who has a mailbox, and what waits in it
+jobbox health                       is the daemon there, who is stuck
+jobbox clients                      whose endings are still unread
 jobbox slots [n]                    how many jobs may run at once
-jobbox timings                      what actually takes time, measured
+jobbox timings [--detail]           what actually takes time, measured
 ```
 
 ```console
-$ jobbox run build-the-front -- npm run build
-j7f3a91c
 $ jobbox list
-        id  state     intent           exit  project       session
-  j7f3a91c  running   build-the-front        jobbox-1de7   92183ccf
-  j2b8e04d  queued    nightly-backup         jobbox-4732   d4a69872
-$ jobbox status j7f3a91c
-  intent     build-the-front
-  state      finished
-  exit       0
-  times      41.20/38.11/2.44
-  log        ~/.cache/jobbox/ts-out.ysNV5u
+        id  state     intent           exit  project          session
+  j7f3a91c  running   build-the-front        jobbox-1de7      92183ccf
+  j2b8e04d  queued    nightly-backup         imagematch-4a01  d4a69872
 ```
 
-> **Taking this over?** The *why* lives next to the code that does it,
-> and `CONTRIBUTING.md` lists what was already ruled out.
+**The intent is mandatory**, and that is the point: a queue of
+`bash -c …` lines cannot be read back three hours later.
 
-## What it is, and what it is not
+**`--` separates.** Without it, your command's own options are read as
+jobbox's.
 
-A thin wrapper around [`task-spooler`](https://vicerveza.homeunix.net/~viric/soft/ts/),
-which already does the essentials: an ordered queue, one output file per
-job, the exit code kept, adjustable parallelism.
-
-**jobbox adds three things, and nothing more.**
-
-### The intent
-
-`tsp -l` returns lines of `bash -c …` that cannot be read back. A
-mandatory name costs three words at the moment you have them in mind, and
-makes the list useful three hours later.
-
-### Liveness
-
-`tsp` says whether a job **runs**, never whether it **makes progress**. A
-stuck script and a computing one are the same `running`.
-
-So jobbox reads the date of the last byte written to the log:
-
-```
-running + fresh log           it is working
-running + nothing for a while MUTE?   ← what `health` names
-not running                   done, and the code says how
-```
-
-**It is a date, not a heartbeat to emit.** A heartbeat would only work
-for scripts you write yourself, and whoever forgets it would look dead.
-Log freshness simply rewards the one who says where it is at — and asks
-nothing of the others.
-
-`health` returns `0` even on a mute job: it may be a script computing
-without saying anything, and returning a failure would make `health` an
-alarm you switch off.
-
-### The notification
-
-`tsp` accepts `TS_ONFINISH`: a program run when a job ends, with
-`jobid errorlevel outputfile command`. jobbox hooks a shim there that
-drops one signal per audience.
-
-```
-jobbox signals agent           consume and return what has finished
-jobbox signals user --json     one JSON line per job, for an integrator
-```
-
-**Reading and erasing are one gesture.** Nothing speaks again until the
-next ending: the backoff is structural, there is no date of last look to
-keep, no list of already-announced jobs, no fingerprint to compare. Each
-job ends exactly once — so nothing can be announced twice, nor missed.
-
-**Two audiences, two mailboxes**, because whoever automates and whoever
-watches read neither at the same moment nor through the same channel.
-
-## Several sessions at once
-
-The queue is shared on purpose: ordering and parallelism are a
-**machine-level** resource, and that is the whole reason `task-spooler`
-exists. Giving every session its own daemon would let N sessions start N
-heavy jobs at once — the problem the queue was there to prevent.
-
-What must not be shared is the **consumption** of endings, since reading
-erases them. **Sessions name themselves**, so that separation costs no
-configuration at all — a default you have to switch on is a default that
-stays off.
-
-```console
-$ jobbox run migrate -- ./migrate.sh      # in one session
-$ jobbox run reindex -- ./reindex.sh      # in another
-$ jobbox list
-     0  running   migrate
-     1  queued    reindex                   (cc-bbbbbbbb)
-```
-
-Each session drains only its own endings. `JOBBOX_CLIENT` pins one fixed
-name instead — right for a CI runner or a shared worker, wrong for a
-person with two windows open. Outside any session, and with nothing set,
-jobbox behaves exactly as it did before clients existed.
-
-The client travels inside the job's label, which is the only thing that
-reaches `TS_ONFINISH` — `tsp` passes it no environment.
-
-### The human's mailbox is not split
-
-**The human is one person.** They want every ending, whichever session
-started it, and they read through whatever session happens to be open.
-Splitting their mailbox too would mean a job launched by a session that
-has since closed is announced to nobody — a loss that per-client
-mailboxes would have *introduced* while fixing the agent's.
-
-So the split follows the reader, not the file. Both are still consumed
-exactly once.
-
-### Seeing what nobody came back for
-
-```console
-$ jobbox clients
-  (user, shared)               2
-  cc-aaaaaaaa                  agent=1
-  cc-bbbbbbbb                  empty          ← you
-```
-
-### Reading `list`
-
-The `project` and `session` columns say who queued each job, yours
-included. They are one client name — `BookShepherd-92183ccf` — shown in
-two halves, and it needs both. The session alone is unique and tells you nothing about whose work
-a job is; the project alone would put two windows on one project back in
-one mailbox, which is the theft this design removed.
-
-**A project is a directory, not a name.** `~/work/jobbox` and
-`~/forks/jobbox` are two projects, so the tag carries four hex
-characters of the path — letting them answer to one name would put their
-jobs in one mailbox, which is the same theft as a shared queue one level
-down, and invisible because both names look right.
-
-The tag is short because it sits in every line. `jobbox list
---project-path` shows the directory instead, for the day the tag stops
-being readable — which is the day two projects collide:
-
-```console
-$ jobbox list --project-path
-        id  state     intent       exit  project                   session
-  ja742ad1  finished  depuis-work  0     /home/x/work/jobbox       92183ccf
-  j715a64c  finished  depuis-fork  0     /home/x/forks/jobbox      d4a69872
-```
-
-`jobbox init` captures all of this once, from the directory it runs in,
-and writes it to the settings file. It is never derived at call time: a
-client renamed because a command ran from a subdirectory would split its
-mailbox mid-session and strand whatever was in it. `--project` overrides
-the name, `--client` pins the whole thing.
-
-A name with no session half keeps its whole self under `project`: one
-pinned with `--client`, or a job queued by hand with `tsp -L`, which
-shows `default` — the mailbox its ending lands in.
-
-`jobbox clients` marks which one is yours.
-
-**The id jobbox prints is its own, and it is never reused.**
-`task-spooler` numbers jobs from zero and starts over when its daemon
-dies, so a number kept from yesterday can name a different job today —
-and would hand back the wrong log without a word.
-
-A minted id does not make the queue outlive its daemon; nothing can. It
-makes a stale reference **fail**, which is the only useful difference:
-
-```console
-$ jobbox status j7f3a91c
-  job j7f3a91c unknown to the queue        # and exit 1
-```
-
-`tsp`'s number is still accepted wherever a job is named — refusing it
-would make jobbox disagree with the queue anyone can read directly — and
-`status` prints both. A job queued by hand with `tsp -L` has only a
-number, and is listed under it.
-
-`list` shows every job on the machine; `--mine` narrows to this session
-and `--all` is that default spelled out. There is no notion of a
-*project* here: the queue is a machine-level resource and a client is a
-session, so two sessions on one project are two clients.
-
-Splitting mailboxes opens a quieter failure: a session that ends leaves
-its endings behind, and an unread file looks exactly like an empty one.
-Naming sessions automatically makes that worse, since every session
-creates one.
-
-The empty remains are **forgotten without being asked** — from `clients`
-and behind every job that ends. Three conditions, and each prevents a
-loss rather than being tidiness: never one that still holds an ending
-(the only evidence a job finished unannounced), never your own, and
-never one touched in the last hour — `onfinish` creates a directory and
-then writes inside it, and removing it in between would lose that
-ending.
-
-### How wide the queue is
-
-```console
-$ jobbox health
-  daemon     alive, 4 job(s) known
-  slots      1/1 busy, 2 waiting
-             one slot — jobs run strictly one after another
-```
-
-A queue jobbox opens itself starts at **half the cores**. `JOBBOX_SLOTS`
-changes that — a number, or `none` for no cap at all.
-
-The width is applied **only at the daemon's birth**, so a deliberate
-`jobbox slots 2` is never quietly undone by the next command. And it is
-machine-wide: every session on the account shares it, which is the point
-of a queue rather than N daemons.
-
-## What actually takes time
-
-Whether anything *should* force long commands into the background is an
-open question, and the belief "this one is long" has been wrong in both
-directions. So `jobbox init` also wires a pair of hooks that time shell
-commands, and `jobbox timings` reads the table back:
-
-```console
-$ jobbox timings
-  312 call(s) measured, 18 already detached
-  22.4 min spent waiting in the foreground
-
-     total  calls   median  shape
-      680s     17    39.2s  make test
-      300s      1   300.0s  docker compose build
-```
-
-`jobbox timings --detail` adds the reading itself — how the waiting is
-spread, what a guard at each threshold would buy and interrupt, and the
-per-session split. It names an outlier carrying most of the total, and
-says when a distribution comes from a single session: both are ways a
-table decides something it should not.
-
-**Ranked by total time waited, not by the slowest single call.** The trap
-is not the ten-minute build — nobody runs that in the foreground twice.
-It is the forty-second command run thirty times: each one too short to
-stop for, and their sum is the half hour.
-
-**It measures and does nothing else** — no reminder, no refusal, no
-rewritten command. A measurement that changes what it measures answers a
-different question.
-
-**It never stores the command line.** A command can carry a secret
-inline, and this table sits in a cache directory for weeks; only the
-shape is kept, an assignment is dropped rather than truncated, and
-everything after a shell's `-c` is discarded.
-
-It costs about **0.17 s per shell command** — two process starts,
-measured on one machine against a control, not in isolation. The
-measuring path exits before `click` is imported and before the imports
-only the full tool needs, which together is 46% of what it cost at
-first. `jobbox timings --reset` forgets
-everything, and removing the two `observe` entries from
-`.claude/settings.json` stops it.
+**The id is jobbox's own and never reused** — `tsp`'s numbers restart at
+zero when its daemon dies. → [doc/sessions.md](doc/sessions.md)
 
 ## Install
 
-```console
-$ sudo dnf install task-spooler                  # or apt, brew, pkg…
-$ ./install.sh                                   # into ~/.local, no root
-$ jobbox health
-```
-
-`install.sh --symlink` points the install at this checkout instead, so
-edits are live. `install.sh --uninstall` removes it and keeps your logs;
-add `--purge` to delete those too. `jobbox --version` says which copy is
-on your PATH.
-
-One file, Python 3.11+, and `tsp` on the `PATH`. **No dependencies** —
-it runs under `python3 -S`, with site-packages switched off entirely.
+`./install.sh --symlink` points the install at this checkout so edits are
+live; `--uninstall` removes it and keeps your logs. **No dependencies** —
+it runs under `python3 -S`, with site-packages switched off.
 
 | variable | default | what it sets |
 |---|---|---|
 | `JOBBOX_DIR` | `~/.cache/jobbox` | where the logs go |
 | `JOBBOX_SOCKET` | `/tmp/jobbox-<uid>.sock` | which queue to talk to |
-| `JOBBOX_CLIENT` | the session's own id | pins the name your mailbox answers to |
+| `JOBBOX_CLIENT` | the project and session | pins one fixed mailbox |
 | `JOBBOX_SLOTS` | half the cores | how wide a NEW queue opens (`none` for no cap) |
 | `JOBBOX_MUTE_AFTER` | `600` | seconds before a running job is called mute |
 
-## Wiring it into a project
+## What it does not do
 
-jobbox knows no harness in its core — `signals` returns facts, and
-shaping them belongs to whoever integrates. But leaving it there cost the
-tool its usability: it was publishable and nobody could wire it without
-writing the bridge themselves.
+- **It does not outlive its daemon.** The queue lives with the
+  `task-spooler` daemon; if that dies, what was waiting is lost.
+  Acceptable for development work — worth knowing, not worth hiding.
+- **It does not replace a scheduler.** No dependencies between jobs, no
+  retries, no calendar.
+- **It does not decide what is long.** That judgement stays with the
+  caller — a hook that decided automatically was built, measured, and
+  dropped. → [CONTRIBUTING.md](CONTRIBUTING.md)
 
-So two verbs, named for what they know, carry all of it:
+## Documentation
 
-```console
-$ jobbox init
-  wrote  SessionStart -> jobbox claude-hook agent text
-  wrote  UserPromptSubmit -> jobbox claude-hook agent text
-  wrote  Stop -> jobbox claude-hook user stop
-```
+| | |
+|---|---|
+| [doc/claude-code.md](doc/claude-code.md) | wiring, hooks, what gets told to whom |
+| [doc/other-harnesses.md](doc/other-harnesses.md) | using jobbox from any CLI, or none |
+| [doc/sessions.md](doc/sessions.md) | several sessions on one queue, mailboxes, ids |
+| [doc/liveness.md](doc/liveness.md) | running vs making progress, and `health` |
+| [doc/timings.md](doc/timings.md) | measuring what your commands actually cost |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | scope, tests, and what was ruled out |
 
-`--client` is available and is the exception: it pins one name for every
-session in the project. Without it each session names itself, which is
-what you want unless the project *is* a single shared worker.
-
-`init` also installs a **skill** into `~/.claude/skills/jobbox/` — when
-to reach for a queue at all, which is not derivable from `--help`. It is
-never overwritten unless you pass `--force`, so an edited copy is yours
-to keep.
-
-`init` **merges** into `.claude/settings.json` — it never removes hooks
-belonging to other tools, and running it again after an upgrade is safe.
-**Open a new session to arm them.** They have been seen taking effect
-immediately in a live one, and then seen not to — so a new session is
-the only thing to rely on.
-
-For any other harness, build on `jobbox signals <audience> --json`, which
-returns one object per ending:
-
-```json
-{"id": "7", "code": "0", "log": "/tmp/ts-out.x", "client": "cc-aaaaaaaa",
- "intent": "build-the-front", "command": "npm run build",
- "finished_at": 1756900000.0}
-```
-
-## Two `tsp` traps, measured
-
-They are in the code, with their reason — but they are worth knowing to
-anyone building on `tsp`.
-
-**It segfaults** when it cannot create its socket. It prints
-`Probably, the name is too long`, then drops a core. A Unix socket is
-capped at ~108 characters by the kernel. jobbox therefore sets a short,
-explicit `TS_SOCKET`, and refuses an over-long one with a sentence rather
-than letting `tsp` die on it.
-
-**`TMPDIR` governs both** — the socket *and* the output files.
-Decoupling them is what lets you keep logs wherever you want without
-making the socket path longer.
-
-## The tests
+## Tests
 
 ```console
 $ python3 tests/run.py     no dependency
 $ pytest tests/            if you have it
 ```
 
-They cover the places that can be wrong **in silence**: reading `tsp`'s
-table (the number of columns changes with the state — a naive split would
-report `exit=0` on a script that failed), consuming signals (read twice =
-a repeated announcement; erased without being returned = a lost ending),
-merging into a settings file that belongs to other tools, and the real
-`TS_ONFINISH` chain against a live daemon on its own socket.
-
-The reference lines are **captured from a real `tsp`**, not reconstructed
-from memory.
-
-## What it does not do
-
-- **It does not outlive its daemon.** The queue lives with the `tsp`
-  daemon; if it dies, what was waiting is lost. For development commands
-  that is acceptable — it needs to be known, not hidden. `jobbox health`
-  says when the daemon it is talking to was started by the check itself,
-  which is the closest thing to noticing.
-- **It does not replace a scheduler.** No dependencies between jobs, no
-  retries, no calendar.
+67 tests, on the places that can be wrong in silence.
 
 ## License
 

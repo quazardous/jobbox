@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cache directory for weeks.
 - `jobbox --version` says which copy you have — an installed command that
   cannot answer that turns every report into a conversation.
+- The README is now a pitch and a quickstart; the explanations moved to
+  `doc/`, including how to use jobbox from a CLI other than Claude Code —
+  or from no harness at all, which was always possible and never
+  documented.
 - `jobbox list` has `project` and `session` columns instead of an opaque
   `cc-92183ccf`, so a shared queue says whose work each job is. A project
   is identified by its directory rather than its name, so two checkouts
