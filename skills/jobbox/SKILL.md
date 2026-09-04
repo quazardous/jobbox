@@ -77,8 +77,11 @@ says how many are ahead of it.
 each other's notifications. The human's copy is shared on purpose: one
 person wants every ending, whichever session started it.
 
-**The queue dies with its daemon.** What was waiting is lost. Acceptable
-for development work — worth knowing, not worth hiding.
+**The queue dies with its daemon, and the ids die with it.** What was
+waiting is lost, and numbering restarts at zero — so an id held across a
+restart can name a different job. `status` prints the intent, which is
+what tells you. Within one daemon's life they are stable, and that is
+the only window in which the queue exists.
 
 ## What it is not
 

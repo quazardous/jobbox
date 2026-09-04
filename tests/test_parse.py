@@ -325,3 +325,31 @@ def test_THE_DEFAULT_WIDTH_IS_HALF_THE_CORES_AND_OVERRIDABLE():
             os.environ.pop("JOBBOX_SLOTS", None)
         else:
             os.environ["JOBBOX_SLOTS"] = before
+
+
+def test_A_LISTING_HAS_HEADINGS_AND_DROPS_EMPTY_COLUMNS():
+    """A COLUMN NOBODY FILLED IS WORSE THAN NO COLUMN.
+
+    The muteness column is empty almost always. Printing its heading
+    anyway teaches the eye to skip the place where the warning will one
+    day appear — and that warning is the only reason the column exists.
+
+    The client column is the same shape: on a single-session machine it
+    would repeat one word forever.
+    """
+    import io
+    from contextlib import redirect_stdout
+
+    import jobbox
+
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        jobbox._table(("id", "state", "intent", "exit", "", "client"),
+                      [("0", "finished", "build", "0", "", ""),
+                       ("10", "running", "sweep", "", "", "")])
+    lines = buffer.getvalue().splitlines()
+
+    assert lines[0].split() == ["id", "state", "intent", "exit"], lines[0]
+    assert "client" not in lines[0], "nobody filled it"
+    # AND THE IDS LINE UP, because they are numbers.
+    assert lines[1].index("finished") == lines[2].index("running"), lines

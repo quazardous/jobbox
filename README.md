@@ -18,7 +18,9 @@ jobbox timings                      what actually takes time, measured
 $ jobbox run build-the-front -- npm run build
 0
 $ jobbox list
-     0  running   build-the-front
+  id  state     intent           exit  client
+   0  running   build-the-front
+   1  queued    nightly-backup         cc-d4a69872
 $ jobbox status 0
   intent     build-the-front
   state      finished
@@ -132,6 +134,25 @@ $ jobbox clients
   cc-aaaaaaaa                  agent=1
   cc-bbbbbbbb                  empty          ← you
 ```
+
+### Reading `list`
+
+The `client` column only appears when somebody else queued the job —
+yours is not repeated on every line. `cc-d4a69872` is a session naming
+itself: `cc-` plus the first eight characters of the harness's session
+id, and `jobbox clients` lists them in full.
+
+**The id is not stable, and that is the thing to know before scripting
+against it.** It belongs to the `task-spooler` daemon, not to the job:
+when the daemon dies the queue dies with it and numbering restarts at
+zero, so `jobbox status 0` can name a different job than it did
+yesterday.
+
+Nothing fixes that from here — the ids are `tsp`'s. What protects you is
+that `status` prints the **intent**, so a reused id shows a name you did
+not expect rather than handing you the wrong log quietly. Within one
+daemon's life the ids are stable, and that is the only window in which
+the queue exists at all.
 
 Splitting mailboxes opens a quieter failure: a session that ends leaves
 its endings behind, and an unread file looks exactly like an empty one.

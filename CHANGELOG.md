@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cache directory for weeks.
 - `jobbox --version` says which copy you have — an installed command that
   cannot answer that turns every report into a conversation.
+- `jobbox list` has headings, and columns sized to what is in them. The
+  `client` column — a session naming itself, `cc-` plus the first eight
+  characters of the harness's session id — appears only when somebody
+  else queued the job, and a column nobody filled is not printed at all.
 - **jobbox no longer depends on `click`.** One file, Python 3.11+, and
   `task-spooler` — nothing to install first, and it runs with
   site-packages switched off. The command-line behaviour is unchanged.

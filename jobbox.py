@@ -846,21 +846,58 @@ def _list(mine: bool) -> int:
             else f"  nothing queued by {me!r}")
         return OK
     threshold = _mute_after()
+
+    rows = []
     for j in jobs:
-        code = "" if j["code"] is None else f"  exit={j['code']}"
         mute = _silence(j)
-        # MUTENESS IS ONLY SAID WHEN IT MATTERS. Showing it on every line
-        # would make a column people stop reading — and that is precisely
-        # the one that must be seen the day it speaks.
-        alert = (f"  MUTE FOR {int(mute)}s"
-                 if mute is not None and mute > threshold else "")
-        # THE CLIENT ONLY SHOWS WHEN IT TELLS YOU SOMETHING. On a
-        # single-client machine every line would carry the same word,
-        # which is a column one stops reading.
-        whose = "" if j["client"] in (me, UNCLAIMED) else f"  ({j['client']})"
-        emit(f"  {j['id']:>4}  {j['state']:<9} {j['intent']:<24}"
-             f"{code}{alert}{whose}")
+        rows.append((
+            str(j["id"]),
+            j["state"],
+            j["intent"],
+            "" if j["code"] is None else str(j["code"]),
+            # MUTENESS IS ONLY SAID WHEN IT MATTERS. On every line it
+            # would be a column people stop reading — and it is precisely
+            # the one that must be seen the day it speaks.
+            f"MUTE {int(mute)}s"
+            if mute is not None and mute > threshold else "",
+            # THE CLIENT ONLY SHOWS WHEN IT TELLS YOU SOMETHING: someone
+            # else queued this. Yours is not repeated on every line.
+            "" if j["client"] in (me, UNCLAIMED) else j["client"],
+        ))
+    _table(("id", "state", "intent", "exit", "", "client"), rows)
     return OK
+
+
+def _table(headings: tuple[str, ...], rows: list[tuple[str, ...]]) -> None:
+    """Columns wide enough for what is in them, and a heading over each.
+
+    WRITTEN HERE RATHER THAN PULLED IN. jobbox has no dependencies, and a
+    table library would be a whole one for twelve lines of arithmetic —
+    the same trade that `click` lost.
+
+    A COLUMN NOBODY FILLED IS NOT PRINTED. The muteness column is empty
+    almost always, and an empty column with a heading is worse than none:
+    it teaches the eye to skip the place where the warning will appear.
+    """
+    # A COLUMN IS KEPT ONLY IF SOMETHING FILLS IT — having a heading is
+    # not enough. The first version tested the heading, which is the
+    # opposite of what the paragraph above promises, and printed an empty
+    # `client` column on a single-session machine.
+    kept = [i for i in range(len(headings)) if any(r[i] for r in rows)]
+    if not kept:
+        return
+    width = [max(len(headings[i]), *(len(r[i]) for r in rows)) for i in kept]
+    # THE ID IS RIGHT-ALIGNED because it is a number and they line up;
+    # everything else reads from the left.
+    def line(cells):
+        out = []
+        for n, i in enumerate(kept):
+            out.append(cells[i].rjust(width[n]) if headings[i] == "id"
+                       else cells[i].ljust(width[n]))
+        return "  " + "  ".join(out).rstrip()
+    emit(line(headings))
+    for row in rows:
+        emit(line(row))
 
 
 def _status(job_id: int) -> int:
