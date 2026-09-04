@@ -13,13 +13,14 @@ not running                    done, and the code says how
 ```
 
 ```console
-$ jobbox status j7f3a91c
+$ jobbox status j679cf47
+  …
   last wrote 41s ago
 
 $ jobbox health
-  daemon     alive, 4 job(s) known
+  daemon     alive, 1 job(s) known
   slots      1/6 busy, 0 waiting
-  STUCK?     j7f3a91c reindex — nothing written for 900s
+  STUCK?     j679cf47 reindex — nothing written for 900s
 ```
 
 `JOBBOX_MUTE_AFTER` moves the threshold, 600 seconds by default.

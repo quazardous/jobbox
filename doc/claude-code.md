@@ -5,11 +5,20 @@ $ jobbox init
   wrote  SessionStart -> jobbox claude-hook agent text
   wrote  UserPromptSubmit -> jobbox claude-hook agent text
   wrote  Stop -> jobbox claude-hook user stop
+  wrote  PreToolUse -> jobbox observe
+  wrote  PostToolUse -> jobbox observe
   wrote  env.JOBBOX_PROJECT = myproject-1de7
+  wrote  env.JOBBOX_PROJECT_PATH = /home/you/myproject
   wrote  skill -> ~/.claude/skills/jobbox/SKILL.md
+  in     /home/you/myproject/.claude/settings.json
+
+  A new session is what reliably arms these. They have also been seen
+  taking effect immediately — do not count on it.
 ```
 
-Open a new session to arm them.
+**Five entries, not three.** The last two time your shell commands —
+that is [timings.md](timings.md), and it is separable: removing those two
+lines leaves the notification working.
 
 ## What gets told to whom
 
@@ -21,6 +30,10 @@ SessionStart        the model, when a session opens
 UserPromptSubmit    the model, on its next turn
 Stop                you, when the session stops
 ```
+
+Hooks are read when a session starts. They have also been seen taking
+effect immediately in a live one, and then seen not to — so a new session
+is the only thing to rely on.
 
 **Two audiences because two readers.** That the model has read a result
 does not mean you have seen it — you do not read at the same moment or

@@ -1413,8 +1413,11 @@ def _health() -> int:
     if not stuck:
         emit("  no mute job")
     for j, mute in stuck:
-        emit(f"  STUCK?     {j['id']} {j['intent']} — nothing written "
-             f"for {int(mute)}s")
+        # NAMED BY THE ID SOMEBODY WOULD TYPE. `health` said "STUCK? 3"
+        # while every other verb spoke in minted ids — and 3 is the
+        # number that stops meaning this job the moment the daemon dies.
+        emit(f"  STUCK?     {j['uid'] or j['id']} {j['intent']} — nothing "
+             f"written for {int(mute)}s")
     # AFTER THE MUTE JOBS AND OUTSIDE THEIR BRANCH. It sat past an early
     # return, so it only spoke when a job was ALREADY stuck — that is,
     # never in the case it exists for. The unit test passed because it
@@ -1621,6 +1624,14 @@ def _timings(top: int, reset: bool, detail: bool, session: str | None) -> int:
     if detail:
         _detail(waited, total)
     return OK
+
+
+#: THE BANDS A THRESHOLD WOULD BE DRAWN BETWEEN.
+_BANDS = ((0, 2), (2, 5), (5, 15), (15, 60), (60, None))
+
+#: THE CUTOFFS WORTH PRICING. What matters is not the number but how much
+#: it buys for how many interruptions.
+_CUTOFFS = (5, 10, 20, 30, 60)
 
 
 def _detail(waited: list[dict[str, Any]], total: float) -> None:

@@ -334,3 +334,40 @@ def test_A_STAMP_WHOSE_END_NEVER_CAME_IS_EVENTUALLY_FORGOTTEN():
         f"only the stamp with no end coming — got {left}")
 
 
+
+
+def test_THE_DETAILED_READING_RUNS_AT_ALL():
+    """IT DID NOT, FOR SIX COMMITS.
+
+    Removing the guard took two constants with it — they sat inside the
+    block that was cut — and `timings --detail` has raised `NameError` on
+    every call since. Nothing noticed: the suite exercised `_table` and
+    the bands' arithmetic, never the verb that puts them together.
+
+    Found by re-reading the documentation and running an example from it.
+    That is a slow way to find a crash, and this test is the fast one.
+    """
+    previous = jobbox.OBSERVED
+    with tempfile.TemporaryDirectory() as tmp:
+        jobbox.OBSERVED = Path(tmp) / "observed.jsonl"
+        rows = [{"at": 1.0, "seconds": s, "shape": f"cmd-{i % 3}",
+                 "background": False, "session": "aaaa1111"}
+                for i, s in enumerate((0.5, 3.0, 7.0, 20.0, 90.0, 400.0))]
+        jobbox.OBSERVED.write_text(
+            "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        buffer = io.StringIO()
+        try:
+            with redirect_stdout(buffer):
+                code = jobbox.main(["timings", "--detail"])
+        finally:
+            jobbox.OBSERVED = previous
+
+    out = buffer.getvalue()
+    assert code == jobbox.OK, out
+    assert "how the waiting is spread" in out, out
+    assert "what a guard would buy" in out, out
+    # EVERY BAND AND EVERY CUTOFF, since a missing constant is exactly
+    # what broke it.
+    assert "> 60s" in out and "at  60s" in out, out
+    # AND THE OUTLIER IS NAMED: one call of 400s out of 520 total.
+    assert "CAREFUL" in out, out

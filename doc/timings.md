@@ -5,21 +5,25 @@
 
 ```console
 $ jobbox timings --detail
-  125 call(s) measured, 18 already detached
-  41.9 min spent waiting in the foreground
+  372 call(s) measured, 1 already detached
+  58.0 min spent waiting in the foreground
   across 2 session(s): 92183ccf d4a69872
-  5 call(s) started and never closed — these totals are lower bounds
+  10 call(s) started and never closed — these totals are lower bounds
 
      total  calls   median  shape
-      680s     17    39.2s  make test
-      300s      1   300.0s  docker compose build
+     1070s     84     4.2s  python3 - <<'PY'
+      458s      1   457.9s  "config or conf
 
   how the waiting is spread
-       2-5s   17 calls      53s   3.7%
-      > 60s    5 calls    1014s  71.1%
+       2-5s  180 calls     554s  15.9%
+      > 60s   12 calls    1692s  48.6%
 
   what a guard would buy, and what it would interrupt
-  at  60s     5 calls (11.1%)  recovers  16.9 min of 23.8
+  at  60s    12 calls ( 3.2%)  recovers  28.2 min of 58.0
+
+  per session — a shared shape justifies one threshold, a split one does not
+    d4a69872  256 calls    2959s  median   2.7s
+    92183ccf  116 calls     499s  median   3.6s
 ```
 
 **Ranked by total time waited**, not by the slowest single call — the
