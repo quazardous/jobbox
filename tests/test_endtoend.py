@@ -55,6 +55,32 @@ def _run(env: dict, *args: str) -> subprocess.CompletedProcess:
                           env=env, capture_output=True, text=True)
 
 
+def _stop(env: dict, socket: Path) -> None:
+    """Take the daemon down, and LEAVE NOTHING.
+
+    The first version asked `tsp -K` and unlinked the socket on the next
+    line. A daemon whose socket is removed before it has exited survives,
+    unreachable, forever — measured: two of them were still running hours
+    later, with their sockets and `.error` files beside them.
+
+    So the socket is the daemon's to remove, and we wait for it. Removing
+    it ourselves is the last resort, and it is announced rather than done
+    quietly: a test that leaks in silence is how this got here.
+    """
+    subprocess.run(["tsp", "-K"], env={**env, "TS_SOCKET": str(socket)},
+                   capture_output=True, check=False)
+    for _ in range(40):
+        if not socket.exists():
+            break
+        time.sleep(0.05)
+    else:
+        print(f"  (daemon on {socket} did not stop — removing its socket)")
+        socket.unlink(missing_ok=True)
+    # `tsp` LEAVES THIS BESIDE THE SOCKET when a client goes away
+    # mid-message. Harmless, and not ours to leave on somebody's machine.
+    Path(f"{socket}.error").unlink(missing_ok=True)
+
+
 def test_A_REAL_JOB_ENDING_REACHES_BOTH_AUDIENCES():
     """THE WHOLE CHAIN, WITHOUT A SINGLE STUB.
 
@@ -123,9 +149,7 @@ def test_A_REAL_JOB_ENDING_REACHES_BOTH_AUDIENCES():
             again = _run(env, "signals", "agent", "--json")
             assert again.stdout.strip() == "", again.stdout
         finally:
-            subprocess.run(["tsp", "-K"], env={**env, "TS_SOCKET": str(socket)},
-                           capture_output=True, check=False)
-            socket.unlink(missing_ok=True)
+            _stop(env, socket)
 
 
 def test_HEALTH_SAYS_WHEN_ASKING_IS_WHAT_STARTED_THE_DAEMON():
@@ -156,6 +180,22 @@ def test_HEALTH_SAYS_WHEN_ASKING_IS_WHAT_STARTED_THE_DAEMON():
             assert "alive" in second.stdout, second.stdout
             assert "STARTED BY THIS CHECK" not in second.stdout, second.stdout
         finally:
-            subprocess.run(["tsp", "-K"], env={**env, "TS_SOCKET": str(socket)},
-                           capture_output=True, check=False)
-            socket.unlink(missing_ok=True)
+            _stop(env, socket)
+
+
+def test_THE_END_TO_END_TESTS_LEAVE_NOTHING_BEHIND():
+    """A TEST THAT LEAKS IN SILENCE IS HOW THE LAST ONE GOT THERE.
+
+    These start real daemons. Two of them were found still running hours
+    after a run, each with a socket and an `.error` file beside it,
+    because the teardown removed the socket before the daemon had exited.
+
+    Nothing catches that except looking, so this looks.
+    """
+    if shutil.which("tsp") is None:
+        print("  (no tsp on the PATH — end-to-end skipped)")
+        return
+
+    leftovers = sorted(str(p) for p in Path("/tmp").glob("jobbox-test-*")
+                       ) + sorted(str(p) for p in Path("/tmp").glob("jobbox-health-*"))
+    assert leftovers == [], f"the end-to-end tests left these behind: {leftovers}"
