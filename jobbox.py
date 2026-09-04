@@ -327,6 +327,7 @@ if __name__ == "__main__" and sys.argv[1:2] == ["observe"]:
 # paid by the person who typed a verb — never by a hook.
 import argparse
 import re
+import secrets
 import shutil
 import subprocess
 from typing import Any
@@ -712,7 +713,29 @@ def slots(output: str) -> tuple[int, int] | None:
     return (int(m["busy"]), int(m["slots"])) if m else None
 
 
-#: What `-L` set, as `-l` renders it: `[client:intent]the command`.
+#: A NAME THIS TOOL MINTS, because `tsp`'s numbers are not stable.
+#:
+#: The daemon numbers jobs from zero and starts over when it dies, so an
+#: id kept from yesterday can name a different job today — and would hand
+#: back the wrong log without a word. That is the silent-wrong-answer
+#: shape this whole file is written against.
+#:
+#: A minted id does NOT make the queue survive its daemon; nothing can.
+#: It makes a stale reference FAIL, which is the only useful difference:
+#: `status j7f3a91c` on a queue that has been recreated says it does not
+#: know that job, instead of confidently showing another one.
+#:
+#: It begins with a letter so it can never be mistaken for one of `tsp`'s
+#: numbers — both are accepted wherever a job is named.
+_UID = re.compile(r"^j[0-9a-f]{7}$")
+
+
+def mint() -> str:
+    """A short name no other job will carry."""
+    return "j" + secrets.token_hex(4)[:7]
+
+
+#: What `-L` set, as `-l` renders it: `[client:uid:intent]the command`.
 #:
 #: THE LABEL IS THE ONLY THING THAT REACHES `onfinish`. `tsp` hands it
 #: `jobid errorlevel outputfile command` and nothing else — no
@@ -724,6 +747,7 @@ def slots(output: str) -> tuple[int, int] | None:
 #: The prefix is OPTIONAL, because `tsp -L` can be called by hand: a bare
 #: `[build]` is an intent with no client, and lands in `UNCLAIMED`.
 _TAG = re.compile(r"^\[(?:(?P<client>[A-Za-z0-9][A-Za-z0-9._-]*):)?"
+                  r"(?:(?P<uid>j[0-9a-f]{7}):)?"
                   r"(?P<intent>[^\]]*)\](?P<command>.*)$")
 
 
@@ -760,6 +784,10 @@ def parse(output: str) -> list[dict[str, Any]]:
             "code": code,
             "duration": duration,
             "client": (tagged["client"] or UNCLAIMED) if tagged else UNCLAIMED,
+            # EMPTY FOR A JOB THIS TOOL DID NOT QUEUE — `tsp -L` by hand,
+            # or one from before ids were minted. Such a job can still be
+            # named by its number, and only by its number.
+            "uid": (tagged["uid"] or "") if tagged else "",
             "intent": tagged["intent"] if tagged else "",
             "command": tagged["command"] if tagged else rest,
         })
@@ -771,8 +799,21 @@ def _jobs() -> list[dict[str, Any]]:
     return parse(res.stdout)
 
 
-def _one(job_id: int) -> dict[str, Any] | None:
-    return next((j for j in _jobs() if j["id"] == job_id), None)
+def _one(ref: str | int) -> dict[str, Any] | None:
+    """Find a job by its minted id, or by `tsp`'s number.
+
+    BOTH ARE ACCEPTED, and they cannot be confused: a minted id starts
+    with a letter. The number is what `tsp -l` shows to anyone looking at
+    the queue directly, so refusing it would make this tool disagree with
+    the thing underneath it.
+    """
+    ref = str(ref).strip()
+    jobs = _jobs()
+    if _UID.match(ref):
+        return next((j for j in jobs if j["uid"] == ref), None)
+    if ref.isdigit():
+        return next((j for j in jobs if j["id"] == int(ref)), None)
+    return None
 
 
 def _silence(job: dict[str, Any]) -> float | None:
@@ -822,21 +863,32 @@ def _run(intent: str, command: tuple[str, ...]) -> int:
     three words at the moment you have them in mind.
     """
     _require_tsp()
-    res = _tsp("-L", f"{_client()}:{intent}", *command)
+    uid = mint()
+    res = _tsp("-L", f"{_client()}:{uid}:{intent}", *command)
     if res.returncode != 0:
         say(f"  {res.stderr.strip() or 'tsp refused the command'}")
         return FAILURE
-    emit(res.stdout.strip())
+    # THE MINTED ID IS WHAT WE PRINT, because it is the one that stays
+    # meaningful. `status` takes `tsp`'s number too, for anyone reading
+    # the queue directly.
+    emit(uid)
     return OK
 
 
 def _list(mine: bool) -> int:
     """THE QUEUE IS SHOWN WHOLE BY DEFAULT, and that is deliberate.
 
-    It is one shared queue: hiding the jobs of other clients would make
-    a full queue look empty, and someone would wonder why their own job
-    is not starting. `--mine` narrows it once you know what you are
-    looking at.
+    It is ONE queue for the whole machine. Hiding other sessions' jobs
+    would make a full queue look empty, and someone would wonder why
+    their own job never starts while six of somebody else's run.
+
+    `--mine` narrows to this session. `--all` is the default written out
+    — it adds nothing, and it exists because a default worth relying on
+    should be typeable.
+
+    THERE IS NO NOTION OF A PROJECT HERE, and that is not an oversight:
+    the queue is a machine-level resource and a client is a SESSION, not
+    a directory. Two sessions open on the same project are two clients.
     """
     _require_tsp()
     me = _client()
@@ -851,7 +903,10 @@ def _list(mine: bool) -> int:
     for j in jobs:
         mute = _silence(j)
         rows.append((
-            str(j["id"]),
+            # THE MINTED ID IS THE ONE TO TYPE. A job queued outside
+            # jobbox has none, and falls back to the number — which is
+            # all it ever had.
+            j["uid"] or str(j["id"]),
             j["state"],
             j["intent"],
             "" if j["code"] is None else str(j["code"]),
@@ -900,12 +955,14 @@ def _table(headings: tuple[str, ...], rows: list[tuple[str, ...]]) -> None:
         emit(line(row))
 
 
-def _status(job_id: int) -> int:
+def _status(ref: str) -> int:
     _require_tsp()
-    j = _one(job_id)
+    j = _one(ref)
     if j is None:
-        say(f"  job {job_id} unknown to the queue")
+        say(f"  job {ref} unknown to the queue")
         return FAILURE
+    emit(f"  id         {j['uid'] or '(queued outside jobbox)'}")
+    emit(f"  queue id   {j['id']}   — tsp's number, reused after a restart")
     emit(f"  intent     {j['intent']}")
     emit(f"  state      {j['state']}")
     emit(f"  command    {j['command']}")
@@ -923,7 +980,7 @@ def _status(job_id: int) -> int:
     return OK if not j["code"] else FAILURE
 
 
-def _tail(job_id: int, follow: bool, lines: int) -> int:
+def _tail(ref: str, follow: bool, lines: int) -> int:
     """WE DELEGATE TO `tail`, AND THAT IS THE POINT.
 
     "just tool the tail of the log". `tsp`'s output is an ordinary FILE —
@@ -932,28 +989,33 @@ def _tail(job_id: int, follow: bool, lines: int) -> int:
     tool that knows how to read it.
     """
     _require_tsp()
-    j = _one(job_id)
+    j = _one(ref)
     if j is None:
-        say(f"  job {job_id} unknown to the queue")
+        say(f"  job {ref} unknown to the queue")
         return FAILURE
     if not j["output"]:
-        say(f"  job {job_id} has no log yet — it is waiting its turn "
+        say(f"  job {ref} has no log yet — it is waiting its turn "
             f"in the queue")
         return OK
     args = ["tail", "-n", str(lines), *(["-f"] if follow else []), j["output"]]
     return subprocess.run(args, check=False).returncode
 
 
-def _kill(job_id: int) -> int:
+def _kill(ref: str) -> int:
     _require_tsp()
-    res = _tsp("-k", str(job_id))
+    # `tsp` ONLY KNOWS ITS OWN NUMBER, so a minted id is resolved first.
+    j = _one(ref)
+    if j is None:
+        say(f"  job {ref} unknown to the queue")
+        return FAILURE
+    res = _tsp("-k", str(j["id"]))
     if res.returncode != 0:
         say(f"  {res.stderr.strip() or 'tsp refused'}")
         return FAILURE
     # WE SAY IT, BECAUSE THE CODE WILL NOT. A killed job returns an
     # interrupt code that a later reader would take for a failure of the
     # script. The trace lives in the log, next to its output.
-    say(f"  job {job_id} stopped")
+    say(f"  job {ref} stopped")
     return OK
 
 
@@ -974,15 +1036,17 @@ def _onfinish(job_id: str, code: str, logfile: str,
     carries it at that instant.
     """
     try:
-        intent, client = "", UNCLAIMED
-        job = _one(int(job_id))
+        intent, client, uid = "", UNCLAIMED, ""
+        job = _one(job_id)
         if job:
             intent = job.get("intent") or ""
+            uid = job.get("uid") or ""
             # WHOSE ENDING THIS IS, read back from the label — the only
             # place it could have survived the trip through `tsp`.
             client = job.get("client") or UNCLAIMED
 
-        signal = {"id": job_id, "code": code, "log": logfile,
+        signal = {"id": uid or job_id, "queue_id": job_id,
+                  "code": code, "log": logfile,
                   "client": client, "intent": intent,
                   "command": " ".join(command),
                   "finished_at": time.time()}
@@ -1672,23 +1736,27 @@ def _parser() -> argparse.ArgumentParser:
 
     listing = verb("list", "What waits, what runs, what has finished.",
                    lambda ns: _list(ns.mine))
-    listing.add_argument("--mine", action="store_true",
-                         help="only this client's jobs (see JOBBOX_CLIENT)")
+    scope = listing.add_mutually_exclusive_group()
+    scope.add_argument("--mine", action="store_true",
+                       help="only this session's jobs (see JOBBOX_CLIENT)")
+    scope.add_argument("--all", action="store_true",
+                       help="every job on the machine — the default, "
+                            "spelled out")
 
     status = verb("status", "One job: its state, its code, its duration.",
-                  lambda ns: _status(ns.job_id))
-    status.add_argument("job_id", type=int)
+                  lambda ns: _status(ns.job))
+    status.add_argument("job", metavar="ID")
 
     tail = verb("tail", "A job's log. `-f` to follow it.",
-                lambda ns: _tail(ns.job_id, ns.follow, ns.lines))
-    tail.add_argument("job_id", type=int)
+                lambda ns: _tail(ns.job, ns.follow, ns.lines))
+    tail.add_argument("job", metavar="ID")
     tail.add_argument("-f", "--follow", action="store_true",
                       help="follow the writing")
     tail.add_argument("-n", "--lines", type=int, default=40,
                       help="how many lines")
 
-    kill = verb("kill", "Stop a running job.", lambda ns: _kill(ns.job_id))
-    kill.add_argument("job_id", type=int)
+    kill = verb("kill", "Stop a running job.", lambda ns: _kill(ns.job))
+    kill.add_argument("job", metavar="ID")
 
     onfinish = verb("onfinish", "Called by tsp when a job ends.",
                     lambda ns: _onfinish(ns.job_id, ns.code, ns.logfile,

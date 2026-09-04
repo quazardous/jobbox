@@ -32,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cache directory for weeks.
 - `jobbox --version` says which copy you have — an installed command that
   cannot answer that turns every report into a conversation.
+- **Jobs now carry an id jobbox mints, and it is never reused.**
+  `task-spooler` numbers from zero and starts over when its daemon dies,
+  so a number kept from yesterday could name a different job today and
+  hand back the wrong log without a word. A stale minted id is refused
+  instead. `tsp`'s number is still accepted wherever a job is named.
+- `jobbox list --all` spells out the default — every job on the machine
+  — as the counterpart to `--mine`.
 - `jobbox list` has headings, and columns sized to what is in them. The
   `client` column — a session naming itself, `cc-` plus the first eight
   characters of the harness's session id — appears only when somebody

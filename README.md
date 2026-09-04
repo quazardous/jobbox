@@ -4,7 +4,7 @@ Start a long command, and find it again later.
 
 ```
 jobbox run <intent> -- <command>    queue it, print the id
-jobbox list                         waiting · running · finished
+jobbox list [--mine|--all]          waiting · running · finished
 jobbox status <id>                  state, exit code, duration, log
 jobbox tail <id> [-f]               the log
 jobbox kill <id>                    stop it
@@ -16,12 +16,12 @@ jobbox timings                      what actually takes time, measured
 
 ```console
 $ jobbox run build-the-front -- npm run build
-0
+j7f3a91c
 $ jobbox list
-  id  state     intent           exit  client
-   0  running   build-the-front
-   1  queued    nightly-backup         cc-d4a69872
-$ jobbox status 0
+        id  state     intent           exit  client
+  j7f3a91c  running   build-the-front
+  j2b8e04d  queued    nightly-backup         cc-d4a69872
+$ jobbox status j7f3a91c
   intent     build-the-front
   state      finished
   exit       0
@@ -142,17 +142,28 @@ yours is not repeated on every line. `cc-d4a69872` is a session naming
 itself: `cc-` plus the first eight characters of the harness's session
 id, and `jobbox clients` lists them in full.
 
-**The id is not stable, and that is the thing to know before scripting
-against it.** It belongs to the `task-spooler` daemon, not to the job:
-when the daemon dies the queue dies with it and numbering restarts at
-zero, so `jobbox status 0` can name a different job than it did
-yesterday.
+**The id jobbox prints is its own, and it is never reused.**
+`task-spooler` numbers jobs from zero and starts over when its daemon
+dies, so a number kept from yesterday can name a different job today —
+and would hand back the wrong log without a word.
 
-Nothing fixes that from here — the ids are `tsp`'s. What protects you is
-that `status` prints the **intent**, so a reused id shows a name you did
-not expect rather than handing you the wrong log quietly. Within one
-daemon's life the ids are stable, and that is the only window in which
-the queue exists at all.
+A minted id does not make the queue outlive its daemon; nothing can. It
+makes a stale reference **fail**, which is the only useful difference:
+
+```console
+$ jobbox status j7f3a91c
+  job j7f3a91c unknown to the queue        # and exit 1
+```
+
+`tsp`'s number is still accepted wherever a job is named — refusing it
+would make jobbox disagree with the queue anyone can read directly — and
+`status` prints both. A job queued by hand with `tsp -L` has only a
+number, and is listed under it.
+
+`list` shows every job on the machine; `--mine` narrows to this session
+and `--all` is that default spelled out. There is no notion of a
+*project* here: the queue is a machine-level resource and a client is a
+session, so two sessions on one project are two clients.
 
 Splitting mailboxes opens a quieter failure: a session that ends leaves
 its endings behind, and an unread file looks exactly like an empty one.

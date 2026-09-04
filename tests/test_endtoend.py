@@ -38,6 +38,12 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 JOBBOX = HERE.parent / "jobbox.py"
+sys.path.insert(0, str(HERE.parent))
+
+
+def jobbox_uid(text: str) -> bool:
+    import jobbox
+    return bool(jobbox._UID.match(text))
 
 #: HOW LONG WE WAIT FOR A `sleep 0`. Generous, but BOUNDED: a test that
 #: can hang is a test that gets commented out.
@@ -81,7 +87,9 @@ def test_A_REAL_JOB_ENDING_REACHES_BOTH_AUDIENCES():
                           "bash", "-c", "echo alive; exit 4")
             assert queued.returncode == 0, queued.stderr
             job_id = queued.stdout.strip()
-            assert job_id.isdigit(), f"`run` must print the id — got {job_id!r}"
+            # `run` PRINTS THE MINTED ID, not tsp's number: it is the one
+            # that stays meaningful, and the one every other verb takes.
+            assert jobbox_uid(job_id), f"`run` must print a minted id — {job_id!r}"
 
             deadline = time.time() + PATIENCE
             signals: list[dict] = []
@@ -96,7 +104,8 @@ def test_A_REAL_JOB_ENDING_REACHES_BOTH_AUDIENCES():
                 f"or onfinish wrote nowhere")
             (s,) = signals
 
-            assert s["id"] == job_id, s
+            assert s["id"] == job_id, "the signal carries the minted id"
+            assert str(s["queue_id"]).isdigit(), s
             assert s["code"] == "4", f"the exit code must survive — got {s!r}"
             assert s["client"] == "e2e-client", (
                 f"the client must survive the trip through tsp — got {s!r}")

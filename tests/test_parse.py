@@ -353,3 +353,82 @@ def test_A_LISTING_HAS_HEADINGS_AND_DROPS_EMPTY_COLUMNS():
     assert "client" not in lines[0], "nobody filled it"
     # AND THE IDS LINE UP, because they are numbers.
     assert lines[1].index("finished") == lines[2].index("running"), lines
+
+
+def test_A_MINTED_ID_IS_NEVER_MISTAKEN_FOR_TSPS_NUMBER():
+    """THAT IS WHY IT STARTS WITH A LETTER.
+
+    Both name a job, and both are accepted — refusing `tsp`'s number
+    would make this tool disagree with the thing underneath it, which
+    anyone reading `tsp -l` would notice before believing us.
+    """
+    from jobbox import _UID, mint
+
+    minted = {mint() for _ in range(200)}
+    assert len(minted) == 200, "two jobs sharing a name is the whole defect"
+    for uid in minted:
+        assert _UID.match(uid), uid
+        assert not uid.isdigit(), "must never be readable as a queue number"
+
+
+def test_THE_LABEL_CARRIES_THE_MINTED_ID_THROUGH_THE_QUEUE():
+    """IT TRAVELS WHERE NOTHING ELSE CAN.
+
+    `tsp` hands `TS_ONFINISH` no environment and no label, so anything
+    the ending needs has to survive inside the label itself — which is
+    already how the intent and the client get there.
+    """
+    from jobbox import parse
+
+    line = ("0    finished   /tmp/ts-out.aaa   0        1.00/0.00/0.00 "
+            "[cc-abc12345:j1a2b3c4:build-front]npm run build\n")
+    (job,) = parse(line)
+
+    assert job["uid"] == "j1a2b3c4"
+    assert job["client"] == "cc-abc12345"
+    assert job["intent"] == "build-front"
+    assert job["command"] == "npm run build"
+
+
+def test_A_JOB_QUEUED_OUTSIDE_JOBBOX_HAS_NO_MINTED_ID():
+    """`tsp -L build` BY HAND IS LEGITIMATE, and it has only a number.
+
+    Pretending otherwise would either invent an id that names nothing or
+    drop the job from the listing — and a job missing from `list` is the
+    worst of the two.
+    """
+    from jobbox import parse
+
+    (job,) = parse("1    running    /tmp/o                           "
+                   "[build]make\n")
+    assert job["uid"] == ""
+    assert job["intent"] == "build"
+
+    (bare,) = parse("2    running    /tmp/o                           make\n")
+    assert bare["uid"] == "" and bare["intent"] == ""
+
+
+def test_A_STALE_REFERENCE_IS_REFUSED_RATHER_THAN_ANSWERED():
+    """THE ENTIRE POINT OF MINTING ONE.
+
+    `tsp` numbers from zero and starts over when its daemon dies, so a
+    number kept from before names a different job afterwards — and the
+    old code would have shown it, confidently. A minted id is never
+    reused, so the same mistake now produces a refusal.
+    """
+    import jobbox
+
+    table = ("0    running    /tmp/o                           "
+             "[cc-a:jaaaaaaa:live]make\n")
+    previous = jobbox._jobs
+    try:
+        jobbox._jobs = lambda: jobbox.parse(table)
+        assert jobbox._one("jaaaaaaa")["intent"] == "live"
+        assert jobbox._one("0")["intent"] == "live", "tsp's number still works"
+        assert jobbox._one("jbbbbbbb") is None, (
+            "an id from a queue that no longer exists must not resolve "
+            "to whatever now sits at that position")
+        assert jobbox._one("7") is None
+        assert jobbox._one("nonsense") is None
+    finally:
+        jobbox._jobs = previous
