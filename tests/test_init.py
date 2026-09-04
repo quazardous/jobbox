@@ -359,3 +359,33 @@ def test_A_DECLARATION_THAT_CHANGED_REPLACES_THE_OLD_ONE():
     everything = [h["command"] for entry in after["hooks"]["PreToolUse"]
                   for h in entry["hooks"]]
     assert "their-guard" in everything, everything
+
+
+def test_CONFIG_SAYS_WHEN_THE_SETTINGS_FILE_AND_THE_SESSION_DISAGREE():
+    """THE GAP BETWEEN `init` AND THE NEXT SESSION IS WHERE PEOPLE ASK.
+
+    `env` is applied when a session starts, so from the moment `init`
+    writes a project name until a new session opens, the file asks for
+    one thing and the process is doing another. Showing only the live
+    value answered "why is my client not what I just set" with silence.
+    """
+    here = os.getcwd()
+    with tempfile.TemporaryDirectory() as tmp, _scratch_state(tmp):
+        try:
+            os.chdir(tmp)
+            with redirect_stdout(io.StringIO()):
+                jobbox.main(["init", "--project", "elsewhere"])
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                code = jobbox.main(["config"])
+        finally:
+            os.chdir(here)
+
+    out = buffer.getvalue()
+    assert code == jobbox.OK, out
+    assert "elsewhere" in out, "the pending project must be named"
+    assert "next session" in out, out
+    # AND THE THINGS THAT DECIDE BEHAVIOUR ARE ALL THERE.
+    for expected in ("version", "client", "logs", "socket", "mute after",
+                     "slots", "hooks here", "skill"):
+        assert expected in out, f"{expected!r} missing from config"

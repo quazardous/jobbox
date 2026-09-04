@@ -424,7 +424,10 @@ def test_A_CLIENT_NAME_READS_AS_TWO_COLUMNS():
 
     assert split_client("BookShepherd-92183ccf") == ("BookShepherd", "92183ccf")
     assert split_client("mon-projet-92183ccf") == ("mon-projet", "92183ccf")
-    assert split_client("cc-92183ccf") == ("cc", "92183ccf")
+    # `cc` IS NOT A PROJECT — it is the prefix worn before `init` names
+    # one, and putting it in a project column answers wrongly rather
+    # than not at all.
+    assert split_client("cc-92183ccf") == ("", "92183ccf")
     # NO SESSION HALF — kept whole rather than cut at the last dash.
     assert split_client("ci-runner") == ("ci-runner", "")
     assert split_client("default") == ("default", "")

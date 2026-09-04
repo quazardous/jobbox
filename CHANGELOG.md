@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `doc/`, including how to use jobbox from a CLI other than Claude Code —
   or from no harness at all, which was always possible and never
   documented.
+- `jobbox config` shows every setting in effect and **where each came
+  from** — and says when this directory's settings file asks for
+  something a running session has not picked up yet, which is the gap
+  that makes people ask why `init` seemed to do nothing.
+- `jobbox slots` and `jobbox health` say `6 — 0 running, 2 waiting`
+  instead of `0/6 busy`, which read in two directions.
 - `jobbox list` has `project` and `session` columns instead of an opaque
   `cc-92183ccf`, so a shared queue says whose work each job is. A project
   is identified by its directory rather than its name, so two checkouts

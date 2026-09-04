@@ -510,7 +510,7 @@ def _client() -> str:
         if project and session:
             raw = f"{project}-{session}"
         elif session:
-            raw = f"cc-{session}"
+            raw = f"{NO_PROJECT}-{session}"
         else:
             raw = project or UNCLAIMED
     if not _CLIENT_OK.match(raw):
@@ -569,6 +569,10 @@ def project_paths() -> dict[str, str]:
         return {}
 
 
+#: THE PREFIX A SESSION WEARS BEFORE IT HAS A PROJECT. Not a name — a
+#: placeholder, and it is shown as one.
+NO_PROJECT = "cc"
+
 #: THE SESSION HALF OF A CLIENT NAME: exactly the eight hex characters
 #: `_client` takes from the harness's session id.
 _SESSION_HALF = re.compile(r"^[0-9a-f]{8}$")
@@ -582,10 +586,14 @@ def split_client(client: str) -> tuple[str, str]:
     tail is not a session id — a name pinned with `--client`, or a job
     queued outside jobbox — the whole thing is the project and the
     session is empty.
+
+    AND `cc` IS NOT A PROJECT. It is the prefix a session falls back to
+    before `jobbox init` has named one, and showing it in a project
+    column was answering the question wrongly rather than not at all.
     """
     project, _, tail = client.rpartition("-")
     if project and _SESSION_HALF.match(tail):
-        return project, tail
+        return ("" if project == NO_PROJECT else project), tail
     return client, ""
 
 
@@ -1287,8 +1295,8 @@ def _slots_cmd(count: int | None) -> int:
         if counted is None:
             say("  could not read the queue width")
             return FAILURE
-        busy, total = counted
-        emit(f"  {busy}/{total} busy")
+        running, total = counted
+        emit(f"  {total} slot(s) — {running} running")
         return OK
     if count < 1:
         raise Refusal("a queue needs at least one slot")
@@ -1298,6 +1306,94 @@ def _slots_cmd(count: int | None) -> int:
         return FAILURE
     say(f"  the queue now runs up to {count} job(s) at once — this is "
         f"machine-wide, every client shares it")
+    return OK
+
+
+def _declared_env() -> dict[str, str]:
+    """What this directory's settings file asks for, whether or not it is
+    in effect yet."""
+    try:
+        data = json.loads(
+            (Path.cwd() / ".claude" / "settings.json").read_text("utf-8"))
+        return {k: str(v) for k, v in (data.get("env") or {}).items()}
+    except (OSError, ValueError):
+        return {}
+
+
+def _config() -> int:
+    """EVERYTHING THAT DECIDES BEHAVIOUR, AND WHERE EACH PIECE CAME FROM.
+
+    The values were discoverable one verb at a time, and the SOURCE was
+    not discoverable at all — "why is my client called that" had no
+    answer short of reading this file. A setting you cannot trace is a
+    setting you cannot change with any confidence.
+    """
+    def source(name: str) -> str:
+        return name if os.environ.get(name) else "default"
+
+    me = _client()
+    project, session = split_client(me)
+    emit(f"  version      {VERSION}")
+    emit("")
+    # WHAT THE SETTINGS FILE ASKS FOR, which is not always what is in
+    # effect: `env` is applied when a session starts, so between `init`
+    # and the next session the two disagree — and that gap is exactly
+    # what makes someone ask why the client is not what they just set.
+    asked = _declared_env()
+    def pending(name: str, live: str) -> str:
+        want = asked.get(name)
+        return (f"  ← ./.claude/settings.json says {want}, "
+                f"from your next session" if want and want != live else "")
+
+    emit(f"  client       {me:<34} {source('JOBBOX_CLIENT')}"
+         f"{pending('JOBBOX_CLIENT', os.environ.get('JOBBOX_CLIENT', ''))}")
+    emit(f"  project      {project or '(none yet)':<34} "
+         f"{source('JOBBOX_PROJECT')}"
+         f"{pending('JOBBOX_PROJECT', os.environ.get('JOBBOX_PROJECT', ''))}")
+    where = (project_paths().get(project)
+             or os.environ.get("JOBBOX_PROJECT_PATH")
+             or asked.get("JOBBOX_PROJECT_PATH")
+             or "(unknown — `jobbox init` names it)")
+    emit(f"  directory    {where}")
+    emit(f"  session      {session or '(none — not inside a harness)'}")
+    emit("")
+    emit(f"  logs         {str(ROOT):<34} {source('JOBBOX_DIR')}")
+    emit(f"  socket       {str(SOCKET):<34} {source('JOBBOX_SOCKET')}")
+    emit(f"  mute after   {int(_mute_after())}s{'':<30} "
+         f"{source('JOBBOX_MUTE_AFTER')}")
+    emit("")
+
+    # THE QUEUE'S WIDTH IS THE DAEMON'S, not this process's idea of it:
+    # `JOBBOX_SLOTS` only applies to a queue jobbox itself opens, so
+    # printing the variable would answer a question nobody asked.
+    if shutil.which("tsp") is None:
+        emit("  slots        (task-spooler is not installed)")
+    else:
+        counted = slots(_tsp("-l").stdout)
+        wanted = wanted_slots()
+        live = f"{counted[1]}" if counted else "?"
+        emit(f"  slots        {live:<34} live queue")
+        if counted and counted[1] != wanted:
+            emit(f"               a new queue would open at {wanted} "
+                 f"({source('JOBBOX_SLOTS')})")
+
+    emit("")
+    wired = Path.cwd() / ".claude" / "settings.json"
+    declared = []
+    try:
+        data = json.loads(wired.read_text(encoding="utf-8"))
+        declared = [h.get("command", "") for entries in
+                    data.get("hooks", {}).values() for e in entries
+                    for h in e.get("hooks", []) if isinstance(h, dict)]
+    except (OSError, ValueError):
+        pass
+    ours = [c for c in declared if c.startswith("jobbox ")]
+    emit(f"  hooks here   {len(ours)} declared in ./.claude/settings.json"
+         if ours else
+         "  hooks here   none — `jobbox init` wires this directory")
+    emit(f"  skill        {SKILL_HOME}"
+         if SKILL_HOME.exists() else
+         "  skill        not installed — `jobbox init` installs it")
     return OK
 
 
@@ -1397,9 +1493,9 @@ def _health() -> int:
              f"(half the cores; JOBBOX_SLOTS overrides)")
     counted = slots(res.stdout)
     if counted:
-        busy, total = counted
+        running, total = counted
         waiting = sum(1 for j in jobs if j["state"] == "queued")
-        emit(f"  slots      {busy}/{total} busy, {waiting} waiting")
+        emit(f"  slots      {total} — {running} running, {waiting} waiting")
         # THE ANSWER TO "WHY IS MY JOB NOT STARTING", said before anyone
         # has to ask it. One slot is the default and it is a legitimate
         # choice; being silent about it while several clients share the
@@ -1920,6 +2016,8 @@ def _parser() -> argparse.ArgumentParser:
 
     verb("clients", "Who has a mailbox, and what waits in it.",
          lambda ns: _clients())
+    verb("config", "Every setting in effect, and where it came from.",
+         lambda ns: _config())
     verb("health", "Is the daemon there, and who is stuck.",
          lambda ns: _health())
 

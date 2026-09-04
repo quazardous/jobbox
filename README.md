@@ -50,6 +50,7 @@ jobbox tail <id> [-f]               the log
 jobbox kill <id>                    stop it
 jobbox health                       is the daemon there, who is stuck
 jobbox clients                      whose endings are still unread
+jobbox config                       every setting, and where it came from
 jobbox slots [n]                    how many jobs may run at once
 jobbox timings [--detail]           what actually takes time, measured
 ```
