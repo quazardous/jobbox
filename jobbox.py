@@ -915,9 +915,11 @@ def _list(mine: bool) -> int:
             # the one that must be seen the day it speaks.
             f"MUTE {int(mute)}s"
             if mute is not None and mute > threshold else "",
-            # THE CLIENT ONLY SHOWS WHEN IT TELLS YOU SOMETHING: someone
-            # else queued this. Yours is not repeated on every line.
-            "" if j["client"] in (me, UNCLAIMED) else j["client"],
+            # ALWAYS SHOWN, even when it is yours and repeats down the
+            # column. Hiding it made blank mean "mine" — a convention the
+            # reader has to hold, against a heading that explains itself.
+            # A job queued outside jobbox shows the mailbox it lands in.
+            j["client"],
         ))
     _table(("id", "state", "intent", "exit", "", "client"), rows)
     return OK

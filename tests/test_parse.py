@@ -432,3 +432,27 @@ def test_A_STALE_REFERENCE_IS_REFUSED_RATHER_THAN_ANSWERED():
         assert jobbox._one("nonsense") is None
     finally:
         jobbox._jobs = previous
+
+
+def test_THE_CLIENT_COLUMN_IS_ALWAYS_FILLED():
+    """BLANK MEANING "MINE" WAS A CONVENTION THE READER HAD TO HOLD.
+
+    The column used to be left empty for your own jobs, to avoid
+    repeating one word down a page. With a heading over it that saving
+    costs more than it gives: a value explains itself, an absence has to
+    be remembered.
+    """
+    import io
+    from contextlib import redirect_stdout
+
+    import jobbox
+
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        jobbox._table(("id", "state", "intent", "exit", "", "client"),
+                      [("j1", "running", "mine", "", "", "cc-92183ccf"),
+                       ("2", "finished", "by-hand", "0", "", "default")])
+    out = buffer.getvalue()
+
+    assert "client" in out.splitlines()[0]
+    assert "cc-92183ccf" in out and "default" in out, out

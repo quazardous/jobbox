@@ -19,7 +19,7 @@ $ jobbox run build-the-front -- npm run build
 j7f3a91c
 $ jobbox list
         id  state     intent           exit  client
-  j7f3a91c  running   build-the-front
+  j7f3a91c  running   build-the-front        cc-92183ccf
   j2b8e04d  queued    nightly-backup         cc-d4a69872
 $ jobbox status j7f3a91c
   intent     build-the-front
@@ -137,10 +137,12 @@ $ jobbox clients
 
 ### Reading `list`
 
-The `client` column only appears when somebody else queued the job —
-yours is not repeated on every line. `cc-d4a69872` is a session naming
-itself: `cc-` plus the first eight characters of the harness's session
-id, and `jobbox clients` lists them in full.
+The `client` column says which session queued each job, yours included.
+`cc-d4a69872` is a session naming itself: `cc-` plus the first eight
+characters of the harness's session id. A job queued by hand with
+`tsp -L` shows `default`, the mailbox its ending lands in.
+
+`jobbox clients` marks which one is yours.
 
 **The id jobbox prints is its own, and it is never reused.**
 `task-spooler` numbers jobs from zero and starts over when its daemon
