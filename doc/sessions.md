@@ -56,9 +56,12 @@ invisible because both names look right. Four hex characters of the
 path's digest separate them, and `jobbox list --project-path` shows the
 directory behind the tag.
 
-The name is captured once, by `init`, and never derived at call time: a
-client renamed because a command ran from a subdirectory would split its
-mailbox mid-session and strand what was in it.
+The name is captured once, by `init`, and written to the project's
+settings file. It is read from there when nothing in the environment
+names a project — so `jobbox run` typed by hand in the project knows
+which one it is, from any subdirectory. It is never derived from the
+directory itself: a client renamed because a command ran from somewhere
+else would split its mailbox and strand what was in it.
 
 `JOBBOX_CLIENT` pins one fixed name instead — right for a CI runner or a
 shared worker, wrong for a person with two windows open.

@@ -506,7 +506,15 @@ def _client() -> str:
     raw = os.environ.get("JOBBOX_CLIENT")
     if not raw:
         session = (os.environ.get(_SESSION_ENV) or "")[:8]
-        project = _sane(os.environ.get("JOBBOX_PROJECT") or "")
+        # THE ENVIRONMENT FIRST, THEN THE PROJECT'S OWN FILE.
+        #
+        # `init` writes the name into a settings file that only a harness
+        # applies, at session start. Read from a plain shell — where
+        # somebody types `jobbox run` by hand — that name was invisible,
+        # so `init` in a project meant nothing outside the harness and
+        # the job filed under no project at all.
+        project = _sane(os.environ.get("JOBBOX_PROJECT")
+                        or _declared_env().get("JOBBOX_PROJECT") or "")
         if project and session:
             raw = f"{project}-{session}"
         elif session:
@@ -1319,12 +1327,30 @@ def _slots_cmd(count: int | None) -> int:
     return OK
 
 
+def _settings_file() -> Path | None:
+    """The nearest `.claude/settings.json`, walking up from here.
+
+    WALKING UP, not reading the current directory, so a command run from
+    a subdirectory finds the same project as one run from the root. That
+    is what makes the answer stable — deriving a name from `cwd` itself
+    would rename the client every time somebody changed directory, and
+    a renamed client splits its mailbox.
+    """
+    here = Path.cwd().resolve()
+    for folder in (here, *here.parents):
+        candidate = folder / ".claude" / "settings.json"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _declared_env() -> dict[str, str]:
-    """What this directory's settings file asks for, whether or not it is
-    in effect yet."""
+    """What the project asks for, whether or not a harness applied it."""
+    found = _settings_file()
+    if found is None:
+        return {}
     try:
-        data = json.loads(
-            (Path.cwd() / ".claude" / "settings.json").read_text("utf-8"))
+        data = json.loads(found.read_text(encoding="utf-8"))
         return {k: str(v) for k, v in (data.get("env") or {}).items()}
     except (OSError, ValueError):
         return {}
@@ -1355,22 +1381,30 @@ def _config() -> int:
     # every row — beside a client whose VALUE is also the word `default`.
     # Two meanings of one word, side by side, in the verb whose whole job
     # is to remove confusion.
+    emit(f"  client       {me}")
     if session:
-        emit(f"  client       {me}")
         emit(f"  session      {session}")
+    elif me == UNCLAIMED:
+        emit( "               nothing names this shell — no session, no "
+              "project,")
+        emit( "               so jobs land in the mailbox everything "
+              "unnamed shares")
     else:
-        emit(f"  client       {me}")
-        emit( "               no session id here — this is a plain shell, "
-              "so jobs")
-        emit( "               land in the mailbox everyone unnamed shares")
+        # A PROJECT BUT NO SESSION: an ordinary terminal inside a project
+        # that `init` has named. Every such shell shares one mailbox,
+        # which is right — they are one person at one keyboard.
+        emit( "               a plain shell in this project — every one of "
+              "them")
+        emit( "               shares this mailbox, which is what you want "
+              "from a terminal")
 
     emit(f"  project      {project or '(none yet)'}")
     want = asked.get("JOBBOX_PROJECT")
-    if want and want != project:
-        # THE GAP BETWEEN `init` AND THE NEXT SESSION, which is where
-        # somebody asks why `init` seemed to do nothing.
-        emit(f"               ./.claude/settings.json sets {want},")
-        emit( "               from your next session")
+    if project and not os.environ.get("JOBBOX_PROJECT") and want == project:
+        emit(f"               from {short(str(_settings_file()))}")
+    elif want and want != project:
+        emit(f"               {short(str(_settings_file()))} sets {want},")
+        emit( "               which this shell has not picked up")
     where = (project_paths().get(project) or project_paths().get(want or "")
              or os.environ.get("JOBBOX_PROJECT_PATH")
              or asked.get("JOBBOX_PROJECT_PATH"))

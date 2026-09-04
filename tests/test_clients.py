@@ -500,3 +500,48 @@ def test_AN_UNREADABLE_MAPPING_COSTS_ONLY_ITSELF():
             jobbox.remember_project("a-1111", "/somewhere")   # must not raise
         finally:
             jobbox.PROJECTS = previous
+
+
+def test_A_PLAIN_SHELL_IN_A_PROJECT_STILL_KNOWS_WHICH_ONE():
+    """`init` MEANT NOTHING OUTSIDE THE HARNESS.
+
+    It writes the project name into a settings file that a harness
+    applies when a session starts. Somebody typing `jobbox run` in an
+    ordinary terminal never sees that — so a job queued by hand in a
+    project that had been through `init` was filed under no project at
+    all, and `config` said "(none yet)" to somebody who had just run it.
+
+    The name is now read from the project's own file when the
+    environment is silent.
+    """
+    import os
+
+    previous = {k: os.environ.get(k) for k in
+                ("JOBBOX_CLIENT", "JOBBOX_PROJECT", jobbox._SESSION_ENV)}
+    here = os.getcwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "aproject"
+        (root / ".claude").mkdir(parents=True)
+        (root / ".claude" / "settings.json").write_text(
+            json.dumps({"env": {"JOBBOX_PROJECT": "aproject-1234"}}),
+            encoding="utf-8")
+        deep = root / "src" / "deep"
+        deep.mkdir(parents=True)
+        try:
+            for k in previous:
+                os.environ.pop(k, None)
+            os.chdir(root)
+            assert jobbox._client() == "aproject-1234"
+            # AND THE SAME ANSWER FROM A SUBDIRECTORY — a client that
+            # changes when you `cd` splits its own mailbox.
+            os.chdir(deep)
+            assert jobbox._client() == "aproject-1234"
+            # A SESSION ID STILL SEPARATES TWO WINDOWS OF IT.
+            os.environ[jobbox._SESSION_ENV] = "92183ccf-0000-0000-0000-0"
+            assert jobbox._client() == "aproject-1234-92183ccf"
+        finally:
+            os.chdir(here)
+            for k, v in previous.items():
+                os.environ.pop(k, None)
+                if v is not None:
+                    os.environ[k] = v

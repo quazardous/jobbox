@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented.
 - `jobbox status` says which project and session queued the job, and
   `jobbox clients` splits the name into the same columns `list` uses.
+- `jobbox init` now means something outside the harness: the project
+  name it writes is read back from the project's own settings file, so a
+  job queued by hand from any subdirectory is filed under the right
+  project instead of none.
 - `jobbox config` prints values plainly and names the environment
   variables that override anything on a single line — it used to repeat
   the word `default` down a column, beside a client whose value is also

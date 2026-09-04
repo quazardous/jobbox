@@ -383,8 +383,12 @@ def test_CONFIG_SAYS_WHEN_THE_SETTINGS_FILE_AND_THE_SESSION_DISAGREE():
 
     out = buffer.getvalue()
     assert code == jobbox.OK, out
-    assert "elsewhere" in out, "the pending project must be named"
-    assert "next session" in out, out
+    # THE NAME IS FOUND WITHOUT A HARNESS. `init` writes it into a
+    # settings file that only a harness applies at session start — read
+    # from a plain shell, it used to be invisible, so `init` in a project
+    # meant nothing outside the harness.
+    assert "elsewhere" in out, "the declared project must be found"
+    assert "settings.json" in out, "and its source named"
     # AND THE THINGS THAT DECIDE BEHAVIOUR ARE ALL THERE.
     for expected in ("version", "client", "logs", "socket", "mute after",
                      "new queue", "hooks here", "skill"):
