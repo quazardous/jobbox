@@ -13,10 +13,14 @@ One file, the standard library, and
 ## Quickstart
 
 ```console
-$ sudo dnf install task-spooler     # or apt, brew, pkg…
-$ ./install.sh                      # into ~/.local, no root
-$ cd your-project && jobbox init    # wires Claude Code, merges safely
+$ sudo dnf install task-spooler          # or apt, brew, pkg…
+$ git clone https://github.com/quazardous/jobbox && cd jobbox
+$ ./install.sh                           # into ~/.local, no root
+
+$ cd ~/your-project && jobbox init       # wires Claude Code, merges safely
 ```
+
+If `~/.local/bin` is not on your `PATH`, `install.sh` says so.
 
 Open a new session, then:
 
@@ -41,7 +45,7 @@ returns facts, and any CLI — or none — can read them.
 ```
 jobbox run <intent> -- <command>    queue it, print the id
 jobbox list [--mine|--all]          waiting · running · finished
-jobbox status <id>                  state, exit code, duration, log
+jobbox status <id>                  state, exit code, times, log
 jobbox tail <id> [-f]               the log
 jobbox kill <id>                    stop it
 jobbox health                       is the daemon there, who is stuck
@@ -52,10 +56,13 @@ jobbox timings [--detail]           what actually takes time, measured
 
 ```console
 $ jobbox list
-        id  state     intent           exit  project          session
-  j7f3a91c  running   build-the-front        jobbox-1de7      92183ccf
-  j2b8e04d  queued    nightly-backup         imagematch-4a01  d4a69872
+        id  state    intent           project          session
+  jf4eacbb  running  build-the-front  jobbox-1de7      92183ccf
+  j3ca27c8  queued   nightly-backup   imagematch-4a01  d4a69872
 ```
+
+A column nobody filled is not printed — nothing has exited here, so
+there is no `exit` column to skim past.
 
 **The intent is mandatory**, and that is the point: a queue of
 `bash -c …` lines cannot be read back three hours later.
@@ -109,7 +116,10 @@ $ python3 tests/run.py     no dependency
 $ pytest tests/            if you have it
 ```
 
-67 tests, on the places that can be wrong in silence.
+They cover the places that can be wrong in silence: reading `tsp`'s
+table, consuming a signal, merging into a settings file that belongs to
+other tools, and the real notification chain against a live daemon on its
+own socket.
 
 ## License
 
