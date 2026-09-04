@@ -441,6 +441,18 @@ AUDIENCES = ("agent", "user")
 #: exactly once.
 SHARED_AUDIENCES = ("user",)
 
+def _sane(name: str) -> str:
+    """A project name reduced to what a directory and a label can hold.
+
+    Anything outside the allowed set becomes a dash rather than being
+    dropped: `my project` and `myproject` are different projects, and
+    silently merging their mailboxes would merge their notifications.
+    """
+    kept = "".join(c if (c.isalnum() or c in "._-") else "-" for c in name)
+    kept = kept.strip("-.")[:32]
+    return kept if kept[:1].isalnum() else ""
+
+
 #: A CLIENT NAME IS A DIRECTORY AND HALF A LABEL, so it is restricted:
 #: no `/` that would escape the directory, no `:` that would break the
 #: label apart.
@@ -478,14 +490,28 @@ def _client() -> str:
     `JOBBOX_CLIENT` names a session explicitly, and wins when set — it is
     how a CI runner or a shared worker pins one fixed mailbox on purpose.
 
-    Otherwise the harness's own session id is used, which is what makes
-    the separation work WITHOUT anybody configuring it. A default that
-    has to be switched on is a default that stays off.
+    Otherwise the name is built from the PROJECT and the SESSION, and it
+    needs both. The session id alone — `cc-92183ccf` — is unique and says
+    nothing: on a shared queue you cannot tell whose work a job is. The
+    project alone would put two windows on one project back in the same
+    mailbox, which is the theft this whole design removed.
+
+    `JOBBOX_PROJECT` is written once by `init`, into the settings file,
+    and never computed from the working directory. Deriving it at call
+    time would rename the client whenever a command ran from a
+    subdirectory — splitting the mailbox mid-session and stranding
+    everything already in it.
     """
     raw = os.environ.get("JOBBOX_CLIENT")
     if not raw:
-        session = os.environ.get(_SESSION_ENV) or ""
-        raw = f"cc-{session[:8]}" if session else UNCLAIMED
+        session = (os.environ.get(_SESSION_ENV) or "")[:8]
+        project = _sane(os.environ.get("JOBBOX_PROJECT") or "")
+        if project and session:
+            raw = f"{project}-{session}"
+        elif session:
+            raw = f"cc-{session}"
+        else:
+            raw = project or UNCLAIMED
     if not _CLIENT_OK.match(raw):
         say(f"  JOBBOX_CLIENT={raw!r} is not a plain name "
             f"(letters, digits, `.`, `_`, `-`) — using {UNCLAIMED!r}")
@@ -1575,7 +1601,7 @@ def _detail(waited: list[dict[str, Any]], total: float) -> None:
                  f"{sum(times):>7.0f}s  median {times[len(times) // 2]:>5.1f}s")
 
 
-def _init(force: bool, client: str | None) -> int:
+def _init(force: bool, client: str | None, project: str | None) -> int:
     """LAY DOWN THE LOCAL CONFIGURATION, AND SAY WHAT CHANGED.
 
     IT MERGES, IT DOES NOT OVERWRITE. A project's `.claude/settings.json`
@@ -1658,11 +1684,19 @@ def _init(force: bool, client: str | None) -> int:
         written.append(f"{event} -> {command}"
                        + ("  (replaced)" if mine else ""))
 
+    # THE PROJECT NAME, CAPTURED ONCE. Taken from this directory now, so
+    # that it never changes later: a client renamed mid-session splits
+    # its mailbox and strands whatever was already in it.
+    env = data.setdefault("env", {})
+    named = _sane(project or Path.cwd().name)
+    if named and (env.get("JOBBOX_PROJECT") != named or force):
+        env["JOBBOX_PROJECT"] = named
+        written.append(f"env.JOBBOX_PROJECT = {named}")
+
     if client:
         # CLAUDE CODE APPLIES THIS TO THE SESSION'S ENVIRONMENT, which is
         # what puts the name in reach of the `jobbox run` we type in a
         # shell — and what makes it override the per-session default.
-        env = data.setdefault("env", {})
         if env.get("JOBBOX_CLIENT") != client or force:
             env["JOBBOX_CLIENT"] = client
             written.append(f"env.JOBBOX_CLIENT = {client}")
@@ -1808,11 +1842,14 @@ def _parser() -> argparse.ArgumentParser:
                          help="read one session's calls only")
 
     init = verb("init", "Wire jobbox into the project in this directory.",
-                lambda ns: _init(ns.force, ns.client))
+                lambda ns: _init(ns.force, ns.client, ns.project))
     init.add_argument("--force", action="store_true",
                       help="rewrite the entries even if already declared")
     init.add_argument("--client", default=None,
                       help="PIN one fixed name for every session here")
+    init.add_argument("--project", default=None,
+                      help="the project name in each client (default: "
+                           "this directory's name)")
     return parser
 
 

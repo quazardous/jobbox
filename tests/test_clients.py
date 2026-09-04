@@ -365,3 +365,48 @@ def test_HEALTH_ITSELF_SAYS_IT_WHEN_NOTHING_ELSE_IS_WRONG():
     assert "no mute job" in out, "the ordinary case — nothing is stuck"
     assert "UNREAD" in out and "cc-abandoned" in out, (
         f"health must say it when nothing else is wrong — got {out!r}")
+
+
+def test_A_CLIENT_NAME_CARRIES_THE_PROJECT_AND_THE_SESSION():
+    """IT NEEDS BOTH, AND FOR OPPOSITE REASONS.
+
+    The session id alone is unique and says nothing: on a shared queue
+    you cannot tell whose work a job is. The project alone would put two
+    windows on one project back in the same mailbox — the theft this
+    whole design removed.
+    """
+    previous = {k: os.environ.get(k) for k in
+                ("JOBBOX_CLIENT", "JOBBOX_PROJECT", jobbox._SESSION_ENV)}
+    try:
+        for k in previous:
+            os.environ.pop(k, None)
+        os.environ[jobbox._SESSION_ENV] = "92183ccf-9dde-441d-8877-000000000000"
+
+        assert jobbox._client() == "cc-92183ccf", "no project yet"
+        os.environ["JOBBOX_PROJECT"] = "BookShepherd"
+        assert jobbox._client() == "BookShepherd-92183ccf"
+        # AN EXPLICIT PIN STILL WINS over both.
+        os.environ["JOBBOX_CLIENT"] = "ci-runner"
+        assert jobbox._client() == "ci-runner"
+    finally:
+        for k, v in previous.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
+def test_A_PROJECT_NAME_IS_REDUCED_NOT_DROPPED():
+    """`my project` AND `myproject` ARE DIFFERENT PROJECTS.
+
+    Removing the offending characters instead of replacing them would
+    merge their mailboxes, and merging mailboxes is merging
+    notifications.
+    """
+    from jobbox import _sane
+
+    assert _sane("BookShepherd") == "BookShepherd"
+    assert _sane("mon projet !") == "mon-projet"
+    assert _sane("my project") != _sane("myproject")
+    # A NAME THAT CANNOT START A DIRECTORY IS NO NAME AT ALL.
+    assert _sane("...") == "" and _sane("") == ""
+    assert len(_sane("x" * 100)) <= 32

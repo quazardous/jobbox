@@ -137,10 +137,20 @@ $ jobbox clients
 
 ### Reading `list`
 
-The `client` column says which session queued each job, yours included.
-`cc-d4a69872` is a session naming itself: `cc-` plus the first eight
-characters of the harness's session id. A job queued by hand with
-`tsp -L` shows `default`, the mailbox its ending lands in.
+The `client` column says which session queued each job, yours included —
+`BookShepherd-92183ccf` is a project name and a session id, and it needs
+both. The session alone is unique and tells you nothing about whose work
+a job is; the project alone would put two windows on one project back in
+one mailbox, which is the theft this design removed.
+
+`jobbox init` captures the project name once, from the directory it runs
+in, and writes it to the settings file. It is never derived at call time:
+a client renamed because a command ran from a subdirectory would split
+its mailbox mid-session and strand whatever was in it. `--project`
+overrides the name, `--client` pins the whole thing.
+
+A job queued by hand with `tsp -L` shows `default`, the mailbox its
+ending lands in.
 
 `jobbox clients` marks which one is yours.
 

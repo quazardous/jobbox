@@ -32,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cache directory for weeks.
 - `jobbox --version` says which copy you have — an installed command that
   cannot answer that turns every report into a conversation.
+- Client names now read as `project-session` instead of an opaque
+  `cc-92183ccf`, so a shared queue says whose work each job is. `jobbox
+  init` captures the project name once rather than deriving it from the
+  working directory, which would rename the client — and split its
+  mailbox — whenever a command ran from a subdirectory.
 - **Jobs now carry an id jobbox mints, and it is never reused.**
   `task-spooler` numbers from zero and starts over when its daemon dies,
   so a number kept from yesterday could name a different job today and
