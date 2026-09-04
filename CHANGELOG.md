@@ -33,7 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `jobbox --version` says which copy you have — an installed command that
   cannot answer that turns every report into a conversation.
 - `jobbox list` has `project` and `session` columns instead of an opaque
-  `cc-92183ccf`, so a shared queue says whose work each job is. `jobbox
+  `cc-92183ccf`, so a shared queue says whose work each job is. A project
+  is identified by its directory rather than its name, so two checkouts
+  called `jobbox` do not share a mailbox, and `--project-path` shows the
+  directory behind each tag. `jobbox
   init` captures the project name once rather than deriving it from the
   working directory, which would rename the client — and split its
   mailbox — whenever a command ran from a subdirectory.

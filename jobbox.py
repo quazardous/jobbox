@@ -326,6 +326,7 @@ if __name__ == "__main__" and sys.argv[1:2] == ["observe"]:
 # Reached only when the command is not `observe`, so these imports are
 # paid by the person who typed a verb — never by a hook.
 import argparse
+import hashlib
 import re
 import secrets
 import shutil
@@ -517,6 +518,55 @@ def _client() -> str:
             f"(letters, digits, `.`, `_`, `-`) — using {UNCLAIMED!r}")
         return UNCLAIMED
     return raw
+
+
+#: WHERE A PROJECT NAME IS TRACED BACK TO ITS DIRECTORY.
+#:
+#: Machine-wide, like the queue: `list` shows other sessions' jobs, and
+#: their paths are not in this session's environment.
+PROJECTS = ROOT / "projects.json"
+
+
+def project_tag(path: Path) -> str:
+    """A project's name, made unique by where it lives.
+
+    TWO DIRECTORIES CAN SHARE A NAME. `~/work/jobbox` and
+    `~/forks/jobbox` are different projects, and letting them answer to
+    one name would put their jobs in one mailbox — the same theft as a
+    shared queue, one level down.
+
+    Four hex characters of the path's digest separate them. Short on
+    purpose: it sits in every listing, and `--project-path` is there for
+    the moment it stops being readable.
+    """
+    digest = hashlib.sha256(str(path).encode("utf-8")).hexdigest()[:4]
+    named = _sane(path.name) or "project"
+    return f"{named}-{digest}"
+
+
+def remember_project(tag: str, path: str) -> None:
+    """Record which directory a project tag stands for. Never raises."""
+    if not tag or not path:
+        return
+    try:
+        known = {}
+        if PROJECTS.exists():
+            known = json.loads(PROJECTS.read_text(encoding="utf-8"))
+        if known.get(tag) == path:
+            return
+        known[tag] = path
+        PROJECTS.parent.mkdir(parents=True, exist_ok=True)
+        PROJECTS.write_text(json.dumps(known, indent=1, ensure_ascii=False),
+                            encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+
+
+def project_paths() -> dict[str, str]:
+    try:
+        return json.loads(PROJECTS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
 
 
 #: THE SESSION HALF OF A CLIENT NAME: exactly the eight hex characters
@@ -909,6 +959,11 @@ def _run(intent: str, command: tuple[str, ...]) -> int:
     three words at the moment you have them in mind.
     """
     _require_tsp()
+    # THE MAPPING FILLS ITSELF from any session that queues a job, so it
+    # is not lost with a settings file and does not need `init` to have
+    # been re-run.
+    remember_project(_sane(os.environ.get("JOBBOX_PROJECT") or ""),
+                     os.environ.get("JOBBOX_PROJECT_PATH") or "")
     uid = mint()
     res = _tsp("-L", f"{_client()}:{uid}:{intent}", *command)
     if res.returncode != 0:
@@ -921,7 +976,7 @@ def _run(intent: str, command: tuple[str, ...]) -> int:
     return OK
 
 
-def _list(mine: bool) -> int:
+def _list(mine: bool, full_path: bool = False) -> int:
     """THE QUEUE IS SHOWN WHOLE BY DEFAULT, and that is deliberate.
 
     It is ONE queue for the whole machine. Hiding other sessions' jobs
@@ -967,6 +1022,12 @@ def _list(mine: bool) -> int:
             # A job queued outside jobbox shows the mailbox it lands in.
             *split_client(j["client"]),
         ))
+    if full_path:
+        # THE TAG IS BUILT TO BE SHORT, which makes it unreadable the day
+        # two projects share a name — exactly the day it matters. This is
+        # the way back.
+        known = project_paths()
+        rows = [r[:5] + (known.get(r[5], r[5]),) + r[6:] for r in rows]
     _table(("id", "state", "intent", "exit", "", "project", "session"), rows)
     return OK
 
@@ -1708,10 +1769,15 @@ def _init(force: bool, client: str | None, project: str | None) -> int:
     # that it never changes later: a client renamed mid-session splits
     # its mailbox and strands whatever was already in it.
     env = data.setdefault("env", {})
-    named = _sane(project or Path.cwd().name)
+    here = Path.cwd().resolve()
+    named = (_sane(project) if project else "") or project_tag(here)
     if named and (env.get("JOBBOX_PROJECT") != named or force):
         env["JOBBOX_PROJECT"] = named
         written.append(f"env.JOBBOX_PROJECT = {named}")
+    if env.get("JOBBOX_PROJECT_PATH") != str(here) or force:
+        env["JOBBOX_PROJECT_PATH"] = str(here)
+        written.append(f"env.JOBBOX_PROJECT_PATH = {here}")
+    remember_project(named, str(here))
 
     if client:
         # CLAUDE CODE APPLIES THIS TO THE SESSION'S ENVIRONMENT, which is
@@ -1791,10 +1857,12 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("command", nargs=argparse.REMAINDER)
 
     listing = verb("list", "What waits, what runs, what has finished.",
-                   lambda ns: _list(ns.mine))
+                   lambda ns: _list(ns.mine, ns.project_path))
     scope = listing.add_mutually_exclusive_group()
     scope.add_argument("--mine", action="store_true",
                        help="only this session's jobs (see JOBBOX_CLIENT)")
+    listing.add_argument("--project-path", action="store_true",
+                         help="show each project's directory, not its name")
     scope.add_argument("--all", action="store_true",
                        help="every job on the machine — the default, "
                             "spelled out")

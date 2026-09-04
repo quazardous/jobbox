@@ -22,10 +22,31 @@ import io
 import json
 import os
 import tempfile
+from contextlib import contextmanager
 from contextlib import redirect_stdout
 from pathlib import Path
 
 import jobbox
+
+
+@contextmanager
+def _scratch_state(tmp: str):
+    """Keep `init` from writing into the caller's own machine state.
+
+    `init` records which directory a project tag stands for, in a file
+    shared by every project on the machine. A test that leaves its
+    temporary directories in there is a test that pollutes the thing it
+    is checking — measured: eighteen `/tmp/tmpXXXX` entries in a real
+    `projects.json` before this existed.
+    """
+    previous = jobbox.PROJECTS, jobbox.SKILL_HOME
+    jobbox.PROJECTS = Path(tmp) / "projects.json"
+    jobbox.SKILL_HOME = Path(tmp) / "skills" / "jobbox" / "SKILL.md"
+    try:
+        yield
+    finally:
+        jobbox.PROJECTS, jobbox.SKILL_HOME = previous
+
 
 #: A settings file as one is actually found in the wild: another tool's
 #: hooks, on the same events jobbox wants, plus keys jobbox knows nothing
@@ -46,7 +67,7 @@ EXISTING = {
 def _init(settings: dict | None, *args: str) -> tuple[dict, str]:
     """Run `init` in a scratch directory, return (the file after, output)."""
     here = os.getcwd()
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as tmp, _scratch_state(tmp):
         try:
             os.chdir(tmp)
             path = Path(tmp) / ".claude" / "settings.json"
@@ -127,7 +148,7 @@ def test_RUNNING_IT_TWICE_CHANGES_NOTHING():
     and consume the mailbox twice.
     """
     here = os.getcwd()
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as tmp, _scratch_state(tmp):
         try:
             os.chdir(tmp)
             with redirect_stdout(io.StringIO()):
@@ -197,7 +218,7 @@ def test_FORCE_ACTUALLY_REWRITES():
     fails loudly.
     """
     here = os.getcwd()
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as tmp, _scratch_state(tmp):
         try:
             os.chdir(tmp)
             path = Path(tmp) / ".claude" / "settings.json"
@@ -257,7 +278,7 @@ def test_FORCE_DOES_NOT_ADVISE_ITSELF():
     message on the only path that can still say "nothing to do".
     """
     here = os.getcwd()
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as tmp, _scratch_state(tmp):
         try:
             os.chdir(tmp)
             with redirect_stdout(io.StringIO()):
@@ -286,7 +307,7 @@ def test_INIT_LAYS_DOWN_THE_SKILL_AND_DOES_NOT_TRAMPLE_IT():
 
     previous = jb.SKILL_HOME
     here = os.getcwd()
-    with tempfile.TemporaryDirectory() as tmp:
+    with tempfile.TemporaryDirectory() as tmp, _scratch_state(tmp):
         try:
             os.chdir(tmp)
             jb.SKILL_HOME = Path(tmp) / "home" / "skills" / "jobbox" / "SKILL.md"

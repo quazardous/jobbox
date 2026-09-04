@@ -19,8 +19,8 @@ $ jobbox run build-the-front -- npm run build
 j7f3a91c
 $ jobbox list
         id  state     intent           exit  project       session
-  j7f3a91c  running   build-the-front        BookShepherd  92183ccf
-  j2b8e04d  queued    nightly-backup         imagematch    d4a69872
+  j7f3a91c  running   build-the-front        jobbox-1de7   92183ccf
+  j2b8e04d  queued    nightly-backup         jobbox-4732   d4a69872
 $ jobbox status j7f3a91c
   intent     build-the-front
   state      finished
@@ -143,11 +143,28 @@ two halves, and it needs both. The session alone is unique and tells you nothing
 a job is; the project alone would put two windows on one project back in
 one mailbox, which is the theft this design removed.
 
-`jobbox init` captures the project name once, from the directory it runs
-in, and writes it to the settings file. It is never derived at call time:
-a client renamed because a command ran from a subdirectory would split
-its mailbox mid-session and strand whatever was in it. `--project`
-overrides the name, `--client` pins the whole thing.
+**A project is a directory, not a name.** `~/work/jobbox` and
+`~/forks/jobbox` are two projects, so the tag carries four hex
+characters of the path — letting them answer to one name would put their
+jobs in one mailbox, which is the same theft as a shared queue one level
+down, and invisible because both names look right.
+
+The tag is short because it sits in every line. `jobbox list
+--project-path` shows the directory instead, for the day the tag stops
+being readable — which is the day two projects collide:
+
+```console
+$ jobbox list --project-path
+        id  state     intent       exit  project                   session
+  ja742ad1  finished  depuis-work  0     /home/x/work/jobbox       92183ccf
+  j715a64c  finished  depuis-fork  0     /home/x/forks/jobbox      d4a69872
+```
+
+`jobbox init` captures all of this once, from the directory it runs in,
+and writes it to the settings file. It is never derived at call time: a
+client renamed because a command ran from a subdirectory would split its
+mailbox mid-session and strand whatever was in it. `--project` overrides
+the name, `--client` pins the whole thing.
 
 A name with no session half keeps its whole self under `project`: one
 pinned with `--client`, or a job queued by hand with `tsp -L`, which

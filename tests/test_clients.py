@@ -429,3 +429,64 @@ def test_A_CLIENT_NAME_READS_AS_TWO_COLUMNS():
     assert split_client("ci-runner") == ("ci-runner", "")
     assert split_client("default") == ("default", "")
     assert split_client("deploy-nightly") == ("deploy-nightly", "")
+
+
+def test_TWO_DIRECTORIES_SHARING_A_NAME_ARE_TWO_PROJECTS():
+    """OTHERWISE THEIR JOBS SHARE A MAILBOX.
+
+    `~/work/jobbox` and `~/forks/jobbox` are different projects. Letting
+    them answer to one name is the same theft as a shared queue, one
+    level down — and it would be invisible, because both names look
+    right.
+    """
+    from jobbox import project_tag
+
+    work = project_tag(Path("/home/x/work/jobbox"))
+    fork = project_tag(Path("/home/x/forks/jobbox"))
+
+    assert work != fork, (work, fork)
+    assert work.startswith("jobbox-") and fork.startswith("jobbox-")
+    # STABLE: the same directory must not drift between two calls, or a
+    # session would change mailbox under itself.
+    assert project_tag(Path("/home/x/work/jobbox")) == work
+    # AND A DIRECTORY WHOSE NAME SURVIVES NOTHING still gets a project.
+    assert project_tag(Path("/home/x/...")).startswith("project-")
+
+
+def test_THE_PATH_IS_RECOVERABLE_FROM_THE_TAG():
+    """A SHORT TAG IS UNREADABLE THE DAY IT MATTERS.
+
+    It is built short because it sits in every listing — and the day two
+    projects share a name is exactly the day you need to know which is
+    which. The mapping is the way back, and it is machine-wide because
+    `list` shows other sessions' jobs.
+    """
+    previous = jobbox.PROJECTS
+    with tempfile.TemporaryDirectory() as tmp:
+        jobbox.PROJECTS = Path(tmp) / "projects.json"
+        try:
+            jobbox.remember_project("jobbox-1de7", "/home/x/work/jobbox")
+            jobbox.remember_project("jobbox-4732", "/home/x/forks/jobbox")
+            jobbox.remember_project("", "/ignored")
+            known = jobbox.project_paths()
+        finally:
+            jobbox.PROJECTS = previous
+
+    assert known == {"jobbox-1de7": "/home/x/work/jobbox",
+                     "jobbox-4732": "/home/x/forks/jobbox"}
+
+
+def test_AN_UNREADABLE_MAPPING_COSTS_ONLY_ITSELF():
+    """IT IS READ WHILE SOMEBODY IS LISTING A QUEUE.
+
+    A corrupt file must cost the path column, not the listing.
+    """
+    previous = jobbox.PROJECTS
+    with tempfile.TemporaryDirectory() as tmp:
+        jobbox.PROJECTS = Path(tmp) / "projects.json"
+        jobbox.PROJECTS.write_text("{ truncated", encoding="utf-8")
+        try:
+            assert jobbox.project_paths() == {}
+            jobbox.remember_project("a-1111", "/somewhere")   # must not raise
+        finally:
+            jobbox.PROJECTS = previous
