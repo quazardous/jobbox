@@ -30,8 +30,6 @@
 //! "OpenCLI Specification" under different domains. The document says so
 //! itself rather than letting `"opencli"` read as a guarantee.
 
-use crate::outln;
-
 /// Every verb: its name, what it is for, and WHAT IT DOES TO THE WORLD.
 ///
 /// ONE TABLE, so `--help` and this cannot drift apart. A test compares
