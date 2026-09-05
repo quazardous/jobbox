@@ -18,6 +18,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.8] - 2026-09-06
+
+Documentation only — but the README travels inside every release
+archive, so a wrong one ships with the binary.
+
+### Fixed
+
+- **The stats example showed a parent totalling its children**, which no
+  version has ever done: each row counts its own calls, and a parent that
+  summed its subtree would say the same minute twice in the total
+  underneath. The figures add up now, and the text says which way it
+  works.
+- **`jbx hook` was missing from the list of verbs** — the one `init`
+  writes into a settings file people then read. The guard could not have
+  caught it: it checked that the README named nothing false, never that
+  it named everything. It checks both directions now.
+- **`JBX_SHELL` and `JBX_CONFIG`** are in the settings table.
+
 ## [0.5.7] - 2026-09-05
 
 ### Added
