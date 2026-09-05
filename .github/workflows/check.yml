@@ -13,15 +13,17 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # The tests drive a shell: `sh -c`, `sleep`, `echo`. That is a Unix
-  # assumption, not an oversight — `cmd.exe` has no `sleep`, and a suite
-  # rewritten to avoid it would stop testing the thing it is for. So the
-  # suite runs on the Unixes and Windows is covered by the job below.
+  # The tests drive a shell: `sh -c`, `sleep`, `echo`. That reads like a
+  # Unix assumption and mostly is not — the Windows runners ship Git Bash,
+  # which provides all three, and jbx itself prefers `bash` wherever it
+  # exists. So the suite is tried there too: nobody has ever run this
+  # program on Windows (#2065), and a real runner is the cheapest way to
+  # stop saying so.
   test:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5

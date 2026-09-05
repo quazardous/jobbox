@@ -18,6 +18,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.11] - 2026-09-06
+
+### Fixed
+
+- **The queue has a real order.** Waiting was "whoever asks when a slot
+  frees", which followed the filing order only because waiters happen to
+  start asking in that order — in practice, never a guarantee: a waiter
+  whose poll lands just after a slot frees loses to one that polls just
+  before, however long it has been there. Each waiter now takes a
+  numbered ticket, allocated by exclusive file creation because that is
+  the one atomic primitive both platforms share, and only the head of the
+  line may take a slot. A dead holder's ticket is reclaimed on every turn
+  of the wait — a queue with an order can otherwise do worse than one
+  without, and that is the way.
+
 ## [0.5.10] - 2026-09-06
 
 ### Added

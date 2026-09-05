@@ -1239,3 +1239,33 @@ fn a_list_shows_this_project_and_counts_what_it_hides() {
                "the scope did not hold:\n{here}");
     assert!(here.contains("other projects"), "what was hidden went unsaid:\n{here}");
 }
+
+#[test]
+#[cfg(unix)]
+fn the_head_of_the_line_goes_first_even_when_slots_are_free() {
+    let s = Scratch::new("ticket");
+    // A TICKET HELD BY SOMEBODY ELSE, and slots to spare. Without an
+    // order this job would start at once — "whoever asks when a slot is
+    // free" was the rule, and it followed the filing order only because
+    // waiters happen to start asking in that order.
+    let tickets = s.0.join("jobs/slots/tickets");
+    std::fs::create_dir_all(&tickets).unwrap();
+    let holder = Command::new("sleep").arg("20").spawn().unwrap();
+    std::fs::write(tickets.join(format!("1.{}", holder.id())), "").unwrap();
+
+    let out = s.run_with(&[("JBX_SLOTS", "4")], &["queue", "behind", "--", "echo RAN"]);
+    let id = text(&out).lines().next().unwrap().trim().to_string();
+    std::thread::sleep(std::time::Duration::from_millis(1200));
+    let waiting = text(&s.run_with(&[("JBX_SLOTS", "4")], &["status", &id]));
+    assert!(waiting.contains("waiting for a slot"),
+            "it went ahead of an older ticket with slots to spare:\n{waiting}");
+
+    // AND A DEAD HOLDER MUST NOT BLOCK THE LINE FOR EVER — that is the
+    // one way an ordered queue does worse than an unordered one.
+    let mut holder = holder;
+    let _ = holder.kill();
+    let _ = holder.wait();
+    assert_eq!(s.run_with(&[("JBX_SLOTS", "4")], &["wait", &id]).status.code(), Some(0),
+               "the line never recovered from a dead ticket");
+    assert!(text(&s.run_with(&[("JBX_SLOTS", "4")], &["tail", &id])).contains("RAN"));
+}
