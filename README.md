@@ -45,7 +45,11 @@ $ curl -fsSL https://raw.githubusercontent.com/quazardous/jobbox/main/install.sh
 $ jbx init                        # declares its hooks, merges safely
 ```
 
-On Windows, `irm https://raw.githubusercontent.com/quazardous/jobbox/main/install.ps1 | iex`.
+On Windows:
+
+```powershell
+irm https://raw.githubusercontent.com/quazardous/jobbox/main/install.ps1 | iex
+```
 
 It downloads the binary for your machine — under a megabyte, nothing
 compiled, nothing outside your home — and checks it against the sums
