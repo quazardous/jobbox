@@ -461,12 +461,7 @@ fn announce(id: &str, after: f64, seen: Observation) -> i32 {
          Nothing was lost. It is still running, and still printing to its log.\n\
          \n\
          DO NOT SIT AND WAIT FOR IT. You will be told when it ends, on a later turn —\n\
-         waiting here is the exact cost jbx exists to remove. Go and do something else.\n\
-         \n\
-         \x20 jbx status {id}   where it is, and its exit code once it lands\n\
-         \x20 jbx tail {id}     what it has printed so far\n\
-         \x20 jbx fg {id}       watch it run, if you want to see it\n\
-         \x20 jbx wait {id}     block until it ends — ONLY if you truly cannot go on\n"
+         waiting here is the exact cost jbx exists to remove. Go and do something else.\n"
     );
     if seen.reading_for >= WORTH_MENTIONING && seen.quiet_for >= WORTH_MENTIONING {
         // SAID AS AN OBSERVATION, AND ONLY ONCE IT HAS LASTED. A
@@ -484,9 +479,7 @@ fn announce(id: &str, after: f64, seen: Observation) -> i32 {
     }
     let _ = writeln!(
         out,
-        "`jbx why` explains what just happened and why waiting costs. And if you knew\n\
-         from the start that you needed this result before anything else could\n\
-         happen, say so next time: `jbx fg -- '<line>'` never lets go."
+        "\x20 jbx how {id}   what you can do with it   ·   jbx why   why it works this way"
     );
     let _ = out.flush();
     0

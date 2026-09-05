@@ -96,6 +96,7 @@ fn dispatch(args: Vec<String>) -> i32 {
             _ => usage_error("queue needs an intent and a line: `jbx queue build -- make`"),
         },
         "slots" => slots_cmd(rest.first().map(String::as_str)),
+        "how" => how(rest.first().filter(|a| looks_like_an_id(a)).map(String::as_str)),
         "why" => why(),
         "health" => health(),
         "clients" => clients(),
@@ -160,7 +161,8 @@ fn usage() -> String {
          \x20 jbx health            what runs, what is mute, what is stranded\n\
          \x20 jbx clients           whose endings are still unread\n\
          \x20 jbx config            every setting, and where it came from\n\
-         \x20 jbx why               why it does that, and why waiting costs\n\
+         \x20 jbx how [id]          what you can do with it, right now\n\
+         \x20 jbx why               why it works this way\n\
          \x20 jbx init [--undo]     declare the hook, and displace rtk's\n\
          \n\
          JBX_AFTER   seconds before detaching (now {:.0})\n\
@@ -540,22 +542,19 @@ WHY IT WRAPS EVERY COMMAND
 
   So jbx guesses nothing. It runs the line and finds out.
 
-WHY IT LET GO OF YOUR COMMAND
-  It passed the threshold — 30s by default, `after:` in the configuration.
-  NOTHING WAS LOST. The command is still running, its output still goes to
-  its log, and its exit code is kept for you.
+WHY LETTING GO COSTS YOU NOTHING
+  Because the ending is ANNOUNCED. A model hears it on a later turn, a person
+  when the session stops. Nobody has to remember to look — which is the whole
+  reason sitting and waiting is waste: the result comes to you.
 
-  And you are TOLD when it ends: a model hears it on a later turn, a person
-  when the session stops. Nobody has to remember to look, which is exactly
-  why sitting and waiting is waste — the result comes to you.
+  A tool that backgrounded things without telling you would just have moved
+  the waiting somewhere you cannot see it.
 
-WHEN YOU REALLY DO NEED IT NOW
-  Say so. `jbx fg -- '<line>'` runs without ever letting go. That is a
-  legitimate choice and sometimes the right one; `jbx stats` counts what it
-  cost, so a habit of reaching for it becomes visible rather than invisible.
-
-  Changed your mind halfway? `jbx fg <id>` picks a detached job back up —
-  everything it has printed, then what it prints next, then its exit code.
+WHY ASKING FOR THE FOREGROUND IS ALLOWED
+  Sometimes you really cannot go on without the answer, and pretending
+  otherwise would make the tool something to fight. So saying so is a
+  first-class gesture — and it is COUNTED, which is the point. A habit of
+  reaching for it becomes visible instead of invisible.
 
 WHY THERE ARE TWO DOORS
   `run` wraps a command that was going to run either way. It holds nothing
@@ -576,6 +575,62 @@ WHAT IT NEVER DOES
   never breaks a command to save a token. Where there is a terminal, it hands
   the line straight to a shell and stops existing.
 
-  `jbx config` says every setting in effect and where it came from.");
+  `jbx how` is the other half of this: what to type, rather than why.");
+    0
+}
+
+/// `jbx how [id]` — WHAT TO DO, RIGHT NOW.
+///
+/// The other half of `why`. The detachment message used to carry this
+/// list, which made it four lines longer than the thing it was trying to
+/// say — and the thing it was trying to say is "do not wait". Given an
+/// id it answers about that job, so the lines can be copied as they are.
+fn how(id: Option<&str>) -> i32 {
+    match id {
+        Some(id) => {
+            jobbox::outln!("jbx: what you can do with {id}, which is running in the background.\n");
+            jobbox::outln!("  jbx status {id}   where it is, and its exit code once it lands");
+            jobbox::outln!("  jbx tail {id}     what it has printed so far");
+            jobbox::outln!("  jbx tail {id} -f  … and keep watching");
+            jobbox::outln!("  jbx fg {id}       bring it back to the foreground and watch it");
+            jobbox::outln!("  jbx wait {id}     block until it ends — ONLY if you cannot go on");
+            jobbox::outln!("  jbx kill {id}     stop it, and everything it started");
+            jobbox::outln!("\nBUT THE USUAL ANSWER IS NONE OF THESE. You will be told when it ends,");
+            jobbox::outln!("on a later turn. Go and do something else; come back to it then.");
+        }
+        None => {
+            jobbox::outln!("{}", "\
+jbx — what to type
+
+NOTHING, USUALLY
+  jbx wraps every command your agent runs. Quick ones come back untouched.
+  Slow ones let go of themselves and you are told when they end, so the
+  ordinary answer to \"what do I do now\" is: something else.
+
+WHEN ONE HAS BEEN DETACHED
+  jbx how <id>              this list, for that job
+  jbx status <id>           where it is, and its exit code once it lands
+  jbx tail <id> [-f]        what it printed
+  jbx fg <id>               bring it back and watch it
+  jbx wait <id>             block until it ends — only if you cannot go on
+  jbx kill <id>             stop it, and everything it started
+  jbx list                  everything detached, and how it went
+
+WHEN YOU KNOW IN ADVANCE
+  jbx fg -- '<line>'        run it and never let go: you need the answer now
+  jbx queue <name> -- '…'   hand work over BEFORE it starts, under a cap
+  jbx slots [n|none]        how many queued jobs run at once
+
+TO SEE WHERE THE TIME WENT
+  jbx stats [project]       how much of it went by while you were free
+  jbx health                what runs, what is mute, what nobody will read
+
+TO SET IT UP
+  jbx init [--undo]         declare the hooks; writes a commented config
+  jbx config                every setting, and where it came from
+
+  `jbx why` is the other half of this: why it works this way.");
+        }
+    }
     0
 }

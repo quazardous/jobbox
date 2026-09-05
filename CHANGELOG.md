@@ -26,18 +26,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   had happened and left the reader to infer what to do, and the one fact
   that makes waiting pointless was missing from it: that the ending is
   ANNOUNCED, on a later turn, without anybody remembering to look. It now
-  leads with "this is now in the BACKGROUND", says outright not to wait
-  and why, and marks `jbx wait` as the exception rather than an equal
-  option.
+  leads with "this is now in the BACKGROUND" and says outright not to
+  wait, and why, in the same breath.
 
 ### Added
 
-- **`jbx why`** — the reasoning, where the binary is. A downloaded binary
-  has no repository to read and the detachment message has no room to
-  argue: why every command is wrapped and what was measured to settle it,
-  why waiting is the cost, what to do when the result really is needed
-  first, why there are two doors, and why the compressed time is a
-  ceiling rather than a boast.
+- **`jbx how [id]` and `jbx why`** — the two halves of the explanation,
+  travelling with the binary, because a downloaded one has no repository
+  to read. `how` is what to type, and given an id it answers about that
+  job so the lines can be copied as they are. `why` is why it works this
+  way: what was measured to refuse prediction, why letting go costs
+  nothing (the ending is announced), why asking for the foreground is a
+  first-class gesture, and why the compressed time is a ceiling.
+- The detachment message no longer carries the list of verbs. It was four
+  lines longer than the one thing it exists to say — do not wait — and
+  the list is one word away in `jbx how <id>`.
 
 ## [0.5.3] - 2026-09-05
 
