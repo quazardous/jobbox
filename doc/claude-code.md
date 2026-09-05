@@ -45,6 +45,12 @@ turn's context; `Stop`'s output goes to a debug log unless it *blocks*.
 So a failure holds the session open and points at the log, and a success
 does not — blocking on every ending would make the session unstoppable.
 
+**And only a failure THIS session caused.** Every ending is still
+announced, because the person wants all of them; but blocking does more
+than announce — it stops a session and tells the model to go and fix
+something. Doing that for a job another session queued sends an agent to
+read a log from a project it is not working on.
+
 ```
 jobbox: one job finished — build-the-front.
 jobbox: build-the-front (exit=3). Failed job logs: /tmp/ts-out.x.

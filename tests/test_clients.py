@@ -545,3 +545,44 @@ def test_A_PLAIN_SHELL_IN_A_PROJECT_STILL_KNOWS_WHICH_ONE():
                 os.environ.pop(k, None)
                 if v is not None:
                     os.environ[k] = v
+
+
+def test_ONLY_YOUR_OWN_FAILURE_HOLDS_YOUR_SESSION_OPEN():
+    """ANNOUNCING IS NOT THE SAME AS BLOCKING.
+
+    The human's mailbox is shared on purpose — one person wants every
+    ending, whichever session started it. But `decision: block` does more
+    than announce: it holds a session open and tells the model to go and
+    fix something.
+
+    Measured the day it happened: a simulation in another session ended
+    with the exit code it was built to produce, and this hook stopped an
+    unrelated session to demand a fix for a command it had not run, in a
+    project it was not working on.
+
+    So everything is still ANNOUNCED, and only your own failure blocks.
+    """
+    import io
+
+    previous = jobbox.SIGNALS
+    with tempfile.TemporaryDirectory() as tmp:
+        jobbox.SIGNALS = Path(tmp) / "signals"
+        box = jobbox._mailbox("me-here", "user")
+        box.parent.mkdir(parents=True, exist_ok=True)
+        box.write_text("".join(json.dumps(r) + "\n" for r in (
+            {"id": "j1", "code": "2", "intent": "somebody-elses",
+             "client": "other-session", "log": "/tmp/theirs"},
+            {"id": "j2", "code": "0", "intent": "mine-fine",
+             "client": "me-here", "log": "/tmp/mine"})), encoding="utf-8")
+        buffer = io.StringIO()
+        try:
+            with _as("me-here"), redirect_stdout(buffer):
+                jobbox.main(["claude-hook", "user", "stop"])
+        finally:
+            jobbox.SIGNALS = previous
+
+    out = json.loads(buffer.getvalue())
+    assert "somebody-elses" in out["systemMessage"], (
+        "every ending is still announced to the person", out)
+    assert "decision" not in out, (
+        "somebody else's failure must not hold this session open", out)

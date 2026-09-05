@@ -1681,12 +1681,26 @@ def _claude_hook(audience: str, shape: str) -> int:
         out: dict[str, Any] = {
             "systemMessage": f"jobbox: {what} — {summary}."
             + (f" {len(failed)} failed." if failed else "")}
-        if failed:
-            # BLOCKING IS THE ONLY WAY IN. A `Stop` hook's stdout goes to
-            # a debug log; only `decision` reaches the model. We spend
-            # that on failures alone — blocking on every ending would
-            # make the session unstoppable.
-            logs = " ".join(str(s.get("log")) for s in failed) or "—"
+        # BLOCKING IS THE ONLY WAY IN. A `Stop` hook's stdout goes to a
+        # debug log; only `decision` reaches the model. We spend that on
+        # failures alone — blocking on every ending would make the
+        # session unstoppable.
+        #
+        # AND ONLY ON FAILURES THIS SESSION CAUSED. The human's mailbox
+        # is shared on purpose: one person wants every ending, whichever
+        # session started it. Announcing is one thing; BLOCKING is
+        # another — it holds a session open and tells the model to go fix
+        # something. Doing that for a job somebody else queued sends an
+        # agent to read a log from a project it is not working on, about
+        # a command it did not run.
+        #
+        # Measured the day it happened: a simulation in another session
+        # ended with the exit code it was designed to produce, and this
+        # hook stopped an unrelated session to demand a fix.
+        me = _client()
+        mine = [s for s in failed if s.get("client") == me]
+        if mine:
+            logs = " ".join(str(s.get("log")) for s in mine) or "—"
             out["decision"] = "block"
             out["reason"] = (
                 f"jobbox: {summary}. Failed job logs: {logs}. "

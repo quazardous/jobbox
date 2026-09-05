@@ -48,6 +48,10 @@ not history, it is noise a reader has to parse.
 - **Ids jobbox mints and never reuses**, so a reference to a queue that
   no longer exists is refused rather than answered with somebody else's
   job.
+- A failed job holds a session open only when **that session** queued
+  it. Every ending is still announced to the person, whichever session
+  ran it — but blocking is not announcing, and stopping an unrelated
+  agent to demand a fix for somebody else's command is not help.
 - **`jobbox config`**, which says every setting in effect and names the
   environment variables overriding anything.
 - **`jobbox timings`**, which measures what shell commands actually cost.
