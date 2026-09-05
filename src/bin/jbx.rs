@@ -96,6 +96,7 @@ fn dispatch(args: Vec<String>) -> i32 {
             _ => usage_error("queue needs an intent and a line: `jbx queue build -- make`"),
         },
         "slots" => slots_cmd(rest.first().map(String::as_str)),
+        "why" => why(),
         "health" => health(),
         "clients" => clients(),
         "config" => config(),
@@ -159,6 +160,7 @@ fn usage() -> String {
          \x20 jbx health            what runs, what is mute, what is stranded\n\
          \x20 jbx clients           whose endings are still unread\n\
          \x20 jbx config            every setting, and where it came from\n\
+         \x20 jbx why               why it does that, and why waiting costs\n\
          \x20 jbx init [--undo]     declare the hook, and displace rtk's\n\
          \n\
          JBX_AFTER   seconds before detaching (now {:.0})\n\
@@ -516,4 +518,64 @@ fn looks_like_an_id(word: &str) -> bool {
     word.len() == 8
         && word.starts_with('j')
         && word[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// `jbx why` — THE REASONING, WHERE THE BINARY IS.
+///
+/// A downloaded binary has no repository to read, and the message that
+/// detaches a command has no room to argue. This is where the argument
+/// lives: why it wraps everything, why waiting is the cost, and what to
+/// do when you genuinely cannot go on without the result.
+fn why() -> i32 {
+    jobbox::outln!("{}", "\
+jbx — why it does that
+
+WHY IT WRAPS EVERY COMMAND
+  Because what makes a line slow is not knowable before it runs. A list of
+  \"commands worth backgrounding\" is a prediction, and that prediction was
+  measured on 136 real calls and refused: no rule at any threshold recovered
+  more than 0.7 of the 28 minutes spent waiting, because four of the five
+  long shapes had been seen exactly once. By the time a rule knows a command
+  is slow, you have already waited through it — and it does not come back.
+
+  So jbx guesses nothing. It runs the line and finds out.
+
+WHY IT LET GO OF YOUR COMMAND
+  It passed the threshold — 30s by default, `after:` in the configuration.
+  NOTHING WAS LOST. The command is still running, its output still goes to
+  its log, and its exit code is kept for you.
+
+  And you are TOLD when it ends: a model hears it on a later turn, a person
+  when the session stops. Nobody has to remember to look, which is exactly
+  why sitting and waiting is waste — the result comes to you.
+
+WHEN YOU REALLY DO NEED IT NOW
+  Say so. `jbx fg -- '<line>'` runs without ever letting go. That is a
+  legitimate choice and sometimes the right one; `jbx stats` counts what it
+  cost, so a habit of reaching for it becomes visible rather than invisible.
+
+  Changed your mind halfway? `jbx fg <id>` picks a detached job back up —
+  everything it has printed, then what it prints next, then its exit code.
+
+WHY THERE ARE TWO DOORS
+  `run` wraps a command that was going to run either way. It holds nothing
+  back, so there is nothing to queue and no cap to apply — detaching a line
+  does not change how many processes exist.
+
+  `queue <intent> -- '<line>'` takes work that has NOT started. That can wait
+  its turn, so `jbx slots` holds it: a loop that files fifty jobs does not
+  start fifty at once. It is also the only place a name is required.
+
+WHAT THE NUMBERS MEAN
+  `jbx stats` reports time COMPRESSED, never \"saved\". It already subtracts
+  what you handed back to `jbx wait`, and it cannot see you waiting some
+  other way — so it is a ceiling, made as tight as the evidence allows.
+
+WHAT IT NEVER DOES
+  It never loses an exit code, never holds output back until the end, and
+  never breaks a command to save a token. Where there is a terminal, it hands
+  the line straight to a shell and stops existing.
+
+  `jbx config` says every setting in effect and where it came from.");
+    0
 }

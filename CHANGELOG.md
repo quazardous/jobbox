@@ -18,6 +18,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2026-09-05
+
+### Changed
+
+- **The detachment message instructs instead of narrating.** It said what
+  had happened and left the reader to infer what to do, and the one fact
+  that makes waiting pointless was missing from it: that the ending is
+  ANNOUNCED, on a later turn, without anybody remembering to look. It now
+  leads with "this is now in the BACKGROUND", says outright not to wait
+  and why, and marks `jbx wait` as the exception rather than an equal
+  option.
+
+### Added
+
+- **`jbx why`** — the reasoning, where the binary is. A downloaded binary
+  has no repository to read and the detachment message has no room to
+  argue: why every command is wrapped and what was measured to settle it,
+  why waiting is the cost, what to do when the result really is needed
+  first, why there are two doors, and why the compressed time is a
+  ceiling rather than a boast.
+
 ## [0.5.3] - 2026-09-05
 
 ### Fixed

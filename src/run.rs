@@ -457,12 +457,16 @@ fn announce(id: &str, after: f64, seen: Observation) -> i32 {
     let mut out = out.lock();
     let _ = writeln!(
         out,
-        "jbx: still running after {after:.0}s, so it was detached as {id}. Nothing\n\
-         was lost and it is still going; what it prints keeps going to its log.\n\
+        "jbx: this passed {after:.0}s, so it is now in the BACKGROUND — detached as {id}.\n\
+         Nothing was lost. It is still running, and still printing to its log.\n\
+         \n\
+         DO NOT SIT AND WAIT FOR IT. You will be told when it ends, on a later turn —\n\
+         waiting here is the exact cost jbx exists to remove. Go and do something else.\n\
+         \n\
          \x20 jbx status {id}   where it is, and its exit code once it lands\n\
          \x20 jbx tail {id}     what it has printed so far\n\
-         \x20 jbx wait {id}     block here until it ends, and exit with its code\n\
-         \x20 jbx fg {id}       bring it back to the foreground and watch it"
+         \x20 jbx fg {id}       watch it run, if you want to see it\n\
+         \x20 jbx wait {id}     block until it ends — ONLY if you truly cannot go on\n"
     );
     if seen.reading_for >= WORTH_MENTIONING && seen.quiet_for >= WORTH_MENTIONING {
         // SAID AS AN OBSERVATION, AND ONLY ONCE IT HAS LASTED. A
@@ -480,9 +484,9 @@ fn announce(id: &str, after: f64, seen: Observation) -> i32 {
     }
     let _ = writeln!(
         out,
-        "Prefer doing something else and coming back: that is what detaching it was\n\
-         for. If you truly cannot go on without this result, say so next time with\n\
-         `jbx fg -- '<line>'` — it never lets go, and the cost is counted."
+        "`jbx why` explains what just happened and why waiting costs. And if you knew\n\
+         from the start that you needed this result before anything else could\n\
+         happen, say so next time: `jbx fg -- '<line>'` never lets go."
     );
     let _ = out.flush();
     0

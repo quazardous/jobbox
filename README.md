@@ -93,6 +93,7 @@ jbx clients                    whose endings are still unread
 jbx signals <agent|user>       endings not yet read
 jbx stats [project]            how much time was compressed
 jbx config                     every setting, and where it came from
+jbx why                        why it does that, and why waiting costs
 jbx init [--undo]              declare the hooks
 ```
 
