@@ -277,6 +277,15 @@ def observe(stream, argv: list[str] | None = None) -> int:
                 # decision rests on. Time spent waiting is the cost; time
                 # spent detached is not.
                 "background": bool(tool_input.get("run_in_background")),
+                # WHAT THE CALLER SAID IT WOULD TAKE.
+                #
+                # A DECLARED signal, not a guessed one: asking for ten
+                # minutes is saying you expect several. The history-based
+                # rule failed because long commands are almost always new
+                # shapes — this one needs no history at all, and it is
+                # the branch of that question nobody tested before the
+                # ticket was closed.
+                "asked_ms": tool_input.get("timeout") or 0,
                 "agent": str(event.get("agent_type") or ""),
                 "session": str(event.get("session_id") or "")[:8],
             }, ensure_ascii=False), encoding="utf-8")
@@ -298,6 +307,7 @@ def observe(stream, argv: list[str] | None = None) -> int:
                 # was published before anyone noticed it might be a
                 # single session's.
                 "session": started.get("session", ""),
+                "asked_ms": started.get("asked_ms", 0),
             }, ensure_ascii=False) + "\n")
     except Exception:  # noqa: BLE001
         pass
