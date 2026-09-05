@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Everything remembered about one wrapped line.
+#[derive(Clone)]
 pub struct Record {
     pub id: String,
     /// `true` for a job handed to `queue`, which waits for a slot and is
@@ -42,6 +43,13 @@ pub struct Record {
     pub started: f64,
     pub client: String,
     pub cwd: String,
+    /// THE PROJECT THIS BELONGS TO — the directory of the Claude Code
+    /// that ran it, not the directory the command happened to stand in.
+    ///
+    /// Kept on the job because a list wants to show one project's work,
+    /// and two sessions open on the same project are working on the same
+    /// thing: scoping by session would hide half of it from each.
+    pub project: String,
 }
 
 /// What a record looks like right now, which is not stored anywhere: it
@@ -145,6 +153,7 @@ pub fn write_record(r: &Record) -> io::Result<()> {
         "id": r.id, "pid": r.pid, "command": r.command, "intent": r.intent,
         "started": r.started, "client": r.client, "cwd": r.cwd,
         "queued": r.queued, "mirror_cut": r.mirror_cut, "detached": r.detached,
+        "project": r.project,
     });
     fs::write(record_path(&r.id), value.to_string())
 }
@@ -163,6 +172,19 @@ pub fn read_record(id: &str) -> Option<Record> {
         started: v["started"].as_f64().unwrap_or(0.0),
         client: v["client"].as_str().unwrap_or("default").to_string(),
         cwd: v["cwd"].as_str().unwrap_or("").to_string(),
+        // A RECORD FROM BEFORE THIS FIELD reconstructs it from where it
+        // stood, which is what the project used to be derived from
+        // anyway — a fair reading rather than a blank.
+        project: v["project"]
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                crate::config::project_root_of(std::path::Path::new(
+                    v["cwd"].as_str().unwrap_or("."),
+                ))
+                .display()
+                .to_string()
+            }),
     })
 }
 

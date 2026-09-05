@@ -364,6 +364,7 @@ fn run_inner(after: f64, line: &str, fg: bool) -> i32 {
         started: store::now(),
         client: store::client(),
         cwd: std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default(),
+        project: crate::stats::project().1,
     };
     // WRITTEN NOW AND NOT AT DETACHMENT, so that a front process killed
     // by a harness timeout still leaves something findable behind. It is
@@ -634,11 +635,31 @@ pub fn queue(intent: &str, line: &str) -> i32 {
         started: store::now(),
         client: store::client(),
         cwd: std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default(),
+        project: crate::stats::project().1,
     };
     let _ = store::write_record(&record);
-    // THE ID, AND NOTHING ELSE: it is what every other verb takes, and a
-    // caller in a script should not have to read prose to find it.
+    // THE ID FIRST AND ALONE ON ITS LINE: it is what every other verb
+    // takes, and a caller in a script should not have to read prose to
+    // find it.
     outln!("{id}");
+
+    // AND THEN, IN WORDS, WHETHER IT STARTED. A verb that answers with
+    // an id and nothing else lets somebody believe the work has begun —
+    // and a job held back by a full queue looks exactly like one that is
+    // already running, until they go and look.
+    let (busy, cap) = crate::slots::busy();
+    let ahead = store::all()
+        .iter()
+        .filter(|r| matches!(store::state_of(r), store::State::Queued))
+        .count();
+    match cap {
+        Some(cap) if busy >= cap => outln!(
+            "  NOT STARTED — all {cap} slots are busy, {ahead} waiting. It begins when one frees.\n\
+             \x20 jbx ps    what is holding them"
+        ),
+        Some(cap) => outln!("  a slot was free ({busy} of {cap} busy) — it starts now."),
+        None => outln!("  no cap on how many run at once — it starts now."),
+    }
     0
 }
 

@@ -117,8 +117,8 @@ fn dispatch(args: Vec<String>) -> i32 {
             rest.iter().any(|a| a == "--project-path"),
         ),
         "init" => init::init(rest.iter().any(|a| a == "--undo")),
-        "list" => listing(false),
-        "ps" => listing(true),
+        "list" => listing(false, rest.iter().any(|a| a == "--all")),
+        "ps" => listing(true, rest.iter().any(|a| a == "--all")),
         "status" => match rest.first() {
             Some(id) => status(id),
             None => usage_error("status needs an id"),
@@ -154,7 +154,7 @@ fn usage() -> String {
          \x20                       hand it over before it starts, and name it\n\
          \x20 jbx hook              the PreToolUse hook, called by a harness\n\
          \n\
-         \x20 jbx ps                what is happening right now\n\
+         \x20 jbx ps [--all]        what is happening right now, here\n\
          \x20 jbx list              … and what has finished, for a day\n\
          \x20 jbx status <id>       state, exit code, where its log is\n\
          \x20 jbx tail <id> [-f]    what it printed\n\
@@ -209,7 +209,7 @@ fn describe(state: &store::State) -> String {
             format!("running    {for_secs:.0}s")
         }
         store::State::Finished { code } => format!("finished  exit {code}"),
-        store::State::Lost => "gone      no exit code — killed, or the machine went down".into(),
+        store::State::Lost => "gone      no exit code".into(),
     }
 }
 
@@ -218,26 +218,51 @@ fn describe(state: &store::State) -> String {
 /// TWO VERBS BECAUSE THEY ANSWER TWO QUESTIONS. "What is going on right
 /// now" is asked far more often than "what went on today", and a day of
 /// finished jobs between you and the answer is a list you stop reading.
-fn listing(only_alive: bool) -> i32 {
-    let records: Vec<store::Record> = store::all()
-        .into_iter()
-        .filter(|r| {
-            !only_alive
-                || matches!(
-                    store::state_of(r),
-                    store::State::Queued | store::State::Running { .. }
-                )
-        })
+fn listing(only_alive: bool, all: bool) -> i32 {
+    // THIS PROJECT BY DEFAULT. The store is machine-wide, and a list
+    // holding four projects' work is a list where you cannot find your
+    // own. The scope is the PROJECT and not the session: two Claude
+    // Codes open on one directory are working on the same thing, and
+    // scoping by session would blind each to half of it.
+    let me = jobbox::stats::project().1;
+    let alive = |r: &store::Record| {
+        matches!(store::state_of(r), store::State::Queued | store::State::Running { .. })
+    };
+    let everything = store::all();
+    let records: Vec<store::Record> = everything
+        .iter()
+        .filter(|r| (!only_alive || alive(r)) && (all || r.project == me))
+        .cloned()
         .collect();
+    // WHAT IS HIDDEN AND STILL RUNNING, counted. The tool this replaces
+    // showed every session by default, and its reason was good: hiding
+    // other people's work makes a full queue look empty, and somebody
+    // spends ten minutes wondering why their own job never starts. The
+    // default is yours now, so the count is what keeps that honest.
+    let others = everything
+        .iter()
+        .filter(|r| r.project != me && alive(r))
+        .count();
     if records.is_empty() {
         if only_alive {
-            jobbox::outln!("nothing running. `jbx list` shows what has finished.");
+            jobbox::outln!("nothing running here. `jbx list` shows what has finished.");
         } else {
-            jobbox::outln!("nothing detached.");
+            jobbox::outln!("nothing detached in this project.");
+        }
+        if others > 0 && !all {
+            jobbox::outln!("{others} running in other projects — `--all` shows them.");
         }
         return 0;
     }
-    jobbox::outln!("{:<10} {:<48} {:<12} line", "id", "state", "");
+    // THE PROJECT COLUMN ONLY WHEN IT VARIES. Scoped, every row is the
+    // same project and the column would be twelve characters of the
+    // same word down the page; with `--all` it is the only thing that
+    // says which work belongs to what.
+    if all {
+        jobbox::outln!("{:<10} {:<16} {:<28} {:<12} line", "id", "project", "state", "");
+    } else {
+        jobbox::outln!("{:<10} {:<28} {:<12} line", "id", "state", "");
+    }
     for r in &records {
         // MUTENESS IS ONLY SAID WHEN IT MATTERS. On every line it would
         // be a column people stop reading — and it is precisely the one
@@ -246,7 +271,32 @@ fn listing(only_alive: bool) -> i32 {
             Some(secs) if secs > store::mute_after() => format!("MUTE {}s", secs as i64),
             _ => String::new(),
         };
-        jobbox::outln!("{:<10} {:<48} {:<12} {}", r.id, describe(&store::state_of(r)), mute, r.intent);
+        if all {
+            let project = std::path::Path::new(&r.project)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "?".into());
+            jobbox::outln!(
+                "{:<10} {:<16} {:<28} {:<12} {}",
+                r.id,
+                project,
+                describe(&store::state_of(r)),
+                mute,
+                r.intent
+            );
+        } else {
+            jobbox::outln!(
+                "{:<10} {:<28} {:<12} {}",
+                r.id,
+                describe(&store::state_of(r)),
+                mute,
+                r.intent
+            );
+        }
+    }
+    if others > 0 && !all {
+        jobbox::outln!("");
+        jobbox::outln!("{others} more running in other projects — `--all` shows them.");
     }
     0
 }
@@ -259,6 +309,12 @@ fn status(id: &str) -> i32 {
     let state = store::state_of(&r);
     jobbox::outln!("  id       {}", r.id);
     jobbox::outln!("  state    {}", describe(&state));
+    if matches!(state, store::State::Lost) {
+        // THE EXPLANATION LIVES HERE, where somebody came to understand
+        // one line rather than to scan forty.
+        jobbox::outln!("           nothing recorded a code: it was stopped, or the");
+        jobbox::outln!("           machine went down under it.");
+    }
     jobbox::outln!("  line     {}", r.command);
     jobbox::outln!("  client   {}", r.client);
     jobbox::outln!("  where    {}", r.cwd);

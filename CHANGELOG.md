@@ -26,6 +26,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   far more often than "what went on today", and a day of finished jobs
   between you and the answer is a list you stop reading. `jbx list` still
   shows everything kept.
+- **`jbx ps` and `jbx list` show this project by default**, with `--all`
+  for the machine. The store is machine-wide, and a list holding four
+  projects' work is a list where you cannot find your own. The scope is
+  the PROJECT and not the session: two Claude Codes open on one directory
+  are working on the same thing, and scoping by session would blind each
+  to half of it. What is hidden and still running is COUNTED, because
+  hiding other work makes a busy machine look idle — and `--all` adds a
+  project column, since otherwise it mixes projects without saying so.
+- **`jbx queue` says out loud when a job does not start.** A verb that
+  answers with an id and nothing else lets somebody believe the work has
+  begun; a job held back by a full queue looks exactly like one already
+  running, until they go and look. The id is still the first line, alone,
+  because that is what a script reads.
 - **A job says whether the launcher still holds it.** `running` covered
   two situations that want different things done about them: still held,
   where output is mirroring to whoever asked and the line may yet finish

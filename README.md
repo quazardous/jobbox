@@ -85,7 +85,7 @@ jbx run -- '<line>'            run it, detaching after 30s
 jbx fg -- '<line>'             run it and NEVER let go — said on purpose
 jbx fg <id>                    bring a detached job back to the foreground
 jbx queue <intent> -- '<line>' hand it over BEFORE it starts, and name it
-jbx ps                         what is happening right now
+jbx ps [--all]                 what is happening right now, in this project
 jbx list                       … and what has finished, for a day
 jbx status <id>                state, exit code, where its log is
 jbx tail <id> [-f]             what it printed

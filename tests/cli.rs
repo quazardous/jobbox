@@ -572,7 +572,7 @@ fn queue_holds_work_back_when_the_slots_are_full() {
     let mut ids = Vec::new();
     for n in 1..=3 {
         let out = s.run_with(&cap, &["queue", &format!("job-{n}"), "--", "sleep 2"]);
-        ids.push(text(&out).trim().to_string());
+        ids.push(text(&out).lines().next().unwrap_or("").trim().to_string());
     }
     // A CAP ONLY MEANS SOMETHING HERE. `run` wraps a command that is
     // already running, so holding it back would hold back nothing; this
@@ -1182,4 +1182,60 @@ fn stopping_a_job_before_it_starts_leaves_a_state_that_says_so() {
     assert!(!after.contains("waiting for a slot"), "it still claims to be waiting:\n{after}");
     assert_eq!(s.run_with(&one, &["wait", &victim]).status.code(), Some(1),
                "`wait` did not come back");
+}
+
+#[test]
+fn queue_says_out_loud_when_a_job_does_not_start() {
+    let s = Scratch::new("stacked");
+    let one = [("JBX_SLOTS", "1")];
+    let first = text(&s.run_with(&one, &["queue", "a", "--", "sleep 3"]));
+    let second = text(&s.run_with(&one, &["queue", "b", "--", "sleep 3"]));
+
+    // A VERB THAT ANSWERS WITH AN ID AND NOTHING ELSE lets somebody
+    // believe the work has begun. A job held back by a full queue looks
+    // exactly like one already running, until they go and look.
+    assert!(second.contains("NOT STARTED"), "the second one kept quiet:\n{second}");
+    assert!(!first.contains("NOT STARTED"), "the first one claimed to be held:\n{first}");
+    // AND THE ID IS STILL THE FIRST LINE, ALONE, because that is what a
+    // script reads; the rest is for a person.
+    assert!(first.lines().next().unwrap().trim().starts_with('j'));
+}
+
+#[test]
+fn a_list_shows_this_project_and_counts_what_it_hides() {
+    let s = Scratch::new("scoped");
+    let mine = s.project(None, "");
+    let other = s.0.join("elsewhere");
+    std::fs::create_dir_all(other.join(".claude")).unwrap();
+
+    let start = |dir: &std::path::Path| {
+        Command::new(JBX)
+            .env_remove("JBX_WRAPPED")
+            .env_remove("CLAUDE_CODE_SESSION_ID")
+            .args(["run", "--after", "1", "--", "sleep 4"])
+            .current_dir(dir)
+            .env("JBX_DIR", &s.0)
+            .env("JBX_CONFIG", s.0.join("global.yaml"))
+            .stdout(Stdio::null())
+            .output()
+            .unwrap();
+    };
+    start(&mine);
+    start(&other);
+
+    let here = text(&Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
+        .arg("ps")
+        .current_dir(&mine)
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .output()
+        .unwrap());
+    // ONE ROW, AND THE OTHER COUNTED. Hiding another project's work
+    // makes a busy machine look idle, and somebody spends ten minutes
+    // wondering why their own job never starts.
+    assert_eq!(here.lines().filter(|l| l.trim_start().starts_with('j')).count(), 1,
+               "the scope did not hold:\n{here}");
+    assert!(here.contains("other projects"), "what was hidden went unsaid:\n{here}");
 }
