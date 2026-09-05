@@ -18,6 +18,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.7] - 2026-09-05
+
+### Added
+
+- **One line to install it, from a release, without a checkout.**
+  `curl -fsSL …/install.sh | sh`, or `irm …/install.ps1 | iex` on
+  Windows. Building needed the repository AND a Rust toolchain, which is
+  the wrong order for a tool whose whole point is that you do not have to
+  build anything; `--from-source` still does it for whoever wants to.
+- **The release publishes `SHA256SUMS`, and the installer checks them.**
+  TLS says the bytes came from GitHub; it does not say they are the bytes
+  that release built. A release without sums is said out loud rather than
+  passed over — every release before this one has none, and the installer
+  reports that instead of implying a check it did not make.
+- **`JBX_BIN`** moves where the installer puts the binary, so trying it
+  never overwrites an install somebody is using.
+
 ## [0.5.6] - 2026-09-05
 
 ### Fixed
