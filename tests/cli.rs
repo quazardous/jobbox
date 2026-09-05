@@ -911,3 +911,33 @@ fn project_path_shows_the_road_when_asked() {
     assert!(shown.contains(&s.0.join("here").display().to_string()),
             "the full path was not shown:\n{shown}");
 }
+
+#[test]
+#[cfg(unix)]
+fn a_reader_that_leaves_early_is_told_its_view_was_partial() {
+    let s = Scratch::new("mirror");
+    // #2066: what jbx prints is a MIRROR of the job's log. Closing it
+    // early truncates what you SEE, never what runs — and the truncated
+    // mirror reads exactly like the whole story. Somebody concluded a
+    // suite had finished, re-ran it, and the two collided.
+    //
+    // THE CONDITION IS "THE READER LEFT", NOT "IT IS A PIPE". A first
+    // attempt warned on any pipe, which fires on `x=$(jbx run …)` —
+    // an ordinary capture that reads to the end and misses nothing. A
+    // write that FAILS is the exact fact, and it has no false positive.
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(format!("{JBX} run -- 'seq 20000' | head -3"))
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .output()
+        .unwrap();
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(said.contains("stopped early"), "a cut mirror went unmentioned: {said}");
+
+    // AND AN ORDINARY CAPTURE IS SILENT. `.output()` reads everything,
+    // which is what a caller collecting the result does.
+    let quiet = s.run(&["run", "--", "echo hi"]);
+    let noise = String::from_utf8_lossy(&quiet.stderr);
+    assert!(!noise.contains("stopped early"), "it warned at a reader that stayed: {noise}");
+}

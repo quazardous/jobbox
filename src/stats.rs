@@ -164,7 +164,7 @@ struct Reading {
     after: f64,
     /// `true` when the caller asked for the foreground on purpose.
     fg: bool,
-    /// `true` for a line that ran, `false` for time spent blocked on one
+    /// `true` for a line that ran, `false` for time spent waited on one
     /// that had already been detached. Readings written before this
     /// existed have no `kind` and are runs, which is what they were.
     ran: bool,
@@ -196,7 +196,7 @@ struct Tally {
     /// Everything the lines really took, end to end.
     elapsed: f64,
     /// What the caller actually stood still for.
-    blocked: f64,
+    waited: f64,
     worst: f64,
     paths: std::collections::BTreeSet<String>,
 }
@@ -207,7 +207,7 @@ impl Tally {
             // A BLOCK IS NOT A CALL. It adds to what was stood through
             // and to nothing else — counting it as a call would inflate
             // the denominator with time that was already counted once.
-            self.blocked += r.secs;
+            self.waited += r.secs;
             return;
         }
         self.calls += 1;
@@ -219,7 +219,7 @@ impl Tally {
         // WHAT WAS STOOD THROUGH IS NOT WHAT IT TOOK. A detached line
         // costs the caller the threshold and not a second more; the rest
         // of its duration happened while they were free.
-        self.blocked += r.secs.min(r.after);
+        self.waited += r.secs.min(r.after);
         if r.secs > r.after {
             self.detached += 1;
         }
@@ -235,7 +235,7 @@ impl Tally {
     /// more on the clock than the job ever took, and a negative
     /// compression would be arithmetic pretending to be a finding.
     fn saved(&self) -> f64 {
-        (self.elapsed - self.blocked).max(0.0)
+        (self.elapsed - self.waited).max(0.0)
     }
 
     fn ratio(&self) -> f64 {
@@ -332,7 +332,7 @@ impl Layout<'_> {
                 t.calls.to_string(),
                 t.detached.to_string(),
                 human(t.elapsed),
-                human(t.blocked),
+                human(t.waited),
                 format!("{} ({:.0}%)", human(t.saved()), t.ratio() * 100.0),
             ]);
             self.walk(Some(p), depth + 1, rows);
@@ -396,7 +396,7 @@ fn print_table(headings: &[&str], rows: Vec<Vec<String>>) {
 /// `jbx stats` — HOW MUCH TIME WAS COMPRESSED, per project.
 ///
 /// The one number this tool is for. `elapsed` is what the lines really
-/// took; `blocked` is what the caller stood through. The difference is
+/// took; `waited` is what the caller stood through. The difference is
 /// time that happened while they were free — and it is the difference,
 /// not the elapsed total, that says whether wrapping everything was
 /// worth it.
@@ -429,7 +429,7 @@ pub fn stats(only: Option<&str>, full_path: bool) -> i32 {
                 all.add(r);
             }
             print_table(
-                &["project", "calls", "detached", "elapsed", "blocked", "saved"],
+                &["project", "calls", "detached", "elapsed", "waited", "saved"],
                 arrange(&by, &names, full_path),
             );
             outln!();
@@ -451,9 +451,9 @@ pub fn stats(only: Option<&str>, full_path: bool) -> i32 {
                     human(all.chosen_secs)
                 );
             }
-            outln!("`saved` is elapsed minus what you stood through, and it already subtracts");
-            outln!("the time you gave back to `jbx wait`. It cannot see you waiting some other");
-            outln!("way, so read it as a ceiling, not a receipt.");
+            outln!("`waited` is what you actually stood still for, and `saved` is the rest");
+            outln!("of `elapsed` — it already subtracts the time you gave back to `jbx wait`.");
+            outln!("It cannot see you waiting some other way: a ceiling, not a receipt.");
             outln!("Name a project to see its shapes; `--project-path` for full paths.");
         }
         Some(want) => {

@@ -316,6 +316,7 @@ fn run_inner(after: f64, line: &str, fg: bool) -> i32 {
     let record = Record {
         id: id.clone(),
         queued: false,
+        mirror_cut: false,
         pid: child.id(),
         command: line.to_string(),
         intent: store::intent_of(line),
@@ -337,6 +338,8 @@ fn run_inner(after: f64, line: &str, fg: bool) -> i32 {
         }
     };
     let mut buf = [0u8; 16 * 1024];
+    // WHETHER WHOEVER WAS READING US WENT AWAY.
+    let mut cut = false;
     // SINCE WHEN NOTHING HAS HAPPENED. A single sample at the threshold
     // cannot tell a stuck process from a busy one — it catches every
     // pipeline stage mid-read. These two say whether it has LASTED, and
@@ -345,7 +348,7 @@ fn run_inner(after: f64, line: &str, fg: bool) -> i32 {
     let mut reading_since: Option<f64> = None;
     let mut last_look = 0.0_f64;
     loop {
-        let moved = drain(&mut reader, &mut buf);
+        let moved = drain(&mut reader, &mut buf, &mut cut);
         if moved > 0 {
             quiet_since = store::now();
         }
@@ -367,13 +370,20 @@ fn run_inner(after: f64, line: &str, fg: bool) -> i32 {
             // by the supervisor only once the line has exited, so
             // everything the line ever printed is already in the file —
             // but not necessarily already read by us.
-            while drain(&mut reader, &mut buf) > 0 {}
+            while drain(&mut reader, &mut buf, &mut cut) > 0 {}
             let code = std::fs::read_to_string(store::code_path(&id))
                 .ok()
                 .and_then(|t| t.trim().parse::<i32>().ok())
                 .unwrap_or(1);
             for path in [store::record_path(&id), store::code_path(&id), log] {
                 let _ = std::fs::remove_file(path);
+            }
+            if cut {
+                // THE EXIT CODE IS RIGHT AND THE VIEW WAS NOT. Saying so
+                // costs one line and saves the conclusion that what you
+                // read was all of it.
+                eprintln!("jbx: whoever was reading this output stopped early, so what you saw\n\
+                           is only part of it. The command itself ran to the end.");
             }
             return code;
         }
@@ -387,7 +397,18 @@ fn run_inner(after: f64, line: &str, fg: bool) -> i32 {
             if store::code_path(&id).exists() {
                 continue;
             }
+            if cut {
+                // WRITTEN ON THE JOB, because there may be nowhere else
+                // to say it: with `2>&1 | head` both streams are the
+                // closed pipe. `status` is then the only place the
+                // reader will ever learn their view was partial.
+                if let Some(mut r) = store::read_record(&id) {
+                    r.mirror_cut = true;
+                    let _ = store::write_record(&r);
+                }
+            }
             let observation = Observation {
+                mirror_cut: cut,
                 reading_for: reading_since.map(|t| now - t).unwrap_or(0.0),
                 quiet_for: now - quiet_since,
             };
@@ -405,15 +426,20 @@ fn run_inner(after: f64, line: &str, fg: bool) -> i32 {
 /// until a line is complete, which turns a progress bar — the one kind
 /// of output whose entire job is to arrive early — into nothing at all
 /// until the command ends.
-fn drain(reader: &mut File, buf: &mut [u8]) -> usize {
+fn drain(reader: &mut File, buf: &mut [u8], cut: &mut bool) -> usize {
     match reader.read(buf) {
         Ok(0) | Err(_) => 0,
         Ok(n) => {
             let out = io::stdout();
             let mut out = out.lock();
-            // A CLOSED PIPE IS NOT AN ERROR: `… | head` closes it on
-            // purpose, and the line behind us is entitled to go on.
-            let _ = out.write_all(&buf[..n]);
+            // A CLOSED PIPE IS NOT AN ERROR — `… | head` closes it on
+            // purpose and the line behind us is entitled to go on — but
+            // it IS worth remembering. What we print is a mirror of the
+            // log; a mirror cut short reads exactly like the whole story
+            // (#2066), and somebody concluded a suite had finished.
+            if out.write_all(&buf[..n]).is_err() {
+                *cut = true;
+            }
             let _ = out.flush();
             n
         }
@@ -426,6 +452,8 @@ fn drain(reader: &mut File, buf: &mut [u8]) -> usize {
 /// twelve seconds" means anything is a judgement, and the one this code
 /// used to make was wrong often enough to cost a deployment.
 struct Observation {
+    /// Whether whoever was reading our output went away before the end.
+    mirror_cut: bool,
     /// How long the subtree has been continuously stopped reading its
     /// own standard input; zero when it is not, or when we cannot see.
     reading_for: f64,
@@ -481,6 +509,14 @@ fn announce(id: &str, after: f64, seen: Observation) -> i32 {
         out,
         "\x20 jbx how {id}   what you can do with it   ·   jbx why   why it works this way"
     );
+    if seen.mirror_cut {
+        // ON STDERR, because stdout is precisely what stopped being
+        // read. This is the case that cost half an hour: a mirror cut
+        // short reads exactly like a finished job (#2066).
+        eprintln!("jbx: whoever was reading this output stopped early — what you saw is a\n\
+                   truncated MIRROR of the log, not the end of the job. {id} is still\n\
+                   running; `jbx status {id}` is the real answer.");
+    }
     let _ = out.flush();
     0
 }
@@ -545,6 +581,7 @@ pub fn queue(intent: &str, line: &str) -> i32 {
     let record = Record {
         id: id.clone(),
         queued: true,
+        mirror_cut: false,
         pid: child.id(),
         command: line.to_string(),
         intent: intent.to_string(),
@@ -594,19 +631,20 @@ pub fn attach(id: &str) -> i32 {
         }
     };
     let mut buf = [0u8; 16 * 1024];
+    let mut cut = false;
     let code = loop {
-        let moved = drain(&mut reader, &mut buf);
+        let moved = drain(&mut reader, &mut buf, &mut cut);
         match store::settled_state(&record) {
             store::State::Finished { code } => {
                 // EVERYTHING IT EVER PRINTED, not just what arrived
                 // while we watched: the exit code appears only once the
                 // line has exited, so the rest of the log is already
                 // there to be read.
-                while drain(&mut reader, &mut buf) > 0 {}
+                while drain(&mut reader, &mut buf, &mut cut) > 0 {}
                 break code;
             }
             store::State::Lost => {
-                while drain(&mut reader, &mut buf) > 0 {}
+                while drain(&mut reader, &mut buf, &mut cut) > 0 {}
                 eprintln!("jbx: {id} ended without leaving an exit code");
                 break 1;
             }

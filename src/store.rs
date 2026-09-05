@@ -17,6 +17,12 @@ pub struct Record {
     /// `true` for a job handed to `queue`, which waits for a slot and is
     /// announced whatever its duration. A wrapped line is neither.
     pub queued: bool,
+    /// WHETHER WHOEVER WAS READING THE LAUNCHER WENT AWAY EARLY.
+    ///
+    /// Kept on the job because there may be nowhere else to say it: with
+    /// `… 2>&1 | head -3` both streams are the closed pipe, and nothing
+    /// the launcher prints can reach anybody. The record outlives that.
+    pub mirror_cut: bool,
     pub pid: u32,
     pub command: String,
     pub intent: String,
@@ -125,7 +131,7 @@ pub fn write_record(r: &Record) -> io::Result<()> {
     let value = serde_json::json!({
         "id": r.id, "pid": r.pid, "command": r.command, "intent": r.intent,
         "started": r.started, "client": r.client, "cwd": r.cwd,
-        "queued": r.queued,
+        "queued": r.queued, "mirror_cut": r.mirror_cut,
     });
     fs::write(record_path(&r.id), value.to_string())
 }
@@ -136,6 +142,7 @@ pub fn read_record(id: &str) -> Option<Record> {
     Some(Record {
         id: v["id"].as_str()?.to_string(),
         queued: v["queued"].as_bool().unwrap_or(false),
+        mirror_cut: v["mirror_cut"].as_bool().unwrap_or(false),
         pid: v["pid"].as_u64().unwrap_or(0) as u32,
         command: v["command"].as_str().unwrap_or("").to_string(),
         intent: v["intent"].as_str().unwrap_or("").to_string(),

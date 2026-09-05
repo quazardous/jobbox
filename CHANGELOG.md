@@ -18,6 +18,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.6] - 2026-09-05
+
+### Changed
+
+- **`blocked` is called `waited`.** It is what you actually stood still
+  for, and the plain word reads against `saved` without a glossary. The
+  footer now says what each column is: `waited` is the standing, `saved`
+  is the rest of `elapsed`.
+
+### Added
+
+- **A reader that leaves early is told its view was partial** (#2066).
+  What jbx prints is a MIRROR of the job's log, not the job:
+  `jbx run … | head -3` truncates what you see and never what runs — and
+  the truncated mirror reads exactly like the whole story. Somebody
+  concluded a suite had finished, re-ran it, and the two collided over
+  the same Docker project.
+
+  The condition is that a write FAILED, not that stdout is a pipe: an
+  ordinary `x=$(jbx run …)` reads to the end and misses nothing, and
+  warning there would be noise. And because `… 2>&1 | head` leaves no
+  channel open at all — both streams are the closed pipe — the fact is
+  also written on the job, so `jbx status` says it when nothing else
+  could.
+
 ## [0.5.5] - 2026-09-05
 
 ### Fixed

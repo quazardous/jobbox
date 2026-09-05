@@ -11,7 +11,7 @@ the sum is invisible until something counts it.
 
 ```console
 $ jbx stats
-project  calls  detached  elapsed  blocked  saved
+project  calls  detached  elapsed  waited  saved
 acme-api    142        11    3h04m   35m12s   2h29m (81%)
 
 2h29m saved — command time that ran while the caller was free, 81% of 3h04m.
@@ -135,9 +135,10 @@ list readable three hours later.
 
 ## `saved` is a ceiling, and it says so
 
-`blocked` already subtracts the time handed back to `jbx wait`. Detaching
-a job you then stand and wait for saved nobody anything, and a tool that
-counted it would be reporting its own good intentions.
+`waited` is what you actually stood still for, and `saved` is the rest of
+`elapsed`. It already subtracts the time handed back to `jbx wait`:
+detaching a job you then stand and wait for saved nobody anything, and a
+tool that counted it would be reporting its own good intentions.
 
 What it cannot see is somebody waiting *some other way*. So it is an
 upper bound made as tight as the evidence allows — a ceiling, not a

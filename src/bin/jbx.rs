@@ -227,6 +227,13 @@ fn status(id: &str) -> i32 {
     jobbox::outln!("  client   {}", r.client);
     jobbox::outln!("  where    {}", r.cwd);
     jobbox::outln!("  log      {}", store::log_path(&r.id).display());
+    if r.mirror_cut {
+        // THE ONE PLACE THIS CAN BE SAID. Whoever piped the launcher and
+        // closed it early had no channel left to be warned on — and the
+        // truncated view they kept reads exactly like a finished job.
+        jobbox::outln!("  note     whoever was reading the launcher stopped early, so what");
+        jobbox::outln!("           they saw was a truncated MIRROR. This log is the whole of it.");
+    }
     // THE JOB'S CODE BECOMES OURS, so a script can decide without
     // reading a word of this.
     match state {
