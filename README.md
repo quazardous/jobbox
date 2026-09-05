@@ -40,26 +40,19 @@ One binary. Rust, `serde_json`, nothing else. Linux, macOS, Windows.
 
 ## Quickstart
 
-**Download the binary** — under a megabyte, nothing to install — from the
-[releases](https://github.com/quazardous/jobbox/releases): Linux
-(static, so distribution age does not matter), Windows, macOS. Put it on
-your `PATH`, then:
-
 ```console
+$ curl -fsSL https://raw.githubusercontent.com/quazardous/jobbox/main/install.sh | sh
 $ jbx init                        # declares its hooks, merges safely
 ```
 
-Or build it, if you already have Rust:
+On Windows, `irm https://raw.githubusercontent.com/quazardous/jobbox/main/install.ps1 | iex`.
 
-```console
-$ git clone https://github.com/quazardous/jobbox && cd jobbox
-$ ./install.sh                    # or .\install.ps1 on Windows
-```
-
-On Windows, `winget install Rustlang.Rustup` does get you cargo — but
-rustup then wants the Visual Studio build tools to link with, which is
-gigabytes of prerequisite for a program this size. Take the binary
-unless you were going to write Rust anyway.
+It downloads the binary for your machine — under a megabyte, nothing
+compiled, nothing outside your home — and checks it against the sums
+published with the release. `--from-source` builds a checkout instead,
+`--uninstall` removes it, `--version=vX.Y.Z` pins one. The
+[releases](https://github.com/quazardous/jobbox/releases) hold the
+archives if you would rather do it by hand.
 
 Open a new session. Nothing changes — until something is slow:
 

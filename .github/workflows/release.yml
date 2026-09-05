@@ -99,6 +99,16 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: sums, so an installer can check what it downloaded
+        run: |
+          set -eu
+          # A `curl | sh` INSTALLER FETCHES A BINARY AND RUNS IT. TLS says
+          # the bytes came from GitHub; it does not let anybody check that
+          # they are the bytes this release built. Publishing the sums
+          # costs one line and makes the check possible — for the
+          # installer, and for anyone who would rather verify by hand.
+          cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
+
       - name: the notes come from the changelog, because it is the source
         run: |
           set -eu
