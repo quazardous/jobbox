@@ -565,7 +565,7 @@ pub fn queue(intent: &str, line: &str) -> i32 {
 /// caller standing still; this is how a caller says "I have thought
 /// about it, and I need the answer before I can go on". Saying it out
 /// loud is the point: `jbx stats` counts what it cost, so a habit of
-/// reaching for it shows up as time that was never compressed.
+/// reaching for it shows up as time that was never saved.
 pub fn foreground(line: &str) -> i32 {
     run_inner(f64::INFINITY, line, true)
 }

@@ -18,6 +18,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.5] - 2026-09-05
+
+### Fixed
+
+- **Two projects that share a directory name are no longer one project.**
+  `jbx stats` grouped by name, so every `api` on the machine became a
+  single row whose every number was the sum of unrelated things. It now
+  groups by path, and spends four characters of a hash on a label only
+  where one is genuinely ambiguous.
+- **A session working across projects no longer strands its endings.** The
+  mailbox was addressed by project, derived from the working directory —
+  but an ending is deposited by a supervisor that inherited the COMMAND's
+  directory, and read by a hook running in the SESSION's. The moment a
+  session touched a second repository the two disagreed. Measured on a
+  real store: one session held two mailboxes, and two endings sat in the
+  one it had stopped reading.
+
+  The address is the session now, which both ends can read whatever
+  directory they are in. The project was never an address — it is a label
+  on the work, and every job record still carries it.
+
+### Changed
+
+- **The number is called `saved` again.** "Compressed" was chosen to stop
+  the column over-claiming, and it bought that at the price of needing
+  the footer to be read before the table meant anything. The caveat has
+  not moved — `saved` still subtracts the time given back to `jbx wait`,
+  and the line under the table still says it is a ceiling and not a
+  receipt.
+
+### Added
+
+- **Projects nest in `jbx stats`.** A repository inside a repository is
+  the ordinary case, and a flat list hid it exactly where it mattered:
+  three of the four rows on this machine live inside the fourth. A child
+  is shown under its parent, named by what it is rather than by the whole
+  road to it. `--project-path` prints the roads.
+
 ## [0.5.4] - 2026-09-05
 
 ### Changed

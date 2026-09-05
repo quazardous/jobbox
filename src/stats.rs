@@ -230,10 +230,11 @@ impl Tally {
     }
 
     /// THE HEADLINE: how much of the elapsed time the caller did not
-    /// stand through. Never negative — waiting twice on one job can put
+    /// stand through — `saved`, and the footer says in what sense.
+    /// Never negative — waiting twice on one job can put
     /// more on the clock than the job ever took, and a negative
     /// compression would be arithmetic pretending to be a finding.
-    fn compressed(&self) -> f64 {
+    fn saved(&self) -> f64 {
         (self.elapsed - self.blocked).max(0.0)
     }
 
@@ -241,9 +242,116 @@ impl Tally {
         if self.elapsed <= 0.0 {
             0.0
         } else {
-            self.compressed() / self.elapsed
+            self.saved() / self.elapsed
         }
     }
+}
+
+/// LAY THE PROJECTS OUT AS THEY SIT ON DISK.
+///
+/// Projects nest — a repository inside a repository, a sub-module, a tool
+/// living in the tree of the thing it serves. A flat list hides that, and
+/// hides it exactly where it matters: three of the four rows on this
+/// machine live inside the fourth.
+///
+/// So a project whose path is under another project's path is shown as
+/// its child, by the part of the path that differs. A name that would
+/// still be ambiguous — two `api` under unrelated parents — gets four
+/// characters of the path's hash, which is what the Python this replaces
+/// did, and it is only spent where it is needed.
+fn arrange(
+    by: &BTreeMap<String, Tally>,
+    names: &BTreeMap<String, String>,
+    full_path: bool,
+) -> Vec<Vec<String>> {
+    let paths: Vec<&String> = by.keys().collect();
+    // The nearest other row that contains this one, if any.
+    let parent = |p: &str| -> Option<String> {
+        paths
+            .iter()
+            .filter(|other| p.starts_with(&format!("{other}/")))
+            .max_by_key(|other| other.len())
+            .map(|s| s.to_string())
+    };
+
+    let mut label: BTreeMap<&String, String> = BTreeMap::new();
+    for p in &paths {
+        let shown = match parent(p) {
+            // The part below the parent, so a nested tool reads as what
+            // it is called and not as the whole road to it.
+            Some(up) => p[up.len() + 1..].to_string(),
+            None => names.get(*p).cloned().unwrap_or_else(|| (*p).clone()),
+        };
+        label.insert(p, shown);
+    }
+    // FOUR HEX CHARACTERS, AND ONLY WHERE THEY EARN THEIR PLACE. A column
+    // of hashes nobody needs is a column nobody reads.
+    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    for p in &paths {
+        *seen.entry(label[*p].clone()).or_default() += 1;
+    }
+    for p in &paths {
+        if seen[&label[*p]] > 1 {
+            let short = fingerprint_path(p);
+            label.insert(p, format!("{}-{short}", label[*p]));
+        }
+    }
+
+    // Depth first, and heaviest first among siblings.
+    let mut order: Vec<&String> = paths.clone();
+    order.sort_by(|a, b| by[*b].saved().total_cmp(&by[*a].saved()));
+    let layout = Layout { order: &order, parent: &parent, by, label: &label, full_path };
+    let mut rows = Vec::new();
+    layout.walk(None, 0, &mut rows);
+    rows
+}
+
+/// Everything the walk needs, carried once instead of passed eight times.
+struct Layout<'a> {
+    order: &'a [&'a String],
+    parent: &'a dyn Fn(&str) -> Option<String>,
+    by: &'a BTreeMap<String, Tally>,
+    label: &'a BTreeMap<&'a String, String>,
+    full_path: bool,
+}
+
+impl Layout<'_> {
+    fn walk(&self, here: Option<&String>, depth: usize, rows: &mut Vec<Vec<String>>) {
+        for p in self.order {
+            if (self.parent)(p).as_ref() != here {
+                continue;
+            }
+            let t = &self.by[*p];
+            let shown = if self.full_path {
+                (*p).clone()
+            } else {
+                format!("{}{}", "  ".repeat(depth), self.label[*p])
+            };
+            rows.push(vec![
+                shown,
+                t.calls.to_string(),
+                t.detached.to_string(),
+                human(t.elapsed),
+                human(t.blocked),
+                format!("{} ({:.0}%)", human(t.saved()), t.ratio() * 100.0),
+            ]);
+            self.walk(Some(p), depth + 1, rows);
+        }
+    }
+}
+
+/// Four hex characters of a path, to tell two same-named projects apart.
+///
+/// FNV-1a, written out rather than pulled in: a hash used only to make a
+/// label unique needs no more than that, and a dependency for four
+/// characters is a dependency to keep for ever.
+fn fingerprint_path(path: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in path.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x1000_0000_01b3);
+    }
+    format!("{:04x}", (hash & 0xffff) as u16)
 }
 
 /// A duration a person can read at a glance.
@@ -299,7 +407,7 @@ fn print_table(headings: &[&str], rows: Vec<Vec<String>>) {
 /// see somebody staring at the screen instead. So the number is an upper
 /// bound that has been made as tight as the evidence allows, and the
 /// footer says so rather than letting the column imply otherwise.
-pub fn stats(only: Option<&str>) -> i32 {
+pub fn stats(only: Option<&str>, full_path: bool) -> i32 {
     let readings = read_all();
     if readings.is_empty() {
         outln!("nothing measured yet — the table fills as commands run through `jbx run`.");
@@ -308,61 +416,33 @@ pub fn stats(only: Option<&str>) -> i32 {
 
     match only {
         None => {
+            // GROUPED BY PATH, NOT BY NAME. Two directories called `api`
+            // are two projects, and summing them made one row whose every
+            // number was the sum of two unrelated things.
             let mut by: BTreeMap<String, Tally> = BTreeMap::new();
+            let mut names: BTreeMap<String, String> = BTreeMap::new();
             let mut all = Tally::default();
             for r in &readings {
-                by.entry(r.project.clone()).or_default().add(r);
+                let key = if r.path.is_empty() { r.project.clone() } else { r.path.clone() };
+                by.entry(key.clone()).or_default().add(r);
+                names.entry(key).or_insert_with(|| r.project.clone());
                 all.add(r);
             }
-            let mut rows: Vec<(f64, Vec<String>)> = by
-                .into_iter()
-                .map(|(name, t)| {
-                    // TWO CHECKOUTS OF ONE REPOSITORY SHARE A NAME, and
-                    // that is exactly when the name stops being enough.
-                    // Said only then: a column of paths nobody needs is
-                    // a column nobody reads.
-                    let label = if t.paths.len() > 1 {
-                        format!("{name} ({} paths)", t.paths.len())
-                    } else {
-                        name
-                    };
-                    (t.compressed(), vec![
-                        label,
-                        t.calls.to_string(),
-                        t.detached.to_string(),
-                        human(t.elapsed),
-                        human(t.blocked),
-                        format!("{} ({:.0}%)", human(t.compressed()), t.ratio() * 100.0),
-                    ])
-                })
-                .collect();
-            rows.sort_by(|a, b| b.0.total_cmp(&a.0));
-            let mut rows: Vec<Vec<String>> = rows.into_iter().map(|(_, r)| r).collect();
-            if rows.len() > 1 {
-                rows.push(vec![
-                    "ALL".into(),
-                    all.calls.to_string(),
-                    all.detached.to_string(),
-                    human(all.elapsed),
-                    human(all.blocked),
-                    format!("{} ({:.0}%)", human(all.compressed()), all.ratio() * 100.0),
-                ]);
-            }
             print_table(
-                &["project", "calls", "detached", "elapsed", "blocked", "compressed"],
-                rows,
+                &["project", "calls", "detached", "elapsed", "blocked", "saved"],
+                arrange(&by, &names, full_path),
             );
             outln!();
             outln!(
-                "{} of command time went by while the caller was free — {:.0}% of {}.",
-                human(all.compressed()),
+                "{} saved — command time that ran while the caller was free, {:.0}% of {}.",
+                human(all.saved()),
                 all.ratio() * 100.0,
                 human(all.elapsed)
             );
             if all.chosen > 0 {
                 // THE DELIBERATE FOREGROUND, COUNTED. Choosing it is
-                // legitimate and sometimes right; a habit of choosing it
-                // is the thing worth seeing, and it is invisible unless
+                // legitimate and sometimes right; a HABIT of choosing it
+                // is what is worth seeing, and it is invisible unless
                 // somebody adds it up.
                 outln!(
                     "{} of {} calls asked for the foreground on purpose, costing {}.",
@@ -371,14 +451,22 @@ pub fn stats(only: Option<&str>) -> i32 {
                     human(all.chosen_secs)
                 );
             }
-            outln!("`blocked` already counts the time given back to `jbx wait`. It cannot count");
-            outln!("time spent waiting some other way, so read this as a ceiling, not a receipt.");
-            outln!("Name a project to see which shapes it comes from.");
+            outln!("`saved` already subtracts the time you gave back to `jbx wait`. It cannot");
+            outln!("see you waiting some other way, so read it as a ceiling, not a receipt.");
+            outln!("Name a project to see its shapes; `--project-path` for full paths.");
         }
         Some(want) => {
             let mut by: BTreeMap<String, Tally> = BTreeMap::new();
             let mut seen = false;
-            for r in readings.iter().filter(|r| r.project == want && r.ran) {
+            // A NAME, A PATH, OR THE TAIL OF ONE. Whatever the table
+            // showed you is what you should be able to type back.
+            let matches = |r: &Reading| {
+                r.ran
+                    && (r.project == want
+                        || r.path == want
+                        || r.path.ends_with(&format!("/{want}")))
+            };
+            for r in readings.iter().filter(|r| matches(r)) {
                 seen = true;
                 by.entry(r.shape.clone()).or_default().add(r);
             }
@@ -389,25 +477,25 @@ pub fn stats(only: Option<&str>) -> i32 {
             let mut rows: Vec<(f64, Vec<String>)> = by
                 .into_iter()
                 .map(|(shape, t)| {
-                    (t.compressed(), vec![
+                    (t.saved(), vec![
                         shape,
                         t.calls.to_string(),
                         t.detached.to_string(),
                         human(t.worst),
-                        human(t.compressed()),
+                        human(t.saved()),
                     ])
                 })
                 .collect();
             rows.sort_by(|a, b| b.0.total_cmp(&a.0));
             print_table(
-                &["shape", "calls", "detached", "worst", "compressed"],
+                &["shape", "calls", "detached", "worst", "saved"],
                 rows.into_iter().map(|(_, r)| r).collect(),
             );
             outln!();
             // PER SHAPE, THE BLOCKS CANNOT BE ATTRIBUTED: a `jbx wait`
             // names a job, not the shape it came from. Saying so beats
             // quietly spreading them over the rows.
-            outln!("Per shape, `compressed` does not subtract time given back to `jbx wait` —");
+            outln!("Per shape, `saved` does not subtract time given back to `jbx wait` —");
             outln!("a block names a job, not a shape. The project total above does subtract it.");
         }
     }

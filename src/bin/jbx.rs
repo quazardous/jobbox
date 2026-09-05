@@ -112,7 +112,10 @@ fn dispatch(args: Vec<String>) -> i32 {
             ),
             None => usage_error("signals needs an audience: agent or user"),
         },
-        "stats" => stats::stats(rest.first().filter(|a| !a.starts_with('-')).map(String::as_str)),
+        "stats" => stats::stats(
+            rest.first().filter(|a| !a.starts_with('-')).map(String::as_str),
+            rest.iter().any(|a| a == "--project-path"),
+        ),
         "init" => init::init(rest.iter().any(|a| a == "--undo")),
         "list" => list(),
         "status" => match rest.first() {
@@ -565,10 +568,13 @@ WHY THERE ARE TWO DOORS
   its turn, so `jbx slots` holds it: a loop that files fifty jobs does not
   start fifty at once. It is also the only place a name is required.
 
-WHAT THE NUMBERS MEAN
-  `jbx stats` reports time COMPRESSED, never \"saved\". It already subtracts
-  what you handed back to `jbx wait`, and it cannot see you waiting some
-  other way — so it is a ceiling, made as tight as the evidence allows.
+WHAT THE NUMBER MEANS
+  `jbx stats` says how much time was SAVED — and it means time that ran
+  while you were free, not time that vanished. It already subtracts what
+  you handed back to `jbx wait`, which is the honest half most tools skip.
+
+  What it cannot see is you waiting some OTHER way. So it is a ceiling,
+  made as tight as the evidence allows, and not a receipt.
 
 WHAT IT NEVER DOES
   It never loses an exit code, never holds output back until the end, and

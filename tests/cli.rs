@@ -440,7 +440,7 @@ fn a_shape_is_the_same_whichever_door_it_came_through() {
 }
 
 #[test]
-fn waiting_on_a_job_is_not_counted_as_time_compressed() {
+fn waiting_on_a_job_is_not_counted_as_time_saved() {
     let s = Scratch::new("honest");
     // TWO IDENTICAL LINES, TREATED DIFFERENTLY. One is detached and left
     // alone; the other is detached and then waited on. The second saved
@@ -464,7 +464,7 @@ fn waiting_on_a_job_is_not_counted_as_time_compressed() {
     // 4s — the exact figure moves with the machine, the halving does not.
     let compressed: f64 = shown
         .lines()
-        .find(|l| l.contains("of command time went by"))
+        .find(|l| l.contains("saved — command time"))
         .and_then(|l| l.split_whitespace().next().map(|w| w.trim_end_matches('s').to_string()))
         .and_then(|w| w.parse().ok())
         .unwrap_or(-1.0);
@@ -480,7 +480,7 @@ fn stats_group_by_project() {
     s.run(&["run", "--", "echo x"]);
     let shown = text(&s.run(&["stats"]));
     assert!(shown.contains("project"), "no heading: {shown}");
-    assert!(shown.contains("compressed"), "the number the tool exists for is missing");
+    assert!(shown.contains("saved"), "the number the tool exists for is missing");
 }
 
 // ── BEING TOLD IT ENDED ─────────────────────────────────────────────────
@@ -850,4 +850,64 @@ fn the_line_goes_to_the_shell_it_was_written_for() {
         "the named shell did not run the line: {}",
         text(&out)
     );
+}
+
+// ── PROJECTS THAT SHARE A NAME, AND PROJECTS INSIDE PROJECTS ────────────
+
+/// Run one command from a directory made to look like a project.
+fn run_from(s: &Scratch, dir: &std::path::Path, line: &str) {
+    std::fs::create_dir_all(dir.join(".claude")).unwrap();
+    Command::new(JBX)
+        .args(["run", "--", line])
+        .current_dir(dir)
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+}
+
+#[test]
+fn two_projects_sharing_a_name_are_not_one_project() {
+    let s = Scratch::new("homonyms");
+    run_from(&s, &s.0.join("alpha/api"), "echo a");
+    run_from(&s, &s.0.join("beta/api"), "echo b");
+
+    let shown = text(&s.run(&["stats"]));
+    let rows: Vec<&str> = shown.lines().filter(|l| l.contains("api")).collect();
+    // SUMMING THEM MADE ONE ROW whose every number was the total of two
+    // unrelated things. Two directories called `api` are two projects.
+    assert_eq!(rows.len(), 2, "the two `api` were merged:\n{shown}");
+    // AND THEY MUST BE TELLABLE APART. A row you cannot name is a row you
+    // cannot ask about.
+    assert_ne!(rows[0].trim(), rows[1].trim(), "nothing distinguishes them:\n{shown}");
+}
+
+#[test]
+fn a_project_inside_a_project_is_shown_inside_it() {
+    let s = Scratch::new("nested");
+    let outer = s.0.join("outer");
+    run_from(&s, &outer, "echo outer");
+    run_from(&s, &outer.join("tool"), "echo inner");
+
+    let shown = text(&s.run(&["stats"]));
+    let outer_line = shown.lines().position(|l| l.contains("outer")).unwrap();
+    let inner_line = shown.lines().position(|l| l.trim_start().starts_with("tool")).unwrap();
+    // A REPOSITORY INSIDE A REPOSITORY IS THE ORDINARY CASE — a tool
+    // living in the tree of the thing it serves. A flat list hides it
+    // exactly where it matters.
+    assert!(inner_line > outer_line, "the child was not under its parent:\n{shown}");
+    let inner = shown.lines().nth(inner_line).unwrap();
+    assert!(inner.starts_with("  "), "the child was not indented: {inner:?}");
+    // AND THE CHILD IS NAMED BY WHAT IT IS, not by the whole road to it.
+    assert!(!inner.contains("outer/tool"), "the full path leaked in: {inner:?}");
+}
+
+#[test]
+fn project_path_shows_the_road_when_asked() {
+    let s = Scratch::new("paths");
+    run_from(&s, &s.0.join("here"), "echo x");
+    let shown = text(&s.run(&["stats", "--project-path"]));
+    assert!(shown.contains(&s.0.join("here").display().to_string()),
+            "the full path was not shown:\n{shown}");
 }

@@ -45,18 +45,28 @@ pub fn mailbox(client: &str, audience: &str) -> PathBuf {
 
 /// WHO IS ASKING — one store for everyone, one mailbox each.
 ///
-/// The name needs BOTH halves. A session id alone is unique and says
-/// nothing: on a shared machine you cannot tell whose work a job is. A
-/// project alone would put two windows on one project back in the same
-/// mailbox, which is the theft this design removes.
+/// THE SESSION IS THE ADDRESS, and it has to be, because the two ends of
+/// this must agree without talking to each other. An ending is deposited
+/// by a supervisor that inherited the COMMAND's working directory; it is
+/// read by a hook that runs in the SESSION's. Deriving the address from
+/// the project made those two disagree the moment a session touched a
+/// second repository — measured on a real store: one session held both a
+/// `bms-…` and a `BookShepherd-…` mailbox, and two endings sat in the
+/// one it had stopped reading.
 ///
-/// THE PROJECT IS DERIVED, AND HERE THAT IS SAFE. The Python this
-/// replaces had to write the project into a settings file, because
-/// deriving it from the working directory renamed the client whenever a
-/// command ran from a subdirectory — splitting a mailbox mid-session and
-/// stranding everything in it. Deriving it from the REPOSITORY ROOT does
-/// not move when you cd into a subdirectory, so the file it needed is
-/// gone.
+/// The Python this replaces guarded against exactly this by writing the
+/// project into a settings file and never deriving it. Removing that
+/// guard, I checked that a repository root does not move when you `cd`
+/// into a SUBDIRECTORY — and never asked what happens when you `cd` into
+/// another project. A witness chosen too narrowly, again.
+///
+/// `CLAUDE_PROJECT_DIR` would have given the session's own project, and
+/// it is not exposed to commands — only to hooks. So the session id it
+/// is: both ends read the same variable, whatever directory they are in.
+///
+/// The project has not gone anywhere: every job record carries its own,
+/// and `list` and `status` show it. It is a LABEL on the work, which it
+/// always was. It was never an address.
 pub fn client() -> String {
     if let Ok(pinned) = std::env::var("JBX_CLIENT") {
         if !pinned.is_empty() && plain(&pinned) {
@@ -67,20 +77,20 @@ pub fn client() -> String {
         .unwrap_or_default()
         .chars()
         .take(8)
+        .filter(|c| c.is_ascii_alphanumeric())
         .collect();
+    if !session.is_empty() {
+        return format!("cc-{session}");
+    }
+    // NO SESSION: a plain shell. Two terminals in one project then share
+    // a mailbox, which is right — the person wants every ending, and the
+    // shared box already works that way.
     let (project, _) = stats::project();
     let project: String = project
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || "._-".contains(*c))
         .collect();
-    match (project.is_empty(), session.is_empty()) {
-        (false, false) => format!("{project}-{session}"),
-        // NO PROJECT BUT A SESSION: `cc` stands in, so the name still has
-        // two halves and still reads as a name rather than a bare hash.
-        (true, false) => format!("cc-{session}"),
-        (false, true) => project,
-        (true, true) => "default".into(),
-    }
+    if project.is_empty() { "default".into() } else { project }
 }
 
 fn plain(name: &str) -> bool {
