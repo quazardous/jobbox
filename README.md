@@ -12,13 +12,14 @@ the sum is invisible until something counts it.
 ```console
 $ jbx stats
 project      calls  detached  elapsed  waited  saved
-acme            142        11    3h04m   35m12s  2h29m (81%)
+acme             12         0      14m    13m52s     8s (1%)
   api            96         7    2h11m   18m03s  1h53m (86%)
-  front          46         4      53m    17m09s   36m (68%)
+  front          34         4      39m    03m17s   36m (92%)
 
 2h29m saved — command time that ran while the caller was free, 81% of 3h04m.
 `waited` is what you actually stood still for, and `saved` is the rest
 of `elapsed` — it already subtracts the time you gave back to `jbx wait`.
+It cannot see you waiting some other way: a ceiling, not a receipt.
 ```
 
 That is one week. Put your own rate on it.
@@ -99,6 +100,7 @@ jbx config                     every setting, and where it came from
 jbx how [id]                   what you can do with it, right now
 jbx why                        why it works this way
 jbx init [--undo]              declare the hooks
+jbx hook                       answers the harness; init declares this one
 ```
 
 `run` is what the hook calls. You rarely type it.
@@ -144,6 +146,9 @@ tool that counted it would be reporting its own good intentions — so
 What it cannot see is somebody waiting *some other way*. So it is an
 upper bound made as tight as the evidence allows — a ceiling, not a
 receipt, and the line under the table says so.
+
+**Each row counts its own calls** — a parent does not total its
+children, so the figures never say the same minute twice.
 
 **Projects nest, because they nest on disk.** A repository inside a
 repository is the ordinary case, and a flat list hides it exactly where
@@ -243,7 +248,9 @@ this one run.
 | `JBX_SLOTS` | `slots` | how many QUEUED jobs run at once (`none` for no cap) |
 | `JBX_MUTE_AFTER` | `mute_after` | seconds of silence before a job is called mute (`600`) |
 | `JBX_RTK` | `integration.rtk.compose` | `auto`, `always`, or `never` |
+| `JBX_SHELL` | `shell` | which shell runs a line (`cmd` for Windows' own) |
 | `JBX_CLIENT` | — | pins one fixed mailbox |
+| `JBX_CONFIG` | — | read a different global file |
 
 `jbx config` prints every value, where it came from, and which files it
 would be edited in.

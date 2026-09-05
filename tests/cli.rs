@@ -824,6 +824,24 @@ fn every_verb_in_the_readme_exists() {
         }
     }
     assert!(missing.is_empty(), "the README names verbs the binary does not have: {missing:?}");
+
+    // AND THE OTHER DIRECTION, which is the one that goes unnoticed: a
+    // guard that only checks the README names nothing false never
+    // notices it naming nothing at all. `jbx hook` was missing for six
+    // versions, and it is the verb `init` writes into a settings file
+    // people then read.
+    let mut unlisted = Vec::new();
+    for line in help.lines() {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("jbx ") {
+            let verb = rest.split_whitespace().next().unwrap_or("");
+            let named = verb.chars().all(|c| c.is_ascii_lowercase() || c == '-');
+            if named && !verb.is_empty() && !readme.contains(&format!("jbx {verb}")) {
+                unlisted.push(verb.to_string());
+            }
+        }
+    }
+    assert!(unlisted.is_empty(), "the binary has verbs the README never mentions: {unlisted:?}");
 }
 
 #[test]
