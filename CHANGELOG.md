@@ -20,6 +20,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.10] - 2026-09-06
 
+### Added
+
+- **`jbx ps`** — what is happening right now. "What is going on" is asked
+  far more often than "what went on today", and a day of finished jobs
+  between you and the answer is a list you stop reading. `jbx list` still
+  shows everything kept.
+- **A job says whether the launcher still holds it.** `running` covered
+  two situations that want different things done about them: still held,
+  where output is mirroring to whoever asked and the line may yet finish
+  in time and leave nothing behind; and let go of, where only the log
+  receives anything. They read `foreground` and `background` now — and a
+  record written before this existed reads `running`, because it has not
+  told us and guessing would assert what nobody observed.
+
+### Fixed
+
+- **Stopping a job before it starts leaves a state that says so.** The
+  "waiting for a slot" branch answered before the liveness check, so a
+  queued job whose supervisor had been stopped read as waiting for ever —
+  and `jbx wait` on it blocked for ever with it. The queue moved on
+  without it, so the cancel had worked; only the record disagreed.
+
 ### Changed
 
 - **`jbx init` declares the link it was called through.** `current_exe()`
