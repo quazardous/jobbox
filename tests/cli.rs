@@ -1269,3 +1269,78 @@ fn the_head_of_the_line_goes_first_even_when_slots_are_free() {
                "the line never recovered from a dead ticket");
     assert!(text(&s.run_with(&[("JBX_SLOTS", "4")], &["tail", &id])).contains("RAN"));
 }
+
+// ── SAYING WHAT WE ARE, TO A MACHINE ────────────────────────────────────
+
+#[test]
+fn describe_covers_every_verb_and_invents_none() {
+    let s = Scratch::new("describe");
+    let doc: serde_json::Value =
+        serde_json::from_str(text(&s.run(&["describe"])).trim()).expect("valid JSON");
+    let help = text(&s.run(&["--help"]));
+
+    let named: Vec<String> = doc["commands"].as_array().unwrap().iter()
+        .map(|c| c["name"].as_str().unwrap().to_string()).collect();
+
+    // BOTH DIRECTIONS, which is the lesson the README taught: a guard
+    // that only checks for what is false never notices what is missing.
+    for verb in &named {
+        assert!(help.contains(&format!("jbx {verb}")),
+                "described a verb the binary does not have: {verb}");
+    }
+    for line in help.lines() {
+        if let Some(rest) = line.trim_start().strip_prefix("jbx ") {
+            let verb = rest.split_whitespace().next().unwrap_or("");
+            if verb.chars().all(|c| c.is_ascii_lowercase()) && !verb.is_empty() {
+                assert!(named.contains(&verb.to_string()),
+                        "the binary has a verb the document never mentions: {verb}");
+            }
+        }
+    }
+
+    // AND EVERY ONE SAYS WHAT IT DOES TO THE WORLD. That field is the
+    // whole reason the document exists — a CLI schema carries the shape
+    // of `kill` and never that it tears down a process tree.
+    for c in doc["commands"].as_array().unwrap() {
+        let effect = c["x-jbx-effect"].as_str().unwrap_or("");
+        assert!(!effect.is_empty(), "{} has no effect", c["name"]);
+    }
+    // THE READ-ONLY ONES ARE SAID TO BE READ-ONLY, and `signals` is not
+    // one of them: it consumes, which a guard must not mistake for a
+    // look.
+    let effect_of = |name: &str| -> String {
+        doc["commands"].as_array().unwrap().iter()
+            .find(|c| c["name"] == name)
+            .and_then(|c| c["x-jbx-effect"].as_str())
+            .unwrap_or("").to_string()
+    };
+    assert_eq!(effect_of("list"), "reads");
+    assert!(effect_of("kill").contains("process tree"));
+    assert!(effect_of("signals").contains("CONSUMES"), "a destructive read read as a read");
+}
+
+#[test]
+fn a_listing_can_show_the_whole_line_and_speak_json() {
+    let s = Scratch::new("shapes");
+    let line = "cd /tmp && echo a very long line indeed that a column would cut; sleep 4";
+    s.run(&["run", "--after", "1", "--", line]);
+    std::thread::sleep(std::time::Duration::from_millis(1400));
+
+    // THE `line` COLUMN HAS ALWAYS SHOWN THE INTENT — four words, which
+    // is what makes a list readable and what makes two jobs starting the
+    // same way indistinguishable.
+    let short = text(&s.run(&["ps"]));
+    assert!(!short.contains("would cut"), "the default stopped truncating: {short}");
+    let full = text(&s.run(&["ps", "--full"]));
+    assert!(full.contains("would cut"), "--full still cut the line: {full}");
+
+    let rows: serde_json::Value =
+        serde_json::from_str(text(&s.run(&["ps", "--json"])).trim()).expect("valid JSON");
+    assert_eq!(rows.as_array().unwrap().len(), 1);
+    assert!(rows[0]["command"].as_str().unwrap().contains("would cut"));
+
+    // AND THE NAME IGNORES A LEADING `cd`. The harness writes one in
+    // front of every command, so four words of path named nothing.
+    assert!(rows[0]["intent"].as_str().unwrap().starts_with("echo"),
+            "the name is still four words of path: {}", rows[0]["intent"]);
+}

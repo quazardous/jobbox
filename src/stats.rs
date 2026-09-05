@@ -37,7 +37,7 @@ const SHELLS: [&str; 6] = ["sh", "bash", "zsh", "dash", "ksh", "fish"];
 /// table. Two tools measuring the same machine with different grains
 /// would produce two answers to one question.
 pub fn fingerprint(command: &str) -> String {
-    let command = strip_leading_cd(command.trim());
+    let command = without_leading_cd(command.trim());
     // A LEADING `rtk` IS TRANSPORT, NOT IDENTITY. The hook adds it, a
     // hand-typed line does not, and keeping it would file one command
     // under two shapes depending on which door it came through — which
@@ -66,7 +66,7 @@ pub fn fingerprint(command: &str) -> String {
 /// A HARNESS PREFIXES COMMANDS WITH A `cd` INTO THE WORKING DIRECTORY,
 /// and grouping on that would group everything under one shape. What is
 /// asked is which COMMAND is long; the directory is not part of it.
-fn strip_leading_cd(text: &str) -> &str {
+pub fn without_leading_cd(text: &str) -> &str {
     let Some(rest) = text.strip_prefix("cd ") else { return text };
     let rest = rest.trim_start();
     let mut cut = rest.len();

@@ -97,6 +97,7 @@ fn dispatch(args: Vec<String>) -> i32 {
         },
         "slots" => slots_cmd(rest.first().map(String::as_str)),
         "how" => how(rest.first().filter(|a| looks_like_an_id(a)).map(String::as_str)),
+        "describe" => jobbox::describe::describe(),
         "why" => why(),
         "health" => health(),
         "clients" => clients(),
@@ -117,8 +118,8 @@ fn dispatch(args: Vec<String>) -> i32 {
             rest.iter().any(|a| a == "--project-path"),
         ),
         "init" => init::init(rest.iter().any(|a| a == "--undo")),
-        "list" => listing(false, rest.iter().any(|a| a == "--all")),
-        "ps" => listing(true, rest.iter().any(|a| a == "--all")),
+        "list" => listing(false, &Shape::of(rest)),
+        "ps" => listing(true, &Shape::of(rest)),
         "status" => match rest.first() {
             Some(id) => status(id),
             None => usage_error("status needs an id"),
@@ -154,7 +155,8 @@ fn usage() -> String {
          \x20                       hand it over before it starts, and name it\n\
          \x20 jbx hook              the PreToolUse hook, called by a harness\n\
          \n\
-         \x20 jbx ps [--all]        what is happening right now, here\n\
+         \x20 jbx ps [--all] [--full] [--json]\n\
+         \x20                       what is happening right now, here\n\
          \x20 jbx list              … and what has finished, for a day\n\
          \x20 jbx status <id>       state, exit code, where its log is\n\
          \x20 jbx tail <id> [-f]    what it printed\n\
@@ -168,6 +170,7 @@ fn usage() -> String {
          \x20 jbx config            every setting, and where it came from\n\
          \x20 jbx how [id]          what you can do with it, right now\n\
          \x20 jbx why               why it works this way\n\
+         \x20 jbx describe          every verb and what it does, as JSON\n\
          \x20 jbx init [--undo]     declare the hook, and displace rtk's\n\
          \n\
          JBX_AFTER   seconds before detaching (now {:.0})\n\
@@ -218,7 +221,30 @@ fn describe(state: &store::State) -> String {
 /// TWO VERBS BECAUSE THEY ANSWER TWO QUESTIONS. "What is going on right
 /// now" is asked far more often than "what went on today", and a day of
 /// finished jobs between you and the answer is a list you stop reading.
-fn listing(only_alive: bool, all: bool) -> i32 {
+/// How a listing was asked for.
+///
+/// THE COLUMN CALLED `line` HAS ALWAYS SHOWN THE INTENT — the first four
+/// words — which is what makes a list readable three hours later and
+/// what makes it useless when two jobs start with the same four words.
+/// `--full` is the way back to the line as typed.
+pub struct Shape {
+    all: bool,
+    full: bool,
+    json: bool,
+}
+
+impl Shape {
+    fn of(args: &[String]) -> Shape {
+        Shape {
+            all: args.iter().any(|a| a == "--all"),
+            full: args.iter().any(|a| a == "--full"),
+            json: args.iter().any(|a| a == "--json"),
+        }
+    }
+}
+
+fn listing(only_alive: bool, how: &Shape) -> i32 {
+    let all = how.all;
     // THIS PROJECT BY DEFAULT. The store is machine-wide, and a list
     // holding four projects' work is a list where you cannot find your
     // own. The scope is the PROJECT and not the session: two Claude
@@ -243,6 +269,34 @@ fn listing(only_alive: bool, all: bool) -> i32 {
         .iter()
         .filter(|r| r.project != me && alive(r))
         .count();
+    // MACHINE-READABLE, AND EVERYTHING IN IT. A table drops what does not
+    // fit a column; this drops nothing, which is the point of asking for
+    // it. Empty stays an empty array rather than a sentence.
+    if how.json {
+        let rows: Vec<serde_json::Value> = records
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "id": r.id,
+                    "state": describe(&store::state_of(r)).split_whitespace().next().unwrap_or(""),
+                    "detached": r.detached,
+                    "queued": r.queued,
+                    "mirror_cut": r.mirror_cut,
+                    "pid": r.pid,
+                    "intent": r.intent,
+                    "command": r.command,
+                    "project": r.project,
+                    "client": r.client,
+                    "cwd": r.cwd,
+                    "started": r.started,
+                    "log": store::log_path(&r.id).display().to_string(),
+                    "silent_for": store::silence(r),
+                })
+            })
+            .collect();
+        jobbox::outln!("{}", serde_json::to_string_pretty(&rows).unwrap_or_default());
+        return 0;
+    }
     if records.is_empty() {
         if only_alive {
             jobbox::outln!("nothing running here. `jbx list` shows what has finished.");
@@ -282,7 +336,7 @@ fn listing(only_alive: bool, all: bool) -> i32 {
                 project,
                 describe(&store::state_of(r)),
                 mute,
-                r.intent
+                shown_line(r, how)
             );
         } else {
             jobbox::outln!(
@@ -290,7 +344,7 @@ fn listing(only_alive: bool, all: bool) -> i32 {
                 r.id,
                 describe(&store::state_of(r)),
                 mute,
-                r.intent
+                shown_line(r, how)
             );
         }
     }
@@ -738,4 +792,12 @@ TO SET IT UP
         }
     }
     0
+}
+
+/// The intent, or the whole line when it was asked for.
+///
+/// The intent is four words, which is what makes a list readable and
+/// what makes two jobs beginning `cd /long/path && …` indistinguishable.
+fn shown_line(r: &store::Record, how: &Shape) -> String {
+    if how.full { r.command.replace('\n', " ") } else { r.intent.clone() }
 }

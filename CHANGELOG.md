@@ -20,6 +20,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.11] - 2026-09-06
 
+### Added
+
+- **`jbx describe`** — every verb and what it does to the world, as JSON
+  (#2067). A tool that checks an agent's commands before they run needs
+  to tell `jbx list` from `jbx kill`, and reading `--help` for the names
+  is where it goes wrong: they MOVE, and a hardcoded table then
+  classifies an unknown verb at random inside a program whose job is
+  deciding what to let through. The binary answers for itself, so
+  whatever is installed is right by construction.
+
+  The document follows [OpenCLI](https://opencli.org/) so the tools that
+  read it can — but a CLI schema says a verb `kill` exists and takes an
+  id, never that it tears down a process tree. OpenAPI escapes that
+  because HTTP carries the answer in the method; a command line has no
+  such thing. So the consequence is ours to add, in `x-jbx-effect`, and
+  it is the only part of the document worth relying on: the
+  specification is pre-1.0 and several projects publish one, which the
+  document says about itself rather than letting `"opencli"` read as a
+  promise. `signals` is marked as CONSUMING, because a guard must not
+  mistake a destructive read for a look.
+- **`--full` and `--json` on `ps` and `list`.** The `line` column has
+  always shown the intent — four words — which is what makes a list
+  readable and what makes two jobs beginning the same way
+  indistinguishable.
+- **The name of a job ignores a leading `cd`.** The harness writes one in
+  front of every command, so a whole list read `cd /home/…/bms && e…` and
+  named nothing. The shape calculation already dropped it; the name did
+  not — one lesson applied in one place out of two.
+
 ### Fixed
 
 - **The queue has a real order.** Waiting was "whoever asks when a slot

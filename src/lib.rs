@@ -63,6 +63,7 @@ macro_rules! outln {
 }
 
 pub mod config;
+pub mod describe;
 pub mod hook;
 pub mod init;
 pub mod input;

@@ -131,6 +131,12 @@ pub fn mint() -> String {
 /// line itself. The first few words are what a reader recognises three
 /// hours later, and never a hash: this is read by people.
 pub fn intent_of(line: &str) -> String {
+    // A LEADING `cd` IS NOT THE NAME OF THE WORK. The harness writes one
+    // in front of every command, so four words of path is what a whole
+    // list showed — `cd /home/…/BookShepherd/bms && e…` names nothing.
+    // The shape calculation already dropped it; the name did not, which
+    // is one lesson applied in one place out of two.
+    let line = crate::stats::without_leading_cd(line);
     let short: String = line.split_whitespace().take(4).collect::<Vec<_>>().join(" ");
     if short.chars().count() > 58 {
         short.chars().take(57).collect::<String>() + "…"
