@@ -11,10 +11,14 @@ the sum is invisible until something counts it.
 
 ```console
 $ jbx stats
-project  calls  detached  elapsed  waited  saved
-acme-api    142        11    3h04m   35m12s   2h29m (81%)
+project      calls  detached  elapsed  waited  saved
+acme            142        11    3h04m   35m12s  2h29m (81%)
+  api            96         7    2h11m   18m03s  1h53m (86%)
+  front          46         4      53m    17m09s   36m (68%)
 
 2h29m saved — command time that ran while the caller was free, 81% of 3h04m.
+`waited` is what you actually stood still for, and `saved` is the rest
+of `elapsed` — it already subtracts the time you gave back to `jbx wait`.
 ```
 
 That is one week. Put your own rate on it.
@@ -62,12 +66,13 @@ Open a new session. Nothing changes — until something is slow:
 ```console
 $ npm run build
 > building…
-jbx: still running after 30s, so it was detached as j7f3a91c. Nothing
-was lost and it is still going; what it prints keeps going to its log.
-  jbx status j7f3a91c   where it is, and its exit code once it lands
-  jbx tail j7f3a91c     what it has printed so far
-  jbx wait j7f3a91c     block here until it ends, and exit with its code
-Prefer doing something else and coming back: that is what detaching it was for.
+jbx: this passed 30s, so it is now in the BACKGROUND — detached as j7f3a91c.
+Nothing was lost. It is still running, and still printing to its log.
+
+DO NOT SIT AND WAIT FOR IT. You will be told when it ends, on a later turn —
+waiting here is the exact cost jbx exists to remove. Go and do something else.
+
+  jbx how j7f3a91c   what you can do with it   ·   jbx why   why it works this way
 ```
 
 The build output arrived **as it was written**, not replayed at the end.
@@ -135,14 +140,19 @@ list readable three hours later.
 
 ## `saved` is a ceiling, and it says so
 
-`waited` is what you actually stood still for, and `saved` is the rest of
-`elapsed`. It already subtracts the time handed back to `jbx wait`:
-detaching a job you then stand and wait for saved nobody anything, and a
-tool that counted it would be reporting its own good intentions.
+Detaching a job you then stand and wait for saved nobody anything, and a
+tool that counted it would be reporting its own good intentions — so
+`saved` subtracts what you handed back to `jbx wait`.
 
 What it cannot see is somebody waiting *some other way*. So it is an
 upper bound made as tight as the evidence allows — a ceiling, not a
 receipt, and the line under the table says so.
+
+**Projects nest, because they nest on disk.** A repository inside a
+repository is the ordinary case, and a flat list hides it exactly where
+it matters. `--project-path` prints the roads instead of the names, and
+two projects that share a name get four characters of their path to tell
+them apart.
 
 It never stores a command line as typed: `TOKEN=… ./deploy` is recorded
 as `./deploy`. A truncated secret is still a leaked prefix, so
