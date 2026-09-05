@@ -39,11 +39,16 @@ jobs:
           - { os: ubuntu-latest,  target: x86_64-unknown-linux-musl, name: linux-x86_64-musl }
           - { os: ubuntu-latest,  target: x86_64-unknown-linux-gnu,  name: linux-x86_64 }
           - { os: windows-latest, target: x86_64-pc-windows-msvc,    name: windows-x86_64 }
+          # BOTH MACS FROM THE APPLE SILICON RUNNER. The Intel image
+          # (`macos-13`) is on its way out and queues for minutes or
+          # never — and nothing publishes while one build is missing.
+          # Cross-compiling costs a `rustup target add`; waiting on a
+          # runner that may not come costs the release.
           - { os: macos-latest,   target: aarch64-apple-darwin,      name: macos-arm64 }
-          - { os: macos-13,       target: x86_64-apple-darwin,       name: macos-x86_64 }
+          - { os: macos-latest,   target: x86_64-apple-darwin,       name: macos-x86_64 }
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ env.TAG }}
       - name: the musl linker is not on the runner by default
@@ -72,12 +77,12 @@ jobs:
           else
             tar czf "$out.tar.gz" "$out"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.name }}
           path: dist/*.tar.gz
           if-no-files-found: ignore
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.name }}-zip
           path: dist/*.zip
@@ -87,10 +92,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ env.TAG }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
