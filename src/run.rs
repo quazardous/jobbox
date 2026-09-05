@@ -357,6 +357,7 @@ fn run_inner(after: f64, line: &str, fg: bool) -> i32 {
         id: id.clone(),
         queued: false,
         mirror_cut: false,
+        detached: Some(false),
         pid: child.id(),
         command: line.to_string(),
         intent: store::intent_of(line),
@@ -437,15 +438,17 @@ fn run_inner(after: f64, line: &str, fg: bool) -> i32 {
             if store::code_path(&id).exists() {
                 continue;
             }
-            if cut {
-                // WRITTEN ON THE JOB, because there may be nowhere else
-                // to say it: with `2>&1 | head` both streams are the
-                // closed pipe. `status` is then the only place the
-                // reader will ever learn their view was partial.
-                if let Some(mut r) = store::read_record(&id) {
-                    r.mirror_cut = true;
-                    let _ = store::write_record(&r);
-                }
+            // THE LAUNCHER IS LETTING GO, and the job has to say so:
+            // until now it read `running` exactly like one still being
+            // held, and the two want different things done about them.
+            //
+            // The cut mirror is written here too — with `2>&1 | head`
+            // both streams are the closed pipe, so `status` is the only
+            // place a reader will ever learn their view was partial.
+            if let Some(mut r) = store::read_record(&id) {
+                r.detached = Some(true);
+                r.mirror_cut = cut;
+                let _ = store::write_record(&r);
             }
             let observation = Observation {
                 mirror_cut: cut,
@@ -622,6 +625,9 @@ pub fn queue(intent: &str, line: &str) -> i32 {
         id: id.clone(),
         queued: true,
         mirror_cut: false,
+        // NOBODY HOLDS A QUEUED JOB — that is the point of handing it
+        // over. It is in the background from the moment it starts.
+        detached: Some(true),
         pid: child.id(),
         command: line.to_string(),
         intent: intent.to_string(),

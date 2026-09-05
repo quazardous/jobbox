@@ -17,6 +17,19 @@ pub struct Record {
     /// `true` for a job handed to `queue`, which waits for a slot and is
     /// announced whatever its duration. A wrapped line is neither.
     pub queued: bool,
+    /// WHETHER THE LAUNCHER HAS LET GO YET.
+    ///
+    /// `running` said nothing about the difference between a line still
+    /// held — output mirroring to whoever asked, and it may yet finish
+    /// in time and vanish — and one that has been let go of, where only
+    /// the log receives anything. They are not the same situation and
+    /// they do not want the same next move.
+    /// `None` when the record predates this field, and it stays `None`
+    /// rather than becoming `false`: a record written by an older
+    /// version has not told us, and answering "foreground" for it is
+    /// asserting something nobody observed. Seen live — a job that had
+    /// been let go of fifteen minutes earlier read as held.
+    pub detached: Option<bool>,
     /// WHETHER WHOEVER WAS READING THE LAUNCHER WENT AWAY EARLY.
     ///
     /// Kept on the job because there may be nowhere else to say it: with
@@ -37,7 +50,7 @@ pub enum State {
     /// HANDED OVER, NOT YET STARTED. Only a `queue` job is ever here: a
     /// wrapped line is already running before this tool has an opinion.
     Queued,
-    Running { for_secs: f64 },
+    Running { for_secs: f64, detached: Option<bool> },
     Finished { code: i32 },
     /// GONE WITHOUT A CODE — killed, or the machine went down under it.
     /// Named rather than shown as running forever, and never given a
@@ -131,7 +144,7 @@ pub fn write_record(r: &Record) -> io::Result<()> {
     let value = serde_json::json!({
         "id": r.id, "pid": r.pid, "command": r.command, "intent": r.intent,
         "started": r.started, "client": r.client, "cwd": r.cwd,
-        "queued": r.queued, "mirror_cut": r.mirror_cut,
+        "queued": r.queued, "mirror_cut": r.mirror_cut, "detached": r.detached,
     });
     fs::write(record_path(&r.id), value.to_string())
 }
@@ -143,6 +156,7 @@ pub fn read_record(id: &str) -> Option<Record> {
         id: v["id"].as_str()?.to_string(),
         queued: v["queued"].as_bool().unwrap_or(false),
         mirror_cut: v["mirror_cut"].as_bool().unwrap_or(false),
+        detached: v["detached"].as_bool(),
         pid: v["pid"].as_u64().unwrap_or(0) as u32,
         command: v["command"].as_str().unwrap_or("").to_string(),
         intent: v["intent"].as_str().unwrap_or("").to_string(),
@@ -192,11 +206,17 @@ pub fn state_of(r: &Record) -> State {
             return State::Finished { code };
         }
     }
+    // WAITING ITS TURN ONLY COUNTS IF SOMETHING IS STILL WAITING. This
+    // branch used to answer before the liveness check, so a queued job
+    // whose supervisor had been killed read "waiting for a slot" for
+    // ever — and `wait` on it blocked for ever with it. Stopping a job
+    // that has not started is a legitimate thing to do, and the state it
+    // leaves has to say so.
     if r.queued && !started_path(&r.id).exists() {
-        return State::Queued;
+        return if alive(r.pid) { State::Queued } else { State::Lost };
     }
     if alive(r.pid) {
-        State::Running { for_secs: now() - r.started }
+        State::Running { for_secs: now() - r.started, detached: r.detached }
     } else {
         State::Lost
     }

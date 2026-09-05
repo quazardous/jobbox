@@ -117,7 +117,8 @@ fn dispatch(args: Vec<String>) -> i32 {
             rest.iter().any(|a| a == "--project-path"),
         ),
         "init" => init::init(rest.iter().any(|a| a == "--undo")),
-        "list" => list(),
+        "list" => listing(false),
+        "ps" => listing(true),
         "status" => match rest.first() {
             Some(id) => status(id),
             None => usage_error("status needs an id"),
@@ -153,7 +154,8 @@ fn usage() -> String {
          \x20                       hand it over before it starts, and name it\n\
          \x20 jbx hook              the PreToolUse hook, called by a harness\n\
          \n\
-         \x20 jbx list              what is detached, and how it went\n\
+         \x20 jbx ps                what is happening right now\n\
+         \x20 jbx list              … and what has finished, for a day\n\
          \x20 jbx status <id>       state, exit code, where its log is\n\
          \x20 jbx tail <id> [-f]    what it printed\n\
          \x20 jbx wait <id>         block until it ends, exit with its code\n\
@@ -189,16 +191,50 @@ fn describe(state: &store::State) -> String {
         // is the difference between someone leaving it alone and someone
         // going to look for a fault that is not there.
         store::State::Queued => "queued    waiting for a slot".into(),
-        store::State::Running { for_secs } => format!("running   {for_secs:.0}s"),
+        // TWO WORDS, BECAUSE THEY ARE TWO SITUATIONS. Still held, the
+        // output is mirroring to whoever asked and the line may yet
+        // finish in time and leave nothing behind; let go of, only the
+        // log receives anything and only a verb will bring it back.
+        store::State::Running { for_secs, detached: Some(true) } => {
+            format!("background {for_secs:.0}s")
+        }
+        store::State::Running { for_secs, detached: Some(false) } => {
+            format!("foreground {for_secs:.0}s")
+        }
+        // WRITTEN BEFORE THIS TOOL KNEW THE DIFFERENCE. The neutral word
+        // is the honest one: saying "foreground" here would assert
+        // something nobody observed, which is how a job that had been
+        // let go of a quarter of an hour earlier came to read as held.
+        store::State::Running { for_secs, detached: None } => {
+            format!("running    {for_secs:.0}s")
+        }
         store::State::Finished { code } => format!("finished  exit {code}"),
         store::State::Lost => "gone      no exit code — killed, or the machine went down".into(),
     }
 }
 
-fn list() -> i32 {
-    let records = store::all();
+/// `jbx list` — everything kept. `jbx ps` — only what is happening.
+///
+/// TWO VERBS BECAUSE THEY ANSWER TWO QUESTIONS. "What is going on right
+/// now" is asked far more often than "what went on today", and a day of
+/// finished jobs between you and the answer is a list you stop reading.
+fn listing(only_alive: bool) -> i32 {
+    let records: Vec<store::Record> = store::all()
+        .into_iter()
+        .filter(|r| {
+            !only_alive
+                || matches!(
+                    store::state_of(r),
+                    store::State::Queued | store::State::Running { .. }
+                )
+        })
+        .collect();
     if records.is_empty() {
-        jobbox::outln!("nothing detached.");
+        if only_alive {
+            jobbox::outln!("nothing running. `jbx list` shows what has finished.");
+        } else {
+            jobbox::outln!("nothing detached.");
+        }
         return 0;
     }
     jobbox::outln!("{:<10} {:<48} {:<12} line", "id", "state", "");

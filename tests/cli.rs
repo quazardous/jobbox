@@ -580,7 +580,7 @@ fn queue_holds_work_back_when_the_slots_are_full() {
     let shown = text(&s.run_with(&cap, &["list"]));
     let queued = shown.lines().filter(|l| l.contains("queued")).count();
     assert_eq!(queued, 2, "the cap did not hold anything back:\n{shown}");
-    assert!(shown.contains("running"), "nothing started at all:\n{shown}");
+    assert!(shown.contains("background"), "nothing started at all:\n{shown}");
 
     for id in &ids {
         assert_eq!(s.run_with(&cap, &["wait", id]).status.code(), Some(0));
@@ -1109,4 +1109,77 @@ fn init_declares_the_link_it_was_called_through() {
     let out = run(std::path::Path::new(JBX));
     assert!(text(&out).contains("repointed"), "it did not correct the path: {}", text(&out));
     assert!(declared().starts_with(JBX), "still the old path: {}", declared());
+}
+
+// ── WHAT IS HAPPENING, AND WHO IS HOLDING IT ────────────────────────────
+
+#[test]
+fn a_held_line_and_a_let_go_one_do_not_read_alike() {
+    let s = Scratch::new("held");
+    // Held: the launcher is still there, the output is still mirroring
+    // to whoever asked, and the line may yet finish in time and leave
+    // nothing behind. Let go of: only the log receives anything.
+    // `running` said neither.
+    let long = std::process::Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
+        .args(["run", "--after", "30", "--", "sleep 4"])
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .stdout(Stdio::null())
+        .spawn()
+        .unwrap();
+    s.run(&["run", "--after", "1", "--", "sleep 4"]);
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+
+    let shown = text(&s.run(&["list"]));
+    assert!(shown.contains("foreground"), "a held line did not say so:\n{shown}");
+    assert!(shown.contains("background"), "a let-go line did not say so:\n{shown}");
+
+    let mut long = long;
+    let _ = long.kill();
+    let _ = long.wait();
+}
+
+#[test]
+fn ps_shows_what_is_happening_and_list_shows_the_day() {
+    let s = Scratch::new("ps");
+    s.run(&["run", "--", "echo done"]);
+    s.run(&["run", "--after", "1", "--", "sleep 4"]);
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+
+    // "What is going on right now" is asked far more often than "what
+    // went on today", and a day of finished jobs between you and the
+    // answer is a list you stop reading.
+    let running = text(&s.run(&["ps"]));
+    assert!(running.contains("sleep 4"), "ps lost the running job:\n{running}");
+    assert!(!running.contains("exit 0"), "ps showed a finished job:\n{running}");
+}
+
+#[test]
+fn stopping_a_job_before_it_starts_leaves_a_state_that_says_so() {
+    let s = Scratch::new("cancel-queued");
+    let one = [("JBX_SLOTS", "1")];
+    for n in 1..=3 {
+        s.run_with(&one, &["queue", &format!("j{n}"), "--", "sleep 3"]);
+    }
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    let listed = text(&s.run_with(&one, &["list"]));
+    let victim = listed
+        .lines()
+        .find(|l| l.contains("queued"))
+        .and_then(|l| l.split_whitespace().next())
+        .expect("something is waiting its turn")
+        .to_string();
+
+    s.run_with(&one, &["kill", &victim]);
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    // STOPPING WORK THAT HAS NOT STARTED IS LEGITIMATE, and the state it
+    // leaves has to say so. The queued branch answered before the
+    // liveness check, so a cancelled job read "waiting for a slot" for
+    // ever — and `wait` on it blocked for ever with it.
+    let after = text(&s.run_with(&one, &["status", &victim]));
+    assert!(!after.contains("waiting for a slot"), "it still claims to be waiting:\n{after}");
+    assert_eq!(s.run_with(&one, &["wait", &victim]).status.code(), Some(1),
+               "`wait` did not come back");
 }
