@@ -371,3 +371,26 @@ def test_THE_DETAILED_READING_RUNS_AT_ALL():
     assert "> 60s" in out and "at  60s" in out, out
     # AND THE OUTLIER IS NAMED: one call of 400s out of 520 total.
     assert "CAREFUL" in out, out
+
+
+def test_THE_DECLARED_TIMEOUT_IS_RECORDED():
+    """A DECLARED SIGNAL, NOT A GUESSED ONE.
+
+    Asking for ten minutes is saying you expect several. The
+    history-based rule failed because long commands are almost always
+    new shapes; a declared timeout needs no history at all.
+
+    It is the branch of that question nobody tested before closing it,
+    and nothing can test it until the number is in the table.
+    """
+    events = _pair("declared", "cd /x && make release")
+    events[0]["tool_input"]["timeout"] = 600000
+
+    rows, _ = _feed(events)
+
+    (row,) = rows
+    assert row["asked_ms"] == 600000, row
+    # AND A CALL THAT DECLARED NOTHING RECORDS A ZERO, not a missing key
+    # somebody has to guard against when reading the table.
+    plain, _ = _feed(_pair("plain", "cd /x && ls"))
+    assert plain[0]["asked_ms"] == 0, plain
