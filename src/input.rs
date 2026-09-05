@@ -1,14 +1,23 @@
-//! TELLING A LONG COMMAND FROM A BLOCKED ONE.
+//! IS IT STOPPED READING ITS STANDARD INPUT?
 //!
-//! From outside they are the same thing: a process that has not
-//! finished. They want opposite answers — detach the first, say so about
-//! the second — because a detached prompt is a job that will never end.
+//! THAT QUESTION IS NOT THE ONE WORTH ASKING, AND THIS FILE USED TO
+//! PRETEND IT WAS. It answered "waiting for input" and the caller
+//! announced that the line would never finish on its own — advice to
+//! kill it, on commands that were about to succeed (#2063).
 //!
-//! MEASURED, TWICE, AGAINST THREE WITNESSES: a `cat` reading a pty stops
-//! in `read` on file descriptor 0; a `sleep` stops in `clock_nanosleep`;
-//! a computing loop is in state `R` and is stopped in nothing at all.
-//! The reading is `/proc/<pid>/syscall`, whose first two fields are the
-//! syscall number and its first argument.
+//! Being stopped in `read` on file descriptor 0 says only that: the
+//! process is reading its input. A pipeline stage whose producer is slow
+//! looks exactly like a program waiting for a human, and so does a
+//! `docker` client relaying a terminal it was handed. `sleep 5 | cat`
+//! reproduces it in one line, and finishes with code 0.
+//!
+//! THE MEASUREMENT THAT MISSED IT was a witness chosen to agree: a `cat`
+//! on a pty with nobody writing. It confirmed that a stuck process shows
+//! `read(0)`. It never asked whether a process showing `read(0)` is
+//! stuck — which is the direction the code actually needed.
+//!
+//! So this reports an OBSERVATION and nothing more. Whether it means
+//! anything is decided by the caller, and only after it has lasted.
 
 /// `read`, WHICH IS NUMBERED DIFFERENTLY ON EACH ARCHITECTURE.
 ///
@@ -25,12 +34,17 @@ const SYS_READ: Option<u64> = if cfg!(target_arch = "x86_64") {
     None
 };
 
-/// The pid of a descendant of `root` stopped reading its standard input.
+/// The pid of a descendant of `root` currently stopped in a read of its
+/// own file descriptor 0.
+///
+/// THE NAME IS THE WHOLE FIX. It used to be `waiting_on_input`, and a
+/// name that answers a bigger question than the code does is how a
+/// caller comes to assert something nobody measured.
 ///
 /// THE WHOLE SUBTREE IS WALKED, not just the child we started: our child
-/// is the shell, and what blocks is whatever the shell ran.
+/// is the shell, and it is whatever the shell ran that reads.
 #[cfg(target_os = "linux")]
-pub fn waiting_on_input(root: u32) -> Option<u32> {
+pub fn reading_its_input(root: u32) -> Option<u32> {
     let sys_read = SYS_READ?;
     let mut stack = vec![root];
     while let Some(pid) = stack.pop() {
@@ -59,6 +73,6 @@ pub fn waiting_on_input(root: u32) -> Option<u32> {
 /// costs one message that is slightly less precise; guessing would cost
 /// a command declared stuck while it was working.
 #[cfg(not(target_os = "linux"))]
-pub fn waiting_on_input(_root: u32) -> Option<u32> {
+pub fn reading_its_input(_root: u32) -> Option<u32> {
     None
 }

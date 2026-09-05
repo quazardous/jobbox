@@ -806,3 +806,26 @@ fn every_verb_in_the_readme_exists() {
     }
     assert!(missing.is_empty(), "the README names verbs the binary does not have: {missing:?}");
 }
+
+#[test]
+fn a_pipeline_stage_is_not_reported_as_stuck() {
+    let s = Scratch::new("pipeline");
+    // #2063, IN ONE LINE. `cat` is blocked reading the pipe for the
+    // whole five seconds and the command finishes with 0 — yet this used
+    // to announce "it will not finish on its own" and advise killing it.
+    // Being stopped in `read(0)` says the process is reading its input,
+    // and a pipeline stage waiting on a slow producer is exactly that.
+    let said = text(&s.run(&["run", "--after", "1", "--", "sleep 3 | cat; echo done"]));
+    assert!(said.contains("detached as j"), "not detached at all: {said}");
+    assert!(
+        !said.contains("reading its standard input"),
+        "an ordinary pipeline was called stuck:\n{said}"
+    );
+    // AND NOTHING IN IT PREDICTS. The costly half of the old message was
+    // not the guess but the certainty: "it will not finish on its own",
+    // about a deployment that had.
+    assert!(!said.contains("will not finish"), "it still predicts:\n{said}");
+
+    let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
+    assert_eq!(s.run(&["wait", &id]).status.code(), Some(0), "and it did finish");
+}

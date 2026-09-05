@@ -129,7 +129,16 @@ pub fn supervise(id: &str, after: f64, queued: bool, fg: bool, line: &str) -> i3
             127
         }
     };
-    let _ = store::write_code(id, code);
+    if let Err(e) = store::write_code(id, code) {
+        // THE ONE FAILURE THAT LOOKS LIKE A KILLED JOB. Without the
+        // code file a reader can only say "gone, no exit code", which
+        // is what a killed process leaves — so the reason goes into the
+        // log, the only thing here that outlives this process.
+        use std::io::Write;
+        if let Ok(mut sink) = OpenOptions::new().append(true).open(store::log_path(id)) {
+            let _ = writeln!(sink, "\njbx: the line exited {code}, but its exit code could not be recorded: {e}");
+        }
+    }
     // THE READING IS TAKEN HERE AND NOWHERE ELSE. Only this process
     // knows both how long the line really took and what it returned —
     // the front let go of it long before either was true.
@@ -276,8 +285,30 @@ fn run_inner(after: f64, line: &str, fg: bool) -> i32 {
         }
     };
     let mut buf = [0u8; 16 * 1024];
+    // SINCE WHEN NOTHING HAS HAPPENED. A single sample at the threshold
+    // cannot tell a stuck process from a busy one — it catches every
+    // pipeline stage mid-read. These two say whether it has LASTED, and
+    // they are gathered while we are polling anyway.
+    let mut quiet_since = store::now();
+    let mut reading_since: Option<f64> = None;
+    let mut last_look = 0.0_f64;
     loop {
         let moved = drain(&mut reader, &mut buf);
+        if moved > 0 {
+            quiet_since = store::now();
+        }
+        // WALKING /proc IS NOT FREE, and nothing here changes in twenty
+        // milliseconds. Twice a second is far more often than any
+        // conclusion drawn from it needs.
+        let now = store::now();
+        if now - last_look >= 0.5 {
+            last_look = now;
+            if input::reading_its_input(child.id()).is_some() {
+                reading_since.get_or_insert(now);
+            } else {
+                reading_since = None;
+            }
+        }
         let done = store::code_path(&id).exists();
         if done {
             // ONE LAST DRAIN AFTER THE CODE APPEARS. The code is written
@@ -295,7 +326,20 @@ fn run_inner(after: f64, line: &str, fg: bool) -> i32 {
             return code;
         }
         if store::now() - started >= after {
-            return announce(&id, after, child.id());
+            let now = store::now();
+            // ONE LAST LOOK BEFORE SPEAKING. The line may have finished
+            // between the check above and this one, and announcing a job
+            // that is already done is how the ticket's worst case read:
+            // "it will not finish on its own", about a deployment that
+            // had.
+            if store::code_path(&id).exists() {
+                continue;
+            }
+            let observation = Observation {
+                reading_for: reading_since.map(|t| now - t).unwrap_or(0.0),
+                quiet_for: now - quiet_since,
+            };
+            return announce(&id, after, observation);
         }
         if moved == 0 {
             std::thread::sleep(poll_after(store::now() - started));
@@ -324,43 +368,70 @@ fn drain(reader: &mut File, buf: &mut [u8]) -> usize {
     }
 }
 
+/// What was observed while waiting, and for how long.
+///
+/// DURATIONS, NOT VERDICTS. Whether "stopped reading its input for
+/// twelve seconds" means anything is a judgement, and the one this code
+/// used to make was wrong often enough to cost a deployment.
+struct Observation {
+    /// How long the subtree has been continuously stopped reading its
+    /// own standard input; zero when it is not, or when we cannot see.
+    reading_for: f64,
+    /// How long since anything was written to the log.
+    quiet_for: f64,
+}
+
+/// Before an observation is worth passing on at all.
+///
+/// Long enough that a slow pipeline stage has had its turn. It is still
+/// only a hint — `sleep 60 | cat` would trip it, and finish.
+const WORTH_MENTIONING: f64 = 10.0;
+
 /// Say that the line was detached, and how to pick it up again.
 ///
 /// THE MESSAGE IS THE PRODUCT HERE. Whoever reads it — a person or an
 /// agent — has just been handed back a shell that is not finished, and
-/// what they do next depends entirely on being told plainly what
-/// happened, that nothing was lost, and which verb answers "and now?".
-fn announce(id: &str, after: f64, pid: u32) -> i32 {
+/// what they do next depends on being told plainly what happened, that
+/// nothing was lost, and which verb answers "and now?".
+///
+/// IT NO LONGER PREDICTS. It used to say "it will not finish on its own"
+/// whenever something in the subtree was mid-`read` — which is what
+/// every pipeline stage and every `docker` client relaying a terminal
+/// looks like. On a deployment that had already succeeded it advised
+/// killing or re-running: one loses the result, the other does it twice
+/// (#2063). What is left is what was seen, with its duration.
+fn announce(id: &str, after: f64, seen: Observation) -> i32 {
     let out = io::stdout();
     let mut out = out.lock();
-    if let Some(stuck) = input::waiting_on_input(pid) {
-        // IT IS NOT LONG, IT IS BLOCKED — and here nobody can answer it,
-        // because there is no terminal to answer from. Saying so is the
-        // only useful thing left; detaching it quietly would promise a
-        // result that is never coming.
+    let _ = writeln!(
+        out,
+        "jbx: still running after {after:.0}s, so it was detached as {id}. Nothing\n\
+         was lost and it is still going; what it prints keeps going to its log.\n\
+         \x20 jbx status {id}   where it is, and its exit code once it lands\n\
+         \x20 jbx tail {id}     what it has printed so far\n\
+         \x20 jbx wait {id}     block here until it ends, and exit with its code\n\
+         \x20 jbx fg {id}       bring it back to the foreground and watch it"
+    );
+    if seen.reading_for >= WORTH_MENTIONING && seen.quiet_for >= WORTH_MENTIONING {
+        // SAID AS AN OBSERVATION, AND ONLY ONCE IT HAS LASTED. A
+        // pipeline waiting on a slow producer looks exactly like this,
+        // so the reader is told what was seen and left to judge it.
         let _ = writeln!(
             out,
-            "jbx: this line is WAITING FOR INPUT (pid {stuck}), and nothing here can\n\
-             answer it — there is no terminal. It was detached as {id}, but it will not\n\
-             finish on its own.\n\
-             \x20 jbx kill {id}    stop it\n\
-             \x20 re-run it with its input supplied — `… < file`, or the flag that makes\n\
-             \x20 it non-interactive (-y, --yes, --batch, -n)."
-        );
-    } else {
-        let _ = writeln!(
-            out,
-            "jbx: still running after {after:.0}s, so it was detached as {id}. Nothing\n\
-             was lost and it is still going; what it prints keeps going to its log.\n\
-             \x20 jbx status {id}   where it is, and its exit code once it lands\n\
-             \x20 jbx tail {id}     what it has printed so far\n\
-             \x20 jbx wait {id}     block here until it ends, and exit with its code\n\
-             \x20 jbx fg {id}       bring it back to the foreground and watch it\n\
-             Prefer doing something else and coming back: that is what detaching it was\n\
-             for. If you truly cannot go on without this result, say so next time with\n\
-             `jbx fg -- '<line>'` — it never lets go, and the cost is counted."
+            "It has printed nothing for {:.0}s and has been reading its standard input\n\
+             throughout. That is often ordinary — a pipeline stage waiting on a slow\n\
+             producer looks the same. But if it is waiting for input nobody here can\n\
+             give it, re-running with `… < /dev/null`, or with whatever flag makes it\n\
+             non-interactive, will settle it.",
+            seen.quiet_for
         );
     }
+    let _ = writeln!(
+        out,
+        "Prefer doing something else and coming back: that is what detaching it was\n\
+         for. If you truly cannot go on without this result, say so next time with\n\
+         `jbx fg -- '<line>'` — it never lets go, and the cost is counted."
+    );
     let _ = out.flush();
     0
 }
@@ -476,7 +547,7 @@ pub fn attach(id: &str) -> i32 {
     let mut buf = [0u8; 16 * 1024];
     let code = loop {
         let moved = drain(&mut reader, &mut buf);
-        match store::state_of(&record) {
+        match store::settled_state(&record) {
             store::State::Finished { code } => {
                 // EVERYTHING IT EVER PRINTED, not just what arrived
                 // while we watched: the exit code appears only once the

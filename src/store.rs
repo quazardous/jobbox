@@ -158,6 +158,27 @@ pub fn write_code(id: &str, code: i32) -> io::Result<()> {
     fs::rename(&tmp, code_path(id))
 }
 
+/// The same, but never concluding LOST from a single look.
+///
+/// "Gone without leaving an exit code" is the one state a caller acts
+/// on — `wait` and `fg` return failure for it — and it is also the one
+/// that a race produces out of nothing: a supervisor between its last
+/// write and its exit is momentarily neither running nor recorded. On a
+/// slow machine that window is wide enough to be seen, which is how two
+/// macOS runs disagreed about the same code.
+///
+/// So the absence has to persist. Anything else is answered at once;
+/// only the alarming answer is asked twice.
+pub fn settled_state(r: &Record) -> State {
+    match state_of(r) {
+        State::Lost => {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            state_of(r)
+        }
+        other => other,
+    }
+}
+
 pub fn state_of(r: &Record) -> State {
     if let Ok(text) = fs::read_to_string(code_path(&r.id)) {
         if let Ok(code) = text.trim().parse::<i32>() {

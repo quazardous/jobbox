@@ -18,6 +18,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-09-05
+
+### Fixed
+
+- **A running command is no longer declared stuck because it is reading
+  its input.** `jbx` announced "WAITING FOR INPUT […] it will not finish
+  on its own" whenever anything in the subtree was stopped in a read of
+  file descriptor 0 — which is what every pipeline stage waiting on a
+  slow producer looks like, and every `docker` client relaying a
+  terminal. It said it about a deployment that had already succeeded, and
+  advised killing or re-running it: one loses the result, the other does
+  it twice. `sleep 5 | cat` reproduced it in one line.
+
+  What is left is an observation with its duration, offered only after
+  ten seconds of silence, and it says outright that an ordinary pipeline
+  looks the same. Nothing predicts any more. The measurement that missed
+  this was a witness chosen to agree — a `cat` on a pty with nobody
+  writing — which confirmed that a stuck process reads, and never asked
+  whether a reading process is stuck.
+- **A job is no longer called "gone, no exit code" because of a race.**
+  That state is the one a caller acts on, and it is also the one a
+  moment's timing invents: a supervisor between its last write and its
+  exit is briefly neither running nor recorded. The absence must now
+  persist before it is believed. And a supervisor that cannot write the
+  exit code says so in the job's log rather than leaving a silence that
+  reads exactly like a kill.
+
 ## [0.5.1] - 2026-09-05
 
 Everything 0.5.0 promised, plus a way to install it — and the macOS bug

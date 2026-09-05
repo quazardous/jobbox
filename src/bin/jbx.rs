@@ -279,7 +279,7 @@ fn wait(id: &str) -> i32 {
             eprintln!("jbx: {id} is unknown");
             return 1;
         };
-        match store::state_of(&r) {
+        match store::settled_state(&r) {
             // THE BLOCK IS WRITTEN DOWN BEFORE LEAVING, always. Time
             // handed back to a wait is time the wrapper did not save,
             // and a tool that forgot to subtract it would report its own
