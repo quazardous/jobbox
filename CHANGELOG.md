@@ -34,8 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   read it can — but a CLI schema says a verb `kill` exists and takes an
   id, never that it tears down a process tree. OpenAPI escapes that
   because HTTP carries the answer in the method; a command line has no
-  such thing. So the consequence is ours to add, in `x-jbx-effect`, and
-  it is the only part of the document worth relying on: the
+  such thing. So the consequence is ours to add — as `x-jbx-tags`, simple
+  verbs a guard can COMPARE (`read`, `consume`, `execute`, `create`,
+  `destroy`, `capacity`, `configure`, `rewrite`, `block`), with the
+  sentence kept beside them for a person. A prose effect would have to be
+  matched as text by whoever read it, which is guessing, in a program
+  whose job is not guessing. The vocabulary travels in the document, so a
+  reader needs to know nothing in advance, and a test refuses a tag the
+  document does not define. This is the only part worth relying on: the
   specification is pre-1.0 and several projects publish one, which the
   document says about itself rather than letting `"opencli"` read as a
   promise. `signals` is marked as CONSUMING, because a guard must not

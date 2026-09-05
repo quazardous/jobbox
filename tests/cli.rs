@@ -1305,18 +1305,31 @@ fn describe_covers_every_verb_and_invents_none() {
         let effect = c["x-jbx-effect"].as_str().unwrap_or("");
         assert!(!effect.is_empty(), "{} has no effect", c["name"]);
     }
-    // THE READ-ONLY ONES ARE SAID TO BE READ-ONLY, and `signals` is not
-    // one of them: it consumes, which a guard must not mistake for a
-    // look.
-    let effect_of = |name: &str| -> String {
+    // TAGS ARE WHAT A GUARD COMPARES; the sentence is for a person.
+    let tags_of = |name: &str| -> Vec<String> {
         doc["commands"].as_array().unwrap().iter()
             .find(|c| c["name"] == name)
-            .and_then(|c| c["x-jbx-effect"].as_str())
-            .unwrap_or("").to_string()
+            .and_then(|c| c["x-jbx-tags"].as_array())
+            .map(|t| t.iter().map(|v| v.as_str().unwrap().to_string()).collect())
+            .unwrap_or_default()
     };
-    assert_eq!(effect_of("list"), "reads");
-    assert!(effect_of("kill").contains("process tree"));
-    assert!(effect_of("signals").contains("CONSUMES"), "a destructive read read as a read");
+    assert_eq!(tags_of("list"), vec!["read"]);
+    assert_eq!(tags_of("kill"), vec!["destroy"]);
+    // AND `signals` IS NOT A READ. Looking at it destroys it, and a
+    // guard that took it for a look would let an ending be lost.
+    assert_eq!(tags_of("signals"), vec!["consume"]);
+
+    // EVERY TAG USED IS DECLARED IN THE DOCUMENT. A typo would be a tag
+    // no reader can match, silently — which is the failure this whole
+    // document exists to remove, reappearing one level down.
+    let vocabulary = doc["x-jbx-tag-meanings"].as_object().expect("a vocabulary");
+    for c in doc["commands"].as_array().unwrap() {
+        for tag in c["x-jbx-tags"].as_array().unwrap() {
+            let tag = tag.as_str().unwrap();
+            assert!(vocabulary.contains_key(tag),
+                    "{} carries `{tag}`, which the document never defines", c["name"]);
+        }
+    }
 }
 
 #[test]

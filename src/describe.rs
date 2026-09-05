@@ -35,46 +35,75 @@
 /// ONE TABLE, so `--help` and this cannot drift apart. A test compares
 /// them in both directions — the README taught that lesson: a guard that
 /// only checks for what is false never notices what is missing.
-pub const VERBS: &[(&str, &str, &str)] = &[
+/// THE VOCABULARY, AND IT IS DELIBERATELY SMALL.
+///
+/// `x-jbx-effect` was a sentence, and a sentence has to be matched as
+/// text by whoever reads it — which means guessing, in a program whose
+/// job is not guessing. These are simple verbs a guard can compare, and
+/// they are declared IN the document so nobody has to know them in
+/// advance.
+///
+/// A verb may carry several: `slots` reads and changes capacity, `fg`
+/// runs something and blocks on it.
+pub const TAGS: &[(&str, &str)] = &[
+    ("read", "observes; changes nothing"),
+    ("consume", "reading it destroys it — the same look does not work twice"),
+    ("execute", "runs an arbitrary command line"),
+    ("create", "makes work that will run later"),
+    ("destroy", "stops a running process and everything under it"),
+    ("capacity", "changes how much may run from now on"),
+    ("configure", "edits settings on this machine, including the harness"),
+    ("rewrite", "changes the command the harness is about to run"),
+    ("block", "does not return until something else ends"),
+];
+
+/// Every verb: its name, what it is for, its tags, and the sentence for
+/// a person.
+///
+/// ONE TABLE, so `--help` and this cannot drift apart. A test compares
+/// them in both directions — the README taught that lesson: a guard that
+/// only checks for what is false never notices what is missing.
+pub const VERBS: &[(&str, &str, &[&str], &str)] = &[
     ("run", "run a line, detaching it if it turns out to be long",
-     "runs an arbitrary command line"),
+     &["execute"], "runs an arbitrary command line"),
     ("fg", "run a line and never let go, or bring a detached job back",
-     "runs an arbitrary command line"),
+     &["execute", "block"], "runs a line without ever letting go, or attaches to one"),
     ("queue", "hand work over before it starts, under a cap",
-     "creates pending work"),
+     &["create"], "creates pending work"),
     ("kill", "stop a job and everything it started",
-     "stops a process tree"),
+     &["destroy"], "stops a process tree"),
     ("slots", "how many queued jobs may run at once",
-     "changes future capacity; reads when given no number"),
+     &["read", "capacity"], "changes future capacity; reads when given no number"),
     ("wait", "block until a job ends, and exit with its code",
-     "reads, and blocks until the job ends"),
+     &["read", "block"], "reads, and blocks until the job ends"),
     ("signals", "endings not yet read",
-     "CONSUMES: an ending is reported once and then gone"),
+     &["consume"], "reports each ending once and then forgets it"),
     ("init", "declare the hooks, and take rtk's over",
-     "edits the harness settings and writes configuration files"),
+     &["configure"], "edits the harness settings and writes configuration files"),
     ("hook", "answer the harness; `init` declares this one",
-     "rewrites the command the harness is about to run"),
-    ("list", "what is detached, and how it went", "reads"),
-    ("ps", "what is happening right now", "reads"),
-    ("status", "one job: where it is, its exit code, its log", "reads"),
-    ("tail", "what a job printed", "reads"),
-    ("stats", "how much time was saved", "reads"),
-    ("health", "what runs, what is mute, what nobody will read", "reads"),
-    ("clients", "whose endings are still unread", "reads"),
-    ("config", "every setting, and where it came from", "reads"),
-    ("describe", "this document", "reads"),
-    ("how", "what you can do with a job, right now", "reads"),
-    ("why", "why it works this way", "reads"),
+     &["rewrite"], "rewrites the command the harness is about to run"),
+    ("list", "what is detached, and how it went", &["read"], "reads"),
+    ("ps", "what is happening right now", &["read"], "reads"),
+    ("status", "one job: where it is, its exit code, its log", &["read"], "reads"),
+    ("tail", "what a job printed", &["read"], "reads; `-f` blocks until the job ends"),
+    ("stats", "how much time was saved", &["read"], "reads"),
+    ("health", "what runs, what is mute, what nobody will read", &["read"], "reads"),
+    ("clients", "whose endings are still unread", &["read"], "reads"),
+    ("config", "every setting, and where it came from", &["read"], "reads"),
+    ("describe", "this document", &["read"], "reads"),
+    ("how", "what you can do with a job, right now", &["read"], "reads"),
+    ("why", "why it works this way", &["read"], "reads"),
 ];
 
 /// `jbx describe` — the document.
 pub fn describe() -> i32 {
     let commands: Vec<serde_json::Value> = VERBS
         .iter()
-        .map(|(name, summary, effect)| {
+        .map(|(name, summary, tags, effect)| {
             serde_json::json!({
                 "name": name,
                 "description": summary,
+                "x-jbx-tags": tags,
                 "x-jbx-effect": effect,
             })
         })
@@ -90,6 +119,13 @@ pub fn describe() -> i32 {
             "license": { "name": "MIT", "identifier": "MIT" },
         },
         "commands": commands,
+        // THE VOCABULARY TRAVELS WITH THE DOCUMENT. A tag a reader has
+        // never seen is a tag it would have to guess at, and guessing is
+        // what this exists to remove.
+        "x-jbx-tag-meanings": TAGS
+            .iter()
+            .map(|(tag, meaning)| (tag.to_string(), serde_json::Value::from(*meaning)))
+            .collect::<serde_json::Map<_, _>>(),
         // SAID IN THE DOCUMENT ITSELF, so that `"opencli": "0.1"` above
         // is not read as a promise: the specification is pre-1.0 and
         // several projects publish one under that name. What we can
@@ -98,7 +134,9 @@ pub fn describe() -> i32 {
                        publish one; this document follows opencli.org and may \
                        change with it. `x-jbx-effect` is ours: it says what a \
                        verb does to the world, which no CLI schema carries, and \
-                       it is the part to rely on.",
+                       it is the part to rely on. Match on `x-jbx-tags`, which are \
+                       simple verbs meant to be compared; `x-jbx-effect` is the \
+                       same thing said to a person.",
     });
     outln!("{}", serde_json::to_string_pretty(&document).unwrap_or_default());
     0
