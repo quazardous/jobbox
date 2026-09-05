@@ -36,7 +36,7 @@ finds out.
 
 The command is `jbx`.
 
-One binary. Rust, `serde_json`, nothing else. Linux and Windows.
+One binary. Rust, `serde_json`, nothing else. Linux, macOS, Windows.
 
 ## Quickstart
 
