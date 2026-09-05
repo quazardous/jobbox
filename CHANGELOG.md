@@ -18,6 +18,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-09-05
+
+### Fixed
+
+- **The two halves of the tool no longer assume different shells.** The
+  hook rewrites a command into `jbx run -- '<line>'`, quoted for a POSIX
+  shell — correct, since the harness that hands us the line drives one,
+  Git Bash included on Windows. The runner then handed that line to
+  `cmd /C` there, which understands neither the syntax nor the quotes.
+  Found by reading, not by running: nobody has run jbx on Windows. It now
+  uses `bash` wherever `bash` exists, on every platform, and `shell:`
+  settles it for a setup we guessed wrong.
+
+### Added
+
+- **`jbx config` says which shell will run a line**, and the README says
+  what is known about Windows and what is not.
+
 ## [0.5.2] - 2026-09-05
 
 ### Fixed

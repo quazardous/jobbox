@@ -171,6 +171,34 @@ to call would remove it from the machine outright.
 - **It is not a scheduler.** No dependencies between jobs, no retries, no
   calendar.
 
+## On Windows
+
+**Honest first: nobody has run it there yet.** It compiles and lints on
+every change, the release binaries are built there, and the test suite
+does not run there — the tests drive `sh` and `sleep`. So what follows is
+what the code does, not what anybody has watched it do. Reports welcome.
+
+Install `jbx.exe` from the [releases](https://github.com/quazardous/jobbox/releases)
+and put it somewhere on your `PATH`, or run `.\install.ps1` from a
+checkout. Then `jbx init`, same as anywhere.
+
+**The shell is the part that matters.** The hook rewrites a command into
+`jbx run -- '<line>'`, quoted for a POSIX shell — which is right, because
+Claude Code on Windows drives Git Bash. So jbx runs the line with `bash`
+whenever `bash` is on the `PATH`, on every platform, and falls back to
+`cmd /C` only when there is none. `jbx config` prints which one it picked;
+`shell: cmd` in the configuration settles it if the guess is wrong for
+your setup.
+
+Two things behave differently, by construction rather than by neglect:
+
+- **Files live in `%LOCALAPPDATA%\jbx` and `%APPDATA%\jobbox\config.yaml`.**
+- **`jbx health` never calls a job mute for the right reason.** Liveness
+  from the log still works; the extra observation about a line reading
+  its input needs `/proc`, which Windows has not. It answers "I do not
+  know" rather than guessing — the same rule that cost a false alarm on
+  Linux.
+
 ## Settings
 
 **jbx works everywhere by default.** A project says otherwise in a

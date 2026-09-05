@@ -829,3 +829,25 @@ fn a_pipeline_stage_is_not_reported_as_stuck() {
     let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
     assert_eq!(s.run(&["wait", &id]).status.code(), Some(0), "and it did finish");
 }
+
+#[test]
+#[cfg(unix)]
+fn the_line_goes_to_the_shell_it_was_written_for() {
+    let s = Scratch::new("shell");
+    // A SHELL OF OUR OWN, so the test observes which one was used rather
+    // than inferring it from output that several shells would produce.
+    let fake = s.0.join("say-which");
+    std::fs::write(&fake, "#!/bin/sh\necho \"ran by say-which: $2\"\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let out = s.run_with(&[("JBX_SHELL", fake.to_str().unwrap())], &["run", "--", "echo hello"]);
+    // THE HOOK QUOTES FOR A POSIX SHELL, so the runner has to be one —
+    // on Windows those two halves used to disagree, and nobody had run
+    // it there to find out.
+    assert!(
+        text(&out).contains("ran by say-which: echo hello"),
+        "the named shell did not run the line: {}",
+        text(&out)
+    );
+}

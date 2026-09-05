@@ -3,6 +3,7 @@
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use crate::input;
@@ -37,19 +38,70 @@ fn poll_after(elapsed: f64) -> Duration {
 /// different one would change what it means. On Windows that is `cmd`,
 /// whose `/C` takes the rest as the command.
 fn shell(line: &str) -> Command {
-    #[cfg(windows)]
-    {
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/C").arg(line);
-        cmd
+    match shell_program() {
+        Shell::Posix(program) => {
+            let mut cmd = Command::new(program);
+            cmd.arg("-c").arg(line);
+            cmd
+        }
+        Shell::Cmd => {
+            let mut cmd = Command::new("cmd");
+            cmd.arg("/C").arg(line);
+            cmd
+        }
     }
-    #[cfg(not(windows))]
-    {
-        let program = if std::path::Path::new("/bin/bash").exists() { "bash" } else { "sh" };
-        let mut cmd = Command::new(program);
-        cmd.arg("-c").arg(line);
-        cmd
+}
+
+pub enum Shell {
+    Posix(String),
+    Cmd,
+}
+
+/// WHICH SHELL RUNS THE LINE — and it must be the one the line was
+/// WRITTEN for.
+///
+/// THE HOOK QUOTES POSIX. It writes `jbx run -- '<line>'`, with single
+/// quotes, because the harness that hands us the line speaks a POSIX
+/// shell — including on Windows, where Claude Code drives Git Bash. This
+/// used to hand that line to `cmd /C` there, which understands neither
+/// the syntax nor the quotes: the two halves of the tool assumed
+/// different shells. Nobody had run it on Windows to find out.
+///
+/// So `bash` wins wherever it exists, on every platform. `cmd` is the
+/// fallback for a Windows machine without it, and `shell:` in the
+/// configuration settles it for anybody whose setup we guessed wrong.
+pub fn shell_program() -> Shell {
+    static CHOSEN: OnceLock<Shell> = OnceLock::new();
+    // A `OnceLock` because this is on the path of every wrapped command,
+    // and scanning the PATH once per process is already more than the
+    // question deserves.
+    match CHOSEN.get_or_init(|| {
+        if let Some(named) = crate::config::shell() {
+            return if named == "cmd" { Shell::Cmd } else { Shell::Posix(named) };
+        }
+        if on_path("bash") {
+            return Shell::Posix("bash".into());
+        }
+        if cfg!(windows) {
+            Shell::Cmd
+        } else {
+            Shell::Posix("sh".into())
+        }
+    }) {
+        Shell::Posix(p) => Shell::Posix(p.clone()),
+        Shell::Cmd => Shell::Cmd,
     }
+}
+
+/// Whether a program is reachable, without spawning it.
+///
+/// Running it to find out would cost a process on every wrapped command,
+/// which is the one budget this path does not have.
+fn on_path(program: &str) -> bool {
+    let Some(path) = std::env::var_os("PATH") else { return false };
+    std::env::split_paths(&path).any(|dir| {
+        dir.join(program).is_file() || dir.join(format!("{program}.exe")).is_file()
+    })
 }
 
 /// Detach a child from us, so that it outlives the process that started it.

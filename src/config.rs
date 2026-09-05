@@ -315,6 +315,20 @@ pub fn compose() -> (Compose, Source) {
     }
 }
 
+/// The shell that runs a wrapped line, when the guess is wrong.
+///
+/// Named rather than derived, because whose shell a line was written for
+/// is not something a program can read off the line. `cmd` on Windows
+/// means the native one; anything else is used with `-c`.
+pub fn shell() -> Option<String> {
+    if let Ok(named) = std::env::var("JBX_SHELL") {
+        if !named.is_empty() {
+            return Some(named);
+        }
+    }
+    text_of(at("shell").0).map(str::to_string).filter(|s| !s.is_empty())
+}
+
 /// WHETHER jbx DOES ANYTHING HERE AT ALL.
 ///
 /// True everywhere, and that is deliberate: deciding in advance which

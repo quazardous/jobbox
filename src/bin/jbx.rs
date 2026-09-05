@@ -470,6 +470,13 @@ fn config() -> i32 {
     jobbox::outln!("  {:<24} {}", "client", store::client());
     let (project, path) = jobbox::stats::project();
     jobbox::outln!("  {:<24} {}  ({path})", "project", project);
+    // WHICH SHELL WILL RUN A LINE. On Windows the answer decides whether
+    // anything works at all — the hook quotes for a POSIX shell, so the
+    // runner has to be one.
+    jobbox::outln!("  {:<24} {}", "shell", match jobbox::run::shell_program() {
+        jobbox::run::Shell::Posix(p) => format!("{p} -c"),
+        jobbox::run::Shell::Cmd => "cmd /C".into(),
+    });
     jobbox::outln!("  {:<24} {}", "rtk on the PATH",
                    if which_rtk() { "yes" } else { "no" });
 
