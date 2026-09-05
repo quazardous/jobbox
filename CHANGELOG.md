@@ -38,6 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the line a log, an exit code, a detachment and an announcement, so a
   second one adds nothing and costs the truth about which id to trust.
   Exactly what it already does for a terminal.
+- **A job's measurement is on disk before the job reads as finished.** The
+  exit code was written first, and the launcher returns the moment it
+  sees that file — so a caller could read back a job it had just watched
+  finish and find no reading for it. The code file is written last now:
+  it is the commit point, and the order is the contract.
 
 ### Changed
 
