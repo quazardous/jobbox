@@ -36,11 +36,26 @@ One binary. Rust, `serde_json`, nothing else. Linux and Windows.
 
 ## Quickstart
 
+**Download the binary** — under a megabyte, nothing to install — from the
+[releases](https://github.com/quazardous/jobbox/releases): Linux
+(static, so distribution age does not matter), Windows, macOS. Put it on
+your `PATH`, then:
+
 ```console
-$ git clone https://github.com/quazardous/jobbox && cd jobbox
-$ cargo install --path .
 $ jbx init                        # declares its hooks, merges safely
 ```
+
+Or build it, if you already have Rust:
+
+```console
+$ git clone https://github.com/quazardous/jobbox && cd jobbox
+$ ./install.sh                    # or .\install.ps1 on Windows
+```
+
+On Windows, `winget install Rustlang.Rustup` does get you cargo — but
+rustup then wants the Visual Studio build tools to link with, which is
+gigabytes of prerequisite for a program this size. Take the binary
+unless you were going to write Rust anyway.
 
 Open a new session. Nothing changes — until something is slow:
 

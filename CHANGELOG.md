@@ -67,6 +67,23 @@ detach themselves. Rewritten in Rust, so it runs on Windows too.
   `git init`, and looking only for a repository put every such directory
   in the same nameless heap.
 
+- **A binary you can just download.** Every tag builds one for Linux
+  (statically linked, so the distribution that built it does not matter),
+  Windows and macOS, and publishes them with the notes taken from this
+  file. `cargo install` needs a Rust toolchain, and on Windows that means
+  the Visual Studio build tools — gigabytes of prerequisite for a program
+  under a megabyte. A platform whose users cannot install it is a
+  platform supported on paper. `install.ps1` is the Windows counterpart
+  of `install.sh` for anyone who does want to build.
+
+### Fixed
+
+- **A finished job no longer reads as killed on macOS and the BSDs.**
+  Liveness was read from `/proc` on every Unix; where there is no `/proc`
+  that is not a missing answer but a wrong one — every job that had ended
+  cleanly showed as "gone, no exit code", which is what a killed one
+  looks like. Those platforms are asked with `ps` instead.
+
 ### Changed
 
 - **The whole tool is one command.** `jobbox`, `jobbox observe` and the

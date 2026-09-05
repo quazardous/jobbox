@@ -748,3 +748,61 @@ fn fg_tells_an_id_from_a_command() {
     let out = s.run(&["fg", "jdeadbee"]);
     assert_eq!(out.status.code(), Some(1), "an unknown id was run as a command");
 }
+
+// ── THE THINGS THAT DRIFT ───────────────────────────────────────────────
+
+#[test]
+fn the_version_matches_the_changelog() {
+    // TWO PLACES HOLDING ONE NUMBER IS EXACTLY HOW THEY COME TO
+    // DISAGREE, and the day they do is a release whose notes describe
+    // something else. The changelog is the source; `Cargo.toml` follows.
+    let manifest = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml")).unwrap();
+    let declared = manifest
+        .lines()
+        .find_map(|l| l.strip_prefix("version = \""))
+        .and_then(|l| l.split('"').next())
+        .expect("Cargo.toml declares a version");
+
+    let changelog = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/CHANGELOG.md")).unwrap();
+    let newest = changelog
+        .lines()
+        .find_map(|l| l.strip_prefix("## ["))
+        .and_then(|l| l.split(']').next())
+        .expect("the changelog has a release");
+
+    assert_eq!(
+        declared, newest,
+        "Cargo.toml says {declared} and the changelog's newest entry is {newest}"
+    );
+}
+
+#[test]
+fn every_verb_in_the_readme_exists() {
+    // A README NAMING A VERB THAT WAS RENAMED is the first thing a new
+    // reader tries, and the failure they meet is `unknown verb`. The
+    // help text is what the binary really answers to, so the two are
+    // compared rather than trusted.
+    let readme = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md")).unwrap();
+    let help = text(&Command::new(JBX).arg("--help").output().unwrap());
+    let mut missing = Vec::new();
+    // INSIDE FENCED BLOCKS ONLY. Prose says "jbx removes the question",
+    // and reading that as a verb makes the guard cry wolf — which is how
+    // a guard stops being read.
+    let mut fenced = false;
+    for line in readme.lines() {
+        if line.starts_with("```") {
+            fenced = !fenced;
+            continue;
+        }
+        if !fenced {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("jbx ") {
+            let verb = rest.split_whitespace().next().unwrap_or("");
+            if !verb.is_empty() && !help.contains(&format!("jbx {verb}")) {
+                missing.push(verb.to_string());
+            }
+        }
+    }
+    assert!(missing.is_empty(), "the README names verbs the binary does not have: {missing:?}");
+}

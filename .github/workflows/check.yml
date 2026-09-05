@@ -1,0 +1,43 @@
+# Every push and every pull request. Two jobs, and the split is
+# deliberate: the SUITE runs where its assumptions hold, and the BUILD
+# runs everywhere so that a platform breaking is noticed here rather than
+# by whoever downloads it.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The tests drive a shell: `sh -c`, `sleep`, `echo`. That is a Unix
+  # assumption, not an oversight — `cmd.exe` has no `sleep`, and a suite
+  # rewritten to avoid it would stop testing the thing it is for. So the
+  # suite runs on the Unixes and Windows is covered by the job below.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --release
+
+  # Windows is a declared platform, so it is compiled and linted on every
+  # change. This is what catches the `cfg` that only exists on Unix, the
+  # path built with a slash, the API that is not there — the failures
+  # that would otherwise ship in a release binary nobody could run.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo clippy --release --all-targets -- -D warnings
+      - run: cargo build --release

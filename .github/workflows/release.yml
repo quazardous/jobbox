@@ -1,0 +1,120 @@
+# A tag makes a release, with a binary for every platform we claim.
+#
+# THE BINARIES ARE THE POINT. `cargo install` needs a Rust toolchain, and
+# on Windows that means the MSVC build tools — several gigabytes of
+# prerequisite for a program under a megabyte. A release nobody can
+# install is a platform we support on paper only.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  # A TAG PUSHED BEFORE THIS FILE EXISTED HAS NO RELEASE, and re-pushing
+  # a published tag to trigger one rewrites a ref other people may hold.
+  # This builds an existing tag on demand instead.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: the tag to build and publish
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # ONE NAME FOR THE TAG, whichever way this was started: a workflow that
+  # read `GITHUB_REF_NAME` would build the branch when run by hand.
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # musl first, and it is the one to reach for: statically
+          # linked, so it runs on a distribution older than the one that
+          # built it — which a glibc build does not.
+          - { os: ubuntu-latest,  target: x86_64-unknown-linux-musl, name: linux-x86_64-musl }
+          - { os: ubuntu-latest,  target: x86_64-unknown-linux-gnu,  name: linux-x86_64 }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc,    name: windows-x86_64 }
+          - { os: macos-latest,   target: aarch64-apple-darwin,      name: macos-arm64 }
+          - { os: macos-13,       target: x86_64-apple-darwin,       name: macos-x86_64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: the musl linker is not on the runner by default
+        if: endsWith(matrix.target, '-musl')
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: rustup target add ${{ matrix.target }}
+      - run: cargo build --release --target ${{ matrix.target }}
+      - name: package
+        shell: bash
+        run: |
+          set -eu
+          version="${TAG}"
+          out="jbx-${version}-${{ matrix.name }}"
+          mkdir -p "dist/$out"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "target/${{ matrix.target }}/release/jbx.exe" "dist/$out/"
+          else
+            cp "target/${{ matrix.target }}/release/jbx" "dist/$out/"
+          fi
+          # THE LICENCE AND THE README TRAVEL WITH IT. Somebody who
+          # downloads a binary has no repository to read.
+          cp LICENSE README.md "dist/$out/"
+          cd dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a "$out.zip" "$out" >/dev/null
+          else
+            tar czf "$out.tar.gz" "$out"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*.tar.gz
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-zip
+          path: dist/*.zip
+          if-no-files-found: ignore
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: the notes come from the changelog, because it is the source
+        run: |
+          set -eu
+          version="${TAG#v}"
+          # The section for this version, from its heading to the next
+          # one. A release whose notes were written twice is a release
+          # whose notes disagree.
+          awk -v v="## [$version]" '
+            index($0, v) == 1 { on = 1; next }
+            on && /^## \[/     { exit }
+            on                 { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no section for $version" >&2
+            exit 1
+          fi
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" \
+            --title "JobBox $TAG" \
+            --notes-file notes.md \
+            dist/*

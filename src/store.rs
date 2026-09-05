@@ -179,9 +179,32 @@ pub fn state_of(r: &Record) -> State {
 /// It can be fooled by pid reuse, which is why it is never read alone: a
 /// finished job is recognised by its RECORDED CODE, and this only
 /// answers for one that left none.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub fn alive(pid: u32) -> bool {
     std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
+
+/// The other Unixes have no `/proc`, so they are asked with the tool
+/// they all ship.
+///
+/// THIS WAS `cfg(unix)` AND READ `/proc` EVERYWHERE, which on macOS and
+/// the BSDs is not a missing answer but a WRONG one: every finished job
+/// would have read as "gone, no exit code" — the state that means it was
+/// killed. A platform that cannot answer must say so, never guess, and
+/// least of all guess the alarming value.
+///
+/// It costs a process per call, where Linux costs a `stat`. `state_of`
+/// asks once per record, so a long `list` pays for it; that is the price
+/// of not carrying a C dependency for one boolean.
+#[cfg(all(unix, not(target_os = "linux")))]
+pub fn alive(pid: u32) -> bool {
+    std::process::Command::new("ps")
+        .args(["-p", &pid.to_string()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(true)
 }
 
 #[cfg(windows)]
