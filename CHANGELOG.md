@@ -28,6 +28,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   showed four words off the front of the line. `--intent` sets it by hand
   for anyone calling `jbx run` directly.
 
+### Changed
+
+- **`jbx ps` and `jbx list` show the intent AND the line.** They answer
+  different questions — what somebody meant to do, and what is actually
+  running — and a table showing one of them left the other to guesswork.
+  The line is cut to fit and loses the `cd` the harness writes in front
+  of every command, which had four columns of identical path standing
+  where the difference between two jobs should be; `--full` prints it as
+  recorded and `--json` drops nothing. The state column keeps one word,
+  and `jbx status` keeps the sentence that used to be in the table.
+
 ### Fixed
 
 - **The shell that was checked is the shell that is run.** The check

@@ -193,7 +193,7 @@ fn describe(state: &store::State) -> String {
         // "QUEUED IS NOT STUCK." It is waiting its turn, and saying which
         // is the difference between someone leaving it alone and someone
         // going to look for a fault that is not there.
-        store::State::Queued => "queued    waiting for a slot".into(),
+        store::State::Queued => "queued".into(),
         // TWO WORDS, BECAUSE THEY ARE TWO SITUATIONS. Still held, the
         // output is mirroring to whoever asked and the line may yet
         // finish in time and leave nothing behind; let go of, only the
@@ -212,7 +212,7 @@ fn describe(state: &store::State) -> String {
             format!("running    {for_secs:.0}s")
         }
         store::State::Finished { code } => format!("finished  exit {code}"),
-        store::State::Lost => "gone      no exit code".into(),
+        store::State::Lost => "gone".into(),
     }
 }
 
@@ -313,9 +313,12 @@ fn listing(only_alive: bool, how: &Shape) -> i32 {
     // same word down the page; with `--all` it is the only thing that
     // says which work belongs to what.
     if all {
-        jobbox::outln!("{:<10} {:<16} {:<28} {:<12} line", "id", "project", "state", "");
+        jobbox::outln!(
+            "{:<10} {:<14} {:<16} {:<10} {:<30} line",
+            "id", "project", "state", "", "intent"
+        );
     } else {
-        jobbox::outln!("{:<10} {:<28} {:<12} line", "id", "state", "");
+        jobbox::outln!("{:<10} {:<16} {:<10} {:<30} line", "id", "state", "", "intent");
     }
     for r in &records {
         // MUTENESS IS ONLY SAID WHEN IT MATTERS. On every line it would
@@ -331,19 +334,21 @@ fn listing(only_alive: bool, how: &Shape) -> i32 {
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "?".into());
             jobbox::outln!(
-                "{:<10} {:<16} {:<28} {:<12} {}",
+                "{:<10} {:<14} {:<16} {:<10} {:<30} {}",
                 r.id,
                 project,
                 describe(&store::state_of(r)),
                 mute,
+                cut(&r.intent, 30),
                 shown_line(r, how)
             );
         } else {
             jobbox::outln!(
-                "{:<10} {:<28} {:<12} {}",
+                "{:<10} {:<16} {:<10} {:<30} {}",
                 r.id,
                 describe(&store::state_of(r)),
                 mute,
+                cut(&r.intent, 30),
                 shown_line(r, how)
             );
         }
@@ -363,6 +368,13 @@ fn status(id: &str) -> i32 {
     let state = store::state_of(&r);
     jobbox::outln!("  id       {}", r.id);
     jobbox::outln!("  state    {}", describe(&state));
+    if matches!(state, store::State::Queued) {
+        // "QUEUED IS NOT STUCK." It is waiting its turn, and saying which
+        // is the difference between leaving it alone and going to look
+        // for a fault that is not there.
+        jobbox::outln!("           waiting for a slot — nothing is wrong; `jbx slots`");
+        jobbox::outln!("           says how many may run at once.");
+    }
     if matches!(state, store::State::Lost) {
         // THE EXPLANATION LIVES HERE, where somebody came to understand
         // one line rather than to scan forty.
@@ -835,12 +847,32 @@ TO SET IT UP
     0
 }
 
-/// The intent, or the whole line when it was asked for.
+/// The line itself, beside the intent rather than instead of it.
 ///
-/// The intent is four words, which is what makes a list readable and
-/// what makes two jobs beginning `cd /long/path && …` indistinguishable.
+/// BOTH COLUMNS, BECAUSE THEY ANSWER DIFFERENT QUESTIONS: the intent
+/// says what somebody meant to do, the line says what is actually
+/// running, and showing one of them left the other to guesswork.
+///
+/// `--full` prints the line as recorded. Without it the leading `cd`
+/// goes — the harness writes one in front of every command, and four
+/// columns of the same path is how two different jobs come to look
+/// identical. THE FINGERPRINT KEEPS IT: what is dropped here is a
+/// matter of reading room, and stats must still group on what ran where.
 fn shown_line(r: &store::Record, how: &Shape) -> String {
-    if how.full { r.command.replace('\n', " ") } else { r.intent.clone() }
+    if how.full {
+        return r.command.replace('\n', " ");
+    }
+    cut(&jobbox::stats::without_leading_cd(&r.command).replace('\n', " "), 46)
+}
+
+/// Shorten to a column, and SAY SO with an ellipsis rather than stopping
+/// mid-word as though that were the whole of it. `--full` and `--json`
+/// are where the untruncated line lives.
+fn cut(text: &str, width: usize) -> String {
+    if text.chars().count() <= width {
+        return text.to_string();
+    }
+    text.chars().take(width - 1).collect::<String>() + "…"
 }
 
 /// The `--intent` given before `--`, if any.

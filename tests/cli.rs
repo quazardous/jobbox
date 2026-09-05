@@ -1339,10 +1339,14 @@ fn a_listing_can_show_the_whole_line_and_speak_json() {
     s.run(&["run", "--after", "1", "--", line]);
     std::thread::sleep(std::time::Duration::from_millis(1400));
 
-    // THE `line` COLUMN HAS ALWAYS SHOWN THE INTENT — four words, which
-    // is what makes a list readable and what makes two jobs starting the
-    // same way indistinguishable.
+    // BOTH COLUMNS: the intent says what was meant, the line says what
+    // runs. The line is cut to fit, and the leading `cd` the harness
+    // writes goes with it — four columns of the same path is how two
+    // different jobs come to look identical.
     let short = text(&s.run(&["ps"]));
+    assert!(short.contains("intent"), "the intent column is gone: {short}");
+    assert!(short.contains("echo a very long line"), "the line column is gone: {short}");
+    assert!(!short.contains("/tmp &&"), "the compact line still carries the cd: {short}");
     assert!(!short.contains("would cut"), "the default stopped truncating: {short}");
     let full = text(&s.run(&["ps", "--full"]));
     assert!(full.contains("would cut"), "--full still cut the line: {full}");
