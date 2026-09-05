@@ -170,6 +170,9 @@ pub fn supervise(id: &str, after: f64, queued: bool, fg: bool, line: &str) -> i3
     // nothing (the input is already at end of file); everywhere else it
     // is the difference between wrapping a command and altering it.
     cmd.stdin(Stdio::inherit()).stdout(Stdio::from(log)).stderr(Stdio::from(err_side));
+    // THE LINE IS TOLD IT IS ALREADY WRAPPED, so that a `jbx run` inside
+    // it steps aside instead of making a second job. See `run_inner`.
+    cmd.env("JBX_WRAPPED", id);
     let began = store::now();
     let code = match cmd.spawn() {
         Ok(mut child) => match child.wait() {
@@ -181,19 +184,6 @@ pub fn supervise(id: &str, after: f64, queued: bool, fg: bool, line: &str) -> i3
             127
         }
     };
-    if let Err(e) = store::write_code(id, code) {
-        // THE ONE FAILURE THAT LOOKS LIKE A KILLED JOB. Without the
-        // code file a reader can only say "gone, no exit code", which
-        // is what a killed process leaves — so the reason goes into the
-        // log, the only thing here that outlives this process.
-        use std::io::Write;
-        if let Ok(mut sink) = OpenOptions::new().append(true).open(store::log_path(id)) {
-            let _ = writeln!(sink, "\njbx: the line exited {code}, but its exit code could not be recorded: {e}");
-        }
-    }
-    // THE READING IS TAKEN HERE AND NOWHERE ELSE. Only this process
-    // knows both how long the line really took and what it returned —
-    // the front let go of it long before either was true.
     let took = store::now() - began;
     crate::stats::record(&crate::stats::fingerprint(line), took, after, fg, code);
     // ONLY A DETACHED JOB IS ANNOUNCED, and `took > after` is exactly
@@ -213,6 +203,27 @@ pub fn supervise(id: &str, after: f64, queued: bool, fg: bool, line: &str) -> i3
             &store::client(),
         );
     }
+
+    // THE EXIT CODE IS WRITTEN LAST, AND THAT ORDER IS THE CONTRACT.
+    //
+    // The front returns the moment it sees this file, and `wait` and `fg`
+    // end on it. So everything a reader might look at next — the
+    // measurement, the ending in the mailbox — has to be on disk before
+    // it appears. It used to be written first, and a caller could read
+    // back a job it had just watched finish and find no reading for it.
+    if let Err(e) = store::write_code(id, code) {
+        // THE ONE FAILURE THAT LOOKS LIKE A KILLED JOB. Without the
+        // code file a reader can only say "gone, no exit code", which
+        // is what a killed process leaves — so the reason goes into the
+        // log, the only thing here that outlives this process.
+        use std::io::Write;
+        if let Ok(mut sink) = OpenOptions::new().append(true).open(store::log_path(id)) {
+            let _ = writeln!(sink, "\njbx: the line exited {code}, but its exit code could not be recorded: {e}");
+        }
+    }
+    // THE READING IS TAKEN HERE AND NOWHERE ELSE. Only this process
+    // knows both how long the line really took and what it returned —
+    // the front let go of it long before either was true.
     code
 }
 
@@ -252,6 +263,35 @@ fn run_inner(after: f64, line: &str, fg: bool) -> i32 {
     if line.trim().is_empty() {
         eprintln!("jbx: nothing to run. `jbx run -- '<command line>'`");
         return 2;
+    }
+
+    // ALREADY INSIDE A WRAPPED LINE — SO SOMEBODY ELSE HOLDS THIS JOB.
+    //
+    // The hook wraps every command. When the command it wrapped is
+    // itself a `jbx run`, there were TWO jobs: the outer one, whose id
+    // is the one announced, and the inner one doing the work. The outer
+    // ends in seconds with `exit 0` and a log holding nothing but the
+    // inner's detachment message — which reads exactly like a finished
+    // job, while the real one runs on under an id nobody was told.
+    //
+    // Reported after four wrong ids in one session (#2066): a suite
+    // declared finished, a `kill` aimed at the wrong thing, and a `wait`
+    // that returned at once so the next command started underneath the
+    // work. It needs no pipe, and it explains the first report too.
+    //
+    // The outer wrapper already gives this line a log, an exit code, a
+    // detachment and an announcement. A second one adds nothing and
+    // costs the truth about which id to trust — so the inner one steps
+    // aside, exactly as it does for a terminal.
+    if std::env::var_os("JBX_WRAPPED").is_some() {
+        let mut cmd = shell(line);
+        return match cmd.status() {
+            Ok(status) => exit_code(status),
+            Err(e) => {
+                eprintln!("jbx: {e}");
+                127
+            }
+        };
     }
 
     // A TTY MEANS A HUMAN IS WATCHING, AND WE GET OUT OF THE WAY.

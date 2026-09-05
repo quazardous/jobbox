@@ -20,6 +20,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.6] - 2026-09-05
 
+### Fixed
+
+- **A wrapped line that runs `jbx` makes one job, not two** (#2066). The
+  hook wraps every command; when the command it wrapped was itself a
+  `jbx run`, there were two — and the id announced was the OUTER one. It
+  ends in seconds with `exit 0` and a log holding nothing but the inner's
+  detachment message, which reads exactly like a finished job while the
+  real one runs on under an id nobody was told.
+
+  It cost four wrong ids in one session: a suite declared finished, a
+  `kill` aimed at the wrong thing, and a `wait` that returned at once so
+  the next command started underneath the work. It needs no pipe to
+  happen, and it explains the first report on that ticket as well.
+
+  An inner `jbx run` now steps aside — the outer wrapper already gives
+  the line a log, an exit code, a detachment and an announcement, so a
+  second one adds nothing and costs the truth about which id to trust.
+  Exactly what it already does for a terminal.
+
 ### Changed
 
 - **`blocked` is called `waited`.** It is what you actually stood still

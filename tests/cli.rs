@@ -28,6 +28,7 @@ impl Scratch {
     }
     fn run(&self, args: &[&str]) -> Output {
         Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
             .args(args)
             .env("JBX_DIR", &self.0)
             .env("JBX_CONFIG", self.0.join("global.yaml"))
@@ -39,6 +40,7 @@ impl Scratch {
     /// these are two sessions as far as the endings are concerned.
     fn run_as(&self, who: &str, args: &[&str]) -> Output {
         Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
             .args(args)
             .env("JBX_DIR", &self.0)
             .env("JBX_CONFIG", self.0.join("global.yaml"))
@@ -52,6 +54,7 @@ impl Scratch {
     fn event(&self, who: &str, json: &str) -> String {
         use std::io::Write;
         let mut child = Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
             .arg("hook")
             .env("JBX_DIR", &self.0)
             .env("JBX_CONFIG", self.0.join("global.yaml"))
@@ -67,7 +70,11 @@ impl Scratch {
     /// The same, with one extra variable set — a threshold, a cap.
     fn run_with(&self, env: &[(&str, &str)], args: &[&str]) -> Output {
         let mut cmd = Command::new(JBX);
-        cmd.args(args).env("JBX_DIR", &self.0).env("JBX_CLIENT", "me");
+        cmd.env_remove("JBX_WRAPPED")
+            .args(args)
+            .env("JBX_DIR", &self.0)
+            .env("JBX_CONFIG", self.0.join("global.yaml"))
+            .env("JBX_CLIENT", "me");
         for (k, v) in env {
             cmd.env(k, v);
         }
@@ -94,6 +101,7 @@ impl Scratch {
         let config = self.0.join("global.yaml");
         std::fs::write(&config, global).unwrap();
         Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
             .args(args)
             .current_dir(here)
             .env("JBX_DIR", &self.0)
@@ -210,6 +218,7 @@ fn hook(s: &Scratch, command: &str) -> String {
     })
     .to_string();
     let mut child = Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
         .arg("hook")
         .env("JBX_DIR", &s.0)
             .env("JBX_CONFIG", s.0.join("global.yaml"))
@@ -271,6 +280,7 @@ fn the_hook_says_nothing_about_other_tools() {
     })
     .to_string();
     let mut child = Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
         .arg("hook")
         .env("JBX_DIR", &s.0)
             .env("JBX_CONFIG", s.0.join("global.yaml"))
@@ -293,8 +303,10 @@ fn a_quoted_line_still_means_what_it_meant() {
     let tricky = r#"echo "c'est l'ete""#;
     let answer: serde_json::Value = serde_json::from_str(hook(&s, tricky).trim()).unwrap();
     let rewritten = answer["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap();
-    let through = Command::new("sh").arg("-c").arg(rewritten).env("JBX_DIR", &s.0).output().unwrap();
-    let direct = Command::new("sh").arg("-c").arg(tricky).output().unwrap();
+    let through = Command::new("sh")
+        .env_remove("JBX_WRAPPED").arg("-c").arg(rewritten).env("JBX_DIR", &s.0).output().unwrap();
+    let direct = Command::new("sh")
+        .env_remove("JBX_WRAPPED").arg("-c").arg(tricky).output().unwrap();
     assert_eq!(through.stdout, direct.stdout, "quoting changed the command");
 }
 
@@ -308,10 +320,11 @@ fn init_leaves_a_commented_project_file_that_changes_nothing() {
     std::fs::create_dir_all(&config).unwrap();
 
     let out = Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
         .arg("init")
         .current_dir(&here)
         .env("JBX_DIR", &s.0)
-        .env("JBX_CONFIG", s.0.join("global.yaml"))
+            .env("JBX_CONFIG", s.0.join("global.yaml"))
         .env("CLAUDE_CONFIG_DIR", &config)
         .output()
         .unwrap();
@@ -329,10 +342,11 @@ fn init_leaves_a_commented_project_file_that_changes_nothing() {
     // AND IT MUST PARSE. A template that is not valid YAML would be
     // reported as broken on the first command run in the project.
     let shown = text(&Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
         .arg("config")
         .current_dir(&here)
         .env("JBX_DIR", &s.0)
-        .env("JBX_CONFIG", s.0.join("global.yaml"))
+            .env("JBX_CONFIG", s.0.join("global.yaml"))
         .output()
         .unwrap());
     assert!(shown.contains("compose"), "the written file did not read back: {shown}");
@@ -355,10 +369,11 @@ fn init_displaces_rtk_and_undo_puts_it_back() {
     // that edits the machine it runs on is a suite nobody can trust.
     let here = s.project(None, "");
     let wired = Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
         .arg("init")
         .current_dir(&here)
         .env("JBX_DIR", &s.0)
-        .env("JBX_CONFIG", s.0.join("global.yaml"))
+            .env("JBX_CONFIG", s.0.join("global.yaml"))
         .env("CLAUDE_CONFIG_DIR", &config)
         .output()
         .unwrap();
@@ -376,10 +391,11 @@ fn init_displaces_rtk_and_undo_puts_it_back() {
     assert_eq!(now["model"], "opus");
 
     Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
         .args(["init", "--undo"])
         .current_dir(&here)
         .env("JBX_DIR", &s.0)
-        .env("JBX_CONFIG", s.0.join("global.yaml"))
+            .env("JBX_CONFIG", s.0.join("global.yaml"))
         .env("CLAUDE_CONFIG_DIR", &config)
         .output()
         .unwrap();
@@ -635,6 +651,7 @@ fn a_closed_pipe_is_not_a_crash() {
     // replaces handled it; the rewrite lost it, and only piping into
     // `head` by hand showed that.
     let out = Command::new("sh")
+        .env_remove("JBX_WRAPPED")
         .arg("-c")
         .arg(format!("{JBX} config | head -1"))
         .env("JBX_DIR", &s.0)
@@ -658,10 +675,11 @@ fn ask_hook(binary_dir: &std::path::Path, s: &Scratch, global: &str) -> String {
     })
     .to_string();
     let mut child = Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
         .arg("hook")
         .current_dir(binary_dir)
         .env("JBX_DIR", &s.0)
-        .env("JBX_CONFIG", &config)
+            .env("JBX_CONFIG", &config)
         .env("PATH", "/nonexistent")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -783,7 +801,8 @@ fn every_verb_in_the_readme_exists() {
     // help text is what the binary really answers to, so the two are
     // compared rather than trusted.
     let readme = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md")).unwrap();
-    let help = text(&Command::new(JBX).arg("--help").output().unwrap());
+    let help = text(&Command::new(JBX)
+        .env_remove("JBX_WRAPPED").arg("--help").output().unwrap());
     let mut missing = Vec::new();
     // INSIDE FENCED BLOCKS ONLY. Prose says "jbx removes the question",
     // and reading that as a verb makes the guard cry wolf — which is how
@@ -858,10 +877,11 @@ fn the_line_goes_to_the_shell_it_was_written_for() {
 fn run_from(s: &Scratch, dir: &std::path::Path, line: &str) {
     std::fs::create_dir_all(dir.join(".claude")).unwrap();
     Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
         .args(["run", "--", line])
         .current_dir(dir)
         .env("JBX_DIR", &s.0)
-        .env("JBX_CONFIG", s.0.join("global.yaml"))
+            .env("JBX_CONFIG", s.0.join("global.yaml"))
         .stdin(Stdio::null())
         .output()
         .unwrap();
@@ -926,10 +946,11 @@ fn a_reader_that_leaves_early_is_told_its_view_was_partial() {
     // an ordinary capture that reads to the end and misses nothing. A
     // write that FAILS is the exact fact, and it has no false positive.
     let out = Command::new("sh")
+        .env_remove("JBX_WRAPPED")
         .arg("-c")
         .arg(format!("{JBX} run -- 'seq 20000' | head -3"))
         .env("JBX_DIR", &s.0)
-        .env("JBX_CONFIG", s.0.join("global.yaml"))
+            .env("JBX_CONFIG", s.0.join("global.yaml"))
         .output()
         .unwrap();
     let said = String::from_utf8_lossy(&out.stderr);
@@ -940,4 +961,30 @@ fn a_reader_that_leaves_early_is_told_its_view_was_partial() {
     let quiet = s.run(&["run", "--", "echo hi"]);
     let noise = String::from_utf8_lossy(&quiet.stderr);
     assert!(!noise.contains("stopped early"), "it warned at a reader that stayed: {noise}");
+}
+
+#[test]
+fn a_wrapped_line_that_runs_jbx_makes_one_job_not_two() {
+    let s = Scratch::new("inner-run");
+    // #2066, second symptom: the hook wraps every command, so when the
+    // command it wrapped is itself a `jbx run` there were TWO jobs. The
+    // id announced was the OUTER one, which ends in seconds with exit 0
+    // and a log holding nothing but the inner's detachment message —
+    // reading exactly like a finished job while the real one runs on
+    // under an id nobody was told. Four wrong ids in one session.
+    let said = text(&s.run(&[
+        "run", "--after", "1", "--",
+        &format!("{JBX} run --after 3 -- 'sleep 6; echo REAL'"),
+    ]));
+    let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
+
+    let listed = text(&s.run(&["list"]));
+    let jobs = listed.lines().skip(1).filter(|l| l.trim_start().starts_with('j')).count();
+    assert_eq!(jobs, 1, "the inner run made a second job:\n{listed}");
+
+    // AND THE ID ANNOUNCED IS THE ONE DOING THE WORK — which is the
+    // whole point: an id you cannot trust is worse than no id.
+    assert_eq!(s.run(&["wait", &id]).status.code(), Some(0));
+    assert!(text(&s.run(&["tail", &id])).contains("REAL"),
+            "the announced id was not the one carrying the work");
 }
