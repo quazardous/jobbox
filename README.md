@@ -192,9 +192,10 @@ every change, the release binaries are built there, and the test suite
 does not run there — the tests drive `sh` and `sleep`. So what follows is
 what the code does, not what anybody has watched it do. Reports welcome.
 
-Install `jbx.exe` from the [releases](https://github.com/quazardous/jobbox/releases)
-and put it somewhere on your `PATH`, or run `.\install.ps1` from a
-checkout. Then `jbx init`, same as anywhere.
+Install `jbx.exe` from the
+[releases](https://github.com/quazardous/jobbox/releases) and put it
+somewhere on your `PATH`, or run `.\install.ps1` from a checkout. Then
+`jbx init`, same as anywhere.
 
 **The shell is the part that matters.** The hook rewrites a command into
 `jbx run -- '<line>'`, quoted for a POSIX shell — which is right, because
