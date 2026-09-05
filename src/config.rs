@@ -255,6 +255,35 @@ pub fn mute_after() -> (f64, Source) {
     number("JBX_MUTE_AFTER", "mute_after", 600.0)
 }
 
+/// How wide a listing may draw itself; `None` means ask the terminal.
+///
+/// THE DEFAULT CANNOT BE A NUMBER. The reader is a full-screen terminal
+/// on one call and a harness with no terminal at all on the next, and
+/// eighty columns is wrong for both. So the setting exists for whoever
+/// wants to settle it, and absent it the terminal is asked.
+pub fn width() -> (Option<usize>, Source) {
+    let read = |text: &str| -> Option<Option<usize>> {
+        match text.trim() {
+            "auto" | "" => Some(None),
+            n => n.parse::<usize>().ok().map(|n| Some(n.max(40))),
+        }
+    };
+    if let Some(text) = std::env::var("JBX_WIDTH").ok().filter(|v| !v.is_empty()) {
+        if let Some(value) = read(&text) {
+            return (value, Source::Environment);
+        }
+    }
+    let (node, source) = at("width");
+    match node {
+        Yaml::Integer(n) if *n <= 0 => (None, source),
+        Yaml::Integer(n) => (Some((*n as usize).max(40)), source),
+        node => match text_of(node).and_then(read) {
+            Some(value) => (value, source),
+            None => (None, Source::Default),
+        },
+    }
+}
+
 /// How many QUEUED jobs may run at once; `None` means no cap.
 pub fn slots(default: usize) -> (Option<usize>, Source) {
     let read = |text: &str| -> Option<Option<usize>> {

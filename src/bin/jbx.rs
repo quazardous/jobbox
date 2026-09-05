@@ -118,8 +118,14 @@ fn dispatch(args: Vec<String>) -> i32 {
             rest.iter().any(|a| a == "--project-path"),
         ),
         "init" => init::init(rest.iter().any(|a| a == "--undo")),
-        "list" => listing(false, &Shape::of(rest)),
-        "ps" => listing(true, &Shape::of(rest)),
+        "list" => match Shape::of(rest) {
+            Ok(how) => listing(false, &how),
+            Err(code) => code,
+        },
+        "ps" => match Shape::of(rest) {
+            Ok(how) => listing(true, &how),
+            Err(code) => code,
+        },
         "status" => match rest.first() {
             Some(id) => status(id),
             None => usage_error("status needs an id"),
@@ -155,7 +161,7 @@ fn usage() -> String {
          \x20                       hand it over before it starts, and name it\n\
          \x20 jbx hook              the PreToolUse hook, called by a harness\n\
          \n\
-         \x20 jbx ps [--all] [--full] [--json]\n\
+         \x20 jbx ps [--all] [--full] [--json] [--width <n>]\n\
          \x20                       what is happening right now, here\n\
          \x20 jbx list              … and what has finished, for a day\n\
          \x20 jbx status <id>       state, exit code, where its log is\n\
@@ -222,25 +228,116 @@ fn describe(state: &store::State) -> String {
 /// now" is asked far more often than "what went on today", and a day of
 /// finished jobs between you and the answer is a list you stop reading.
 /// How a listing was asked for.
-///
-/// THE COLUMN CALLED `line` HAS ALWAYS SHOWN THE INTENT — the first four
-/// words — which is what makes a list readable three hours later and
-/// what makes it useless when two jobs start with the same four words.
-/// `--full` is the way back to the line as typed.
 pub struct Shape {
     all: bool,
     full: bool,
     json: bool,
+    /// Columns the table may use. `None` asks the terminal.
+    width: Option<usize>,
 }
 
 impl Shape {
-    fn of(args: &[String]) -> Shape {
-        Shape {
-            all: args.iter().any(|a| a == "--all"),
-            full: args.iter().any(|a| a == "--full"),
-            json: args.iter().any(|a| a == "--json"),
+    /// AN UNKNOWN FLAG IS AN ERROR, NOT A NO-OP. `jbx list --help`
+    /// printed a list of jobs and said nothing, which is the exact shape
+    /// of failure this suite exists to catch: a typo that looks like it
+    /// worked. Anything unrecognised now stops and says so.
+    fn of(args: &[String]) -> Result<Shape, i32> {
+        let mut how = Shape { all: false, full: false, json: false, width: None };
+        let mut rest = args.iter();
+        while let Some(arg) = rest.next() {
+            let (flag, inline) = match arg.split_once('=') {
+                Some((flag, value)) => (flag, Some(value.to_string())),
+                None => (arg.as_str(), None),
+            };
+            match flag {
+                "--all" => how.all = true,
+                "--full" => how.full = true,
+                "--json" => how.json = true,
+                "--width" => {
+                    let given = inline.or_else(|| rest.next().cloned());
+                    match given.as_deref().map(str::trim) {
+                        Some("auto") => how.width = None,
+                        Some(n) => match n.parse::<usize>() {
+                            Ok(n) => how.width = Some(n.max(40)),
+                            Err(_) => return Err(usage_error("`--width` wants columns, or `auto`")),
+                        },
+                        None => return Err(usage_error("`--width` wants columns, or `auto`")),
+                    }
+                }
+                "-h" | "--help" => {
+                    print!("{}", listing_usage());
+                    return Err(0);
+                }
+                other => {
+                    return Err(usage_error(&format!(
+                        "`{other}` is not a flag `jbx list` or `jbx ps` takes"
+                    )))
+                }
+            }
         }
+        Ok(how)
     }
+}
+
+/// How wide the table may draw itself.
+///
+/// The flag first, then the setting, then the terminal — and 100 when
+/// nothing can say, which is the case that matters most: the usual
+/// reader of `jbx ps` is an agent with no terminal at all.
+fn table_width(how: &Shape) -> usize {
+    if let Some(asked) = how.width {
+        return asked;
+    }
+    if let (Some(set), _) = jobbox::config::width() {
+        return set;
+    }
+    terminal_columns().unwrap_or(100)
+}
+
+/// THE TERMINAL IS ASKED, NOT GUESSED — and asked through a program
+/// rather than through an `unsafe` call into libc, which is the same
+/// call this project already declined to make for `/proc` on Windows.
+///
+/// `COLUMNS` is not consulted: a shell keeps it as its own variable and
+/// does not export it, so reading it here answers for whoever last
+/// exported one by hand — an old width, confidently wrong.
+///
+/// stdin is the controlling terminal and not the inherited one, so a
+/// listing still measures right with something piped into it. No
+/// terminal at all — a harness, `/dev/tty` returning ENXIO — is a `None`
+/// and a fallback, never a guess.
+fn terminal_columns() -> Option<usize> {
+    use std::process::{Command, Stdio};
+    let tty = std::fs::File::open("/dev/tty").ok()?;
+    let out = Command::new("stty")
+        .arg("size")
+        .stdin(Stdio::from(tty))
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout).split_whitespace().nth(1)?.parse().ok()
+}
+
+/// What a listing takes, on its own, because `jbx --help` is already a
+/// page and a reader who typed `jbx list --help` asked a narrower
+/// question than "what is this tool".
+fn listing_usage() -> String {
+    "jbx list [flags]    every job of this project, finished ones for a day\n\
+     jbx ps   [flags]    only what is running or queued right now\n\
+     \n\
+     \x20 --all          every project on this machine, with a project column\n\
+     \x20 --full         the line as recorded, wrappers and all, never cut\n\
+     \x20 --json         every field of every record, cut nothing\n\
+     \x20 --width <n>    columns to draw in; `auto` asks the terminal\n\
+     \n\
+     The table shows the INTENT — what the caller said the job was for —\n\
+     beside the LINE, which is what runs. The line is shortened to fit and\n\
+     drops the wrappers it arrived in (`cd <root> &&`, `timeout <n>`,\n\
+     `rtk proxy`); `--full` and `--json` give it back whole.\n"
+        .to_string()
 }
 
 fn listing(only_alive: bool, how: &Shape) -> i32 {
@@ -312,13 +409,41 @@ fn listing(only_alive: bool, how: &Shape) -> i32 {
     // same project and the column would be twelve characters of the
     // same word down the page; with `--all` it is the only thing that
     // says which work belongs to what.
+    // WHAT IS LEFT, SHARED BETWEEN THE TWO COLUMNS THAT HOLD TEXT. The
+    // others are as wide as what they hold and no wider; these two take
+    // the room the terminal gives, because a full-screen window cutting
+    // a line at 46 characters is the tool wasting what it was given.
+    let fixed = 10 + 1 + if all { 14 + 1 } else { 0 } + 16 + 1 + 10 + 1;
+    let free = table_width(how).saturating_sub(fixed).max(40);
+    // AND THE NAME COLUMN ONLY WHEN SOMEBODY NAMED SOMETHING. A derived
+    // name is the first four words of the line printed beside the line —
+    // thirty columns that repeat what is already there. It appears when
+    // a caller actually said what the work was for, and then it is the
+    // most useful thing on the row.
+    let name_width = if records.iter().any(|r| !given_name(r).is_empty()) {
+        (free * 2 / 5).clamp(20, 60)
+    } else {
+        0
+    };
+    let cell = |text: &str| -> String {
+        if name_width == 0 {
+            String::new()
+        } else {
+            format!("{:<name_width$} ", cut(text, name_width))
+        }
+    };
+    let wide = free - name_width;
     if all {
         jobbox::outln!(
-            "{:<10} {:<14} {:<16} {:<10} {:<30} line",
-            "id", "project", "state", "", "intent"
+            "{:<10} {:<14} {:<16} {:<10} {}line",
+            "id",
+            "project",
+            "state",
+            "",
+            cell("intent")
         );
     } else {
-        jobbox::outln!("{:<10} {:<16} {:<10} {:<30} line", "id", "state", "", "intent");
+        jobbox::outln!("{:<10} {:<16} {:<10} {}line", "id", "state", "", cell("intent"));
     }
     for r in &records {
         // MUTENESS IS ONLY SAID WHEN IT MATTERS. On every line it would
@@ -334,22 +459,22 @@ fn listing(only_alive: bool, how: &Shape) -> i32 {
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "?".into());
             jobbox::outln!(
-                "{:<10} {:<14} {:<16} {:<10} {:<30} {}",
+                "{:<10} {:<14} {:<16} {:<10} {}{}",
                 r.id,
                 project,
                 describe(&store::state_of(r)),
                 mute,
-                cut(&r.intent, 30),
-                shown_line(r, how)
+                cell(given_name(r)),
+                shown_line(r, how, wide)
             );
         } else {
             jobbox::outln!(
-                "{:<10} {:<16} {:<10} {:<30} {}",
+                "{:<10} {:<16} {:<10} {}{}",
                 r.id,
                 describe(&store::state_of(r)),
                 mute,
-                cut(&r.intent, 30),
-                shown_line(r, how)
+                cell(given_name(r)),
+                shown_line(r, how, wide)
             );
         }
     }
@@ -853,16 +978,27 @@ TO SET IT UP
 /// says what somebody meant to do, the line says what is actually
 /// running, and showing one of them left the other to guesswork.
 ///
-/// `--full` prints the line as recorded. Without it the leading `cd`
-/// goes — the harness writes one in front of every command, and four
-/// columns of the same path is how two different jobs come to look
-/// identical. THE FINGERPRINT KEEPS IT: what is dropped here is a
-/// matter of reading room, and stats must still group on what ran where.
-fn shown_line(r: &store::Record, how: &Shape) -> String {
+/// `--full` prints the line as recorded. Without it the wrappers go —
+/// `cd <root> &&`, `timeout <n>`, `rtk proxy` — because that is forty
+/// characters of identical preamble standing where the difference
+/// between two jobs should be. THE FINGERPRINT KEEPS THEM: what is
+/// dropped here is reading room, and stats must still group on what ran.
+/// The name a CALLER gave, and nothing when the name was read off the
+/// line: `store::read_record` derives that one, so equality with what it
+/// would derive is exactly the question "did anybody say?".
+fn given_name(r: &store::Record) -> &str {
+    if r.intent == store::intent_of(&r.command) {
+        ""
+    } else {
+        &r.intent
+    }
+}
+
+fn shown_line(r: &store::Record, how: &Shape, width: usize) -> String {
     if how.full {
         return r.command.replace('\n', " ");
     }
-    cut(&jobbox::stats::without_leading_cd(&r.command).replace('\n', " "), 46)
+    cut(&jobbox::stats::without_preamble(&r.command).replace('\n', " "), width)
 }
 
 /// Shorten to a column, and SAY SO with an ellipsis rather than stopping

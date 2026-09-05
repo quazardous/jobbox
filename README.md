@@ -85,7 +85,7 @@ jbx run -- '<line>'            run it, detaching after 30s
 jbx fg -- '<line>'             run it and NEVER let go — said on purpose
 jbx fg <id>                    bring a detached job back to the foreground
 jbx queue <intent> -- '<line>' hand it over BEFORE it starts, and name it
-jbx ps [--all] [--full] [--json]
+jbx ps [--all] [--full] [--json] [--width <n>]
                                what is happening right now, in this project
 jbx describe                   every verb and what it does, as JSON
 jbx list                       … and what has finished, for a day
@@ -107,6 +107,17 @@ jbx hook                       answers the harness; init declares this one
 ```
 
 `run` is what the hook calls. You rarely type it.
+
+**A listing shows the intent beside the line.** The intent is what the
+caller said the job was for — the harness already asks, so it usually
+costs nobody anything — and the line is what actually runs, shortened to
+fit and stripped of the wrappers it arrived in (`cd <root> &&`,
+`timeout <n>`, `rtk proxy`). The name column is only drawn when somebody
+named something: a name read off the line would repeat the line.
+`--full` gives the line back as recorded, `--json` drops nothing, and
+`--width` says how much room to use — by default it asks the terminal,
+and falls back to 100 columns for the reader who has none, which is
+usually the agent.
 
 ## The one judgement left to make
 
@@ -250,6 +261,7 @@ this one run.
 | `JBX_DIR` | `dir` | where logs and records live (`~/.cache/jbx`) |
 | `JBX_SLOTS` | `slots` | how many QUEUED jobs run at once (`none` for no cap) |
 | `JBX_MUTE_AFTER` | `mute_after` | seconds of silence before a job is called mute (`600`) |
+| `JBX_WIDTH` | `width` | columns a listing draws in (`auto` asks the terminal) |
 | `JBX_RTK` | `integration.rtk.compose` | `auto`, `always`, or `never` |
 | `JBX_SHELL` | `shell` | which shell runs a line (`cmd` for Windows' own) |
 | `JBX_CLIENT` | — | pins one fixed mailbox |

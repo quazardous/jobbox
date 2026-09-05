@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   showed four words off the front of the line. `--intent` sets it by hand
   for anyone calling `jbx run` directly.
 
+### Added
+
+- **`--width <n>` on `jbx ps` and `jbx list`**, and a `width` setting to
+  go with it. A listing asks the terminal how wide it is and uses it; the
+  fallback of 100 columns is for the reader who has no terminal, which is
+  usually the agent.
+- **`jbx list --help` and `jbx ps --help` answer.** They used to print a
+  list of jobs and say nothing about the flag, which is a typo that looks
+  like it worked. Any flag those verbs do not know is now an error.
+
 ### Changed
 
 - **`jbx ps` and `jbx list` show the intent AND the line.** They answer
@@ -38,6 +48,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   where the difference between two jobs should be; `--full` prints it as
   recorded and `--json` drops nothing. The state column keeps one word,
   and `jbx status` keeps the sentence that used to be in the table.
+- **A name read off the line is derived when it is read, not when it was
+  written.** It was computed once and stored, so a store held every past
+  version of the rule at once and old jobs kept naming `cd /home/…` for
+  ever. What a caller SAID is still recorded — that is data; what was
+  read off the line is read again, and improves with the rule.
+- **The compact line drops the wrappers it arrived in**, not just the
+  leading `cd`: `timeout <n>` and `rtk proxy` go too. Measured on a real
+  store, twenty of fifty records began with all three — forty characters
+  of identical preamble standing where the difference between two jobs
+  should be. `rtk proxy` goes and a bare `rtk` stays, since `rtk gain` is
+  a verb of rtk's own.
 
 ### Fixed
 

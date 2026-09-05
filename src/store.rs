@@ -130,13 +130,39 @@ pub fn mint() -> String {
 /// because it turned out to be slow — so the name has to come from the
 /// line itself. The first few words are what a reader recognises three
 /// hours later, and never a hash: this is read by people.
+/// Whether a stored name was read off the line rather than given.
+///
+/// It is one when it is the HEAD OF ITS OWN COMMAND — four words that
+/// say nothing the line does not already say. A sentence somebody wrote
+/// is not, which is the whole distinction. Every past shape of the rule
+/// is tried, because that is exactly what an old record holds.
+fn was_derived(command: &str, stored: &str) -> bool {
+    let head = flat(stored.trim_end_matches('…'));
+    if head.is_empty() {
+        return true;
+    }
+    let command = flat(command);
+    [
+        command.as_str(),
+        crate::stats::without_leading_cd(&command),
+        crate::stats::without_preamble(&command),
+    ]
+    .iter()
+    .any(|shape| shape.starts_with(&head))
+}
+
+/// One line, single-spaced, so two spellings of the same words compare.
+fn flat(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 pub fn intent_of(line: &str) -> String {
-    // A LEADING `cd` IS NOT THE NAME OF THE WORK. The harness writes one
-    // in front of every command, so four words of path is what a whole
-    // list showed — `cd /home/…/BookShepherd/bms && e…` names nothing.
-    // The shape calculation already dropped it; the name did not, which
-    // is one lesson applied in one place out of two.
-    let line = crate::stats::without_leading_cd(line);
+    // THE WRAPPERS ARE NOT THE NAME OF THE WORK. A line arrives inside
+    // `cd <root> &&` from the harness and often `timeout <n>` and `rtk
+    // proxy` besides, so the first four words named the envelope —
+    // `cd /home/…/bms && t…`, then `timeout 300 rtk proxy`. Neither says
+    // what is running.
+    let line = crate::stats::without_preamble(line);
     let short: String = line.split_whitespace().take(4).collect::<Vec<_>>().join(" ");
     if short.chars().count() > 58 {
         short.chars().take(57).collect::<String>() + "…"
@@ -174,7 +200,19 @@ pub fn read_record(id: &str) -> Option<Record> {
         detached: v["detached"].as_bool(),
         pid: v["pid"].as_u64().unwrap_or(0) as u32,
         command: v["command"].as_str().unwrap_or("").to_string(),
-        intent: v["intent"].as_str().unwrap_or("").to_string(),
+        // A DERIVED NAME IS A RENDERING, NOT A RECORDING.
+        //
+        // It was stored as it was computed, so every record kept the
+        // name whichever binary wrote it happened to derive — a store
+        // read on one afternoon held three generations of the rule at
+        // once, and the older rows named `cd /home/…` for ever. What the
+        // caller SAID is data and is kept; what was read off the line is
+        // read off the line again, here, and improves with the rule.
+        intent: {
+            let command = v["command"].as_str().unwrap_or("");
+            let stored = v["intent"].as_str().unwrap_or("");
+            if was_derived(command, stored) { intent_of(command) } else { stored.to_string() }
+        },
         started: v["started"].as_f64().unwrap_or(0.0),
         client: v["client"].as_str().unwrap_or("default").to_string(),
         cwd: v["cwd"].as_str().unwrap_or("").to_string(),

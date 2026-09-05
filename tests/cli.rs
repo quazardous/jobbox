@@ -1339,13 +1339,17 @@ fn a_listing_can_show_the_whole_line_and_speak_json() {
     s.run(&["run", "--after", "1", "--", line]);
     std::thread::sleep(std::time::Duration::from_millis(1400));
 
-    // BOTH COLUMNS: the intent says what was meant, the line says what
-    // runs. The line is cut to fit, and the leading `cd` the harness
-    // writes goes with it — four columns of the same path is how two
-    // different jobs come to look identical.
-    let short = text(&s.run(&["ps"]));
-    assert!(short.contains("intent"), "the intent column is gone: {short}");
+    // BOTH COLUMNS WHEN THERE ARE TWO THINGS TO SAY. Nobody named this
+    // one, so its intent would be the first four words of the line
+    // printed beside the line — a column that repeats its neighbour. It
+    // appears when a caller actually said something, and not before.
+    let short = text(&s.run(&["ps", "--width", "60"]));
+    assert!(!short.contains("intent"), "a column of nothing was drawn: {short}");
     assert!(short.contains("echo a very long line"), "the line column is gone: {short}");
+    s.run(&["run", "--after", "1", "--intent", "measure the index", "--", "sleep 3"]);
+    let both = text(&s.run(&["ps"]));
+    assert!(both.contains("intent"), "a named job drew no intent column: {both}");
+    assert!(both.contains("measure the index"), "the name was dropped: {both}");
     assert!(!short.contains("/tmp &&"), "the compact line still carries the cd: {short}");
     assert!(!short.contains("would cut"), "the default stopped truncating: {short}");
     let full = text(&s.run(&["ps", "--full"]));
@@ -1353,13 +1357,65 @@ fn a_listing_can_show_the_whole_line_and_speak_json() {
 
     let rows: serde_json::Value =
         serde_json::from_str(text(&s.run(&["ps", "--json"])).trim()).expect("valid JSON");
-    assert_eq!(rows.as_array().unwrap().len(), 1);
-    assert!(rows[0]["command"].as_str().unwrap().contains("would cut"));
-
+    let rows = rows.as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    // JSON DROPS NOTHING — neither the line the table cut, nor the name
+    // the table left out because it repeated that line.
+    let cut_one = rows.iter().find(|r| r["command"].as_str().unwrap().contains("would cut"));
+    let cut_one = cut_one.expect("the long line is in the JSON");
     // AND THE NAME IGNORES A LEADING `cd`. The harness writes one in
     // front of every command, so four words of path named nothing.
-    assert!(rows[0]["intent"].as_str().unwrap().starts_with("echo"),
-            "the name is still four words of path: {}", rows[0]["intent"]);
+    assert!(cut_one["intent"].as_str().unwrap().starts_with("echo"),
+            "the name is still four words of path: {}", cut_one["intent"]);
+    assert!(rows.iter().any(|r| r["intent"] == "measure the index"),
+            "a name somebody gave is missing from the JSON");
+}
+
+#[test]
+#[cfg(unix)]
+fn a_compact_listing_drops_the_wrappers_a_line_arrives_in() {
+    let s = Scratch::new("preamble");
+    // THE SHAPE THIS WAS MEASURED ON. Twenty of fifty records in a real
+    // store began with all three wrappers: forty characters of identical
+    // preamble standing exactly where the difference between two jobs
+    // should be. `rtk` is not on the PATH here and does not need to be —
+    // what is under test is what the table prints, not what runs.
+    // A JOB ONLY OUTLIVES ITS LINE WHEN IT WAS DETACHED — a line that
+    // finishes in time leaves nothing behind, on purpose — so each of
+    // these outlasts `--after`. The `sleep` is at the END: one written
+    // in FRONT is exactly what this trims.
+    s.run(&["run", "--after", "1", "--", "cd /tmp && timeout 300 rtk proxy echo real; sleep 2"]);
+    // AND WHAT MUST SURVIVE IT. `rtk gain` is a command of rtk's own,
+    // `sleep 2` is the whole of the work, and a duration that is not one
+    // means `timeout` was never the wrapper it looked like.
+    s.run(&["run", "--after", "1", "--", "rtk gain --history; sleep 2"]);
+    s.run(&["run", "--after", "1", "--", "sleep 2"]);
+    s.run(&["run", "--after", "1", "--", "timeout 300; echo kept; sleep 2"]);
+
+    let listed = text(&s.run(&["list"]));
+    assert!(listed.contains("echo real"), "the payload never showed:\n{listed}");
+    assert!(!listed.contains("rtk proxy"), "a wrapper survived the trim:\n{listed}");
+    assert!(!listed.contains("timeout 300 rtk"), "a wrapper survived the trim:\n{listed}");
+    assert!(listed.contains("rtk gain --history"), "rtk's own verb was eaten:\n{listed}");
+    assert!(listed.contains("sleep 2"), "the work itself was eaten:\n{listed}");
+    assert!(listed.contains("timeout 300; echo kept"),
+            "`timeout` was trimmed without a duration to justify it:\n{listed}");
+
+    // AND THE DERIVED NAME TOO — four words of `timeout 300 rtk proxy`
+    // name the envelope, which is the fault the leading `cd` had.
+    let rows: serde_json::Value =
+        serde_json::from_str(text(&s.run(&["list", "--json"])).trim()).expect("valid JSON");
+    let named: Vec<&str> =
+        rows.as_array().unwrap().iter().map(|r| r["intent"].as_str().unwrap()).collect();
+    assert!(named.iter().any(|n| n.starts_with("echo real")),
+            "the name is still the envelope: {named:?}");
+    // THE LINE ITSELF IS UNTOUCHED. What is dropped is reading room, and
+    // `--full` and `--json` are where the whole of it lives.
+    assert!(rows.as_array().unwrap().iter().any(|r| r["command"]
+        .as_str()
+        .unwrap()
+        .starts_with("cd /tmp && timeout 300 rtk proxy")),
+        "the record lost the wrappers, not just the table");
 }
 
 #[test]
@@ -1372,8 +1428,12 @@ fn a_job_is_named_by_whoever_ran_it_when_they_said() {
         "run", "--after", "1", "--intent", "replay the DAG simulation", "--", "sleep 3",
     ]));
     let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
-    let listed = text(&s.run(&["ps"]));
+    let listed = text(&s.run(&["ps", "--width", "200"]));
     assert!(listed.contains("replay the DAG simulation"), "the name was dropped:\n{listed}");
+    // AND IT IS CUT TO THE COLUMN, not to a number written years ago.
+    let narrow = text(&s.run(&["ps", "--width", "80"]));
+    assert!(!narrow.contains("replay the DAG simulation"), "80 columns drew 200:\n{narrow}");
+    assert!(narrow.contains("replay the"), "the name went missing entirely:\n{narrow}");
 
     // AND THE HOOK FILLS IT ON ITS OWN, from the description the harness
     // gives it — so it costs nobody anything to type.

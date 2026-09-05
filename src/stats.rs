@@ -78,6 +78,82 @@ pub fn without_leading_cd(text: &str) -> &str {
     if cut < rest.len() { rest[cut..].trim_start() } else { text }
 }
 
+/// The command with its wrappers taken off, for a table to read.
+///
+/// A line arrives inside three of them — `cd <root> &&` from the
+/// harness, `timeout <n>` and `rtk proxy` from whoever wrote it — and
+/// measured on a real store, twenty of fifty records began with all
+/// three: forty characters of identical preamble standing exactly where
+/// the difference between two jobs should be.
+///
+/// ONLY FOR DISPLAY. The fingerprint keeps them, because `timeout 300`
+/// is part of what ran and `--full` must still print the line as
+/// recorded. What is dropped here is a matter of reading room.
+///
+/// `rtk proxy` goes and a bare `rtk` stays: `rtk proxy <line>` is
+/// documented as running the line untouched, whereas `rtk gain` is a
+/// command of rtk's own, and trimming it would leave `gain`.
+pub fn without_preamble(text: &str) -> &str {
+    let mut line = text.trim_start();
+    loop {
+        let shorter = strip_once(line);
+        // NOTHING LEFT IS NOT AN IMPROVEMENT. `timeout 300` on its own
+        // is the whole command; emptying the column tells the reader
+        // less than the preamble did.
+        if shorter.is_empty() || shorter.len() == line.len() {
+            return line;
+        }
+        line = shorter;
+    }
+}
+
+fn strip_once(line: &str) -> &str {
+    let shorter = without_leading_cd(line);
+    if shorter.len() < line.len() {
+        return shorter;
+    }
+    if let Some(rest) = line.strip_prefix("rtk proxy ") {
+        return rest.trim_start();
+    }
+    // `sleep 240; …` — a wait somebody wrote in front of the real work.
+    // It needs the separator: `sleep 4` alone IS the work.
+    if let Some(rest) = line.strip_prefix("sleep ") {
+        let rest = rest.trim_start();
+        let (n, tail) = rest.split_at(rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(0));
+        // SPACES AND TABS ONLY. A newline IS one of the separators, and
+        // trimming whitespace wholesale ate it before it could be
+        // recognised — measured on a real store, where `sleep 120` then
+        // a newline then the work read as the work being `sleep`.
+        let tail = tail.trim_start_matches([' ', '\t']);
+        if !n.is_empty() {
+            for sep in ["&&", ";", "\n"] {
+                if let Some(tail) = tail.strip_prefix(sep) {
+                    return tail.trim_start();
+                }
+            }
+        }
+    }
+    // `timeout [-k 10] 300 …`. The duration is checked before anything
+    // is dropped, so a command that merely BEGINS with these letters
+    // keeps its arguments.
+    if let Some(rest) = line.strip_prefix("timeout ") {
+        let mut rest = rest.trim_start();
+        while rest.starts_with('-') {
+            let Some(cut) = rest.find(char::is_whitespace) else { return line };
+            rest = rest[cut..].trim_start();
+        }
+        let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        let (duration, tail) = rest.split_at(end);
+        let (digits, unit) = duration.split_at(
+            duration.find(|c: char| !c.is_ascii_digit() && c != '.').unwrap_or(duration.len()),
+        );
+        if !digits.is_empty() && matches!(unit, "" | "s" | "m" | "h" | "d") && !tail.is_empty() {
+            return tail.trim_start();
+        }
+    }
+    line
+}
+
 fn base(path: &str) -> Option<String> {
     Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned())
 }
