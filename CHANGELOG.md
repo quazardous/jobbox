@@ -18,6 +18,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-09-05
+
+Everything 0.5.0 promised, plus a way to install it — and the macOS bug
+that would have made the first Mac binary lie.
+
+### Added
+
+- **A binary you can just download.** Every tag builds one for Linux
+  (statically linked, so the distribution that built it does not matter),
+  Windows and macOS, and publishes it with the notes taken from this
+  file, which is the source. `cargo install` needs a Rust toolchain, and
+  on Windows that means the Visual Studio build tools — gigabytes of
+  prerequisite for a program under a megabyte. A platform whose users
+  cannot install it is a platform supported on paper.
+- **`install.ps1`**, the Windows counterpart of `install.sh`, for anyone
+  who does want to build.
+
+### Fixed
+
+- **A finished job no longer reads as killed on macOS and the BSDs.**
+  Liveness was read from `/proc` under `cfg(unix)`; where there is no
+  `/proc` that is not a missing answer but a WRONG one — every job that
+  had ended cleanly showed as "gone, no exit code", which is what a
+  killed one looks like. Those platforms are asked with `ps` now. Found
+  while preparing the first Mac binary, which would have shipped it.
+
+### Changed
+
+- Two guards for what drifts while nobody looks: the version in
+  `Cargo.toml` against this file's newest entry, and every verb the
+  README names against what the binary actually answers to.
+
 ## [0.5.0] - 2026-09-05
 
 **The project is JobBox, the command is now `jbx`, and it is a different
@@ -66,23 +98,6 @@ detach themselves. Rewritten in Rust, so it runs on Windows too.
   Claude Code works in is a project whether or not anybody ran
   `git init`, and looking only for a repository put every such directory
   in the same nameless heap.
-
-- **A binary you can just download.** Every tag builds one for Linux
-  (statically linked, so the distribution that built it does not matter),
-  Windows and macOS, and publishes them with the notes taken from this
-  file. `cargo install` needs a Rust toolchain, and on Windows that means
-  the Visual Studio build tools — gigabytes of prerequisite for a program
-  under a megabyte. A platform whose users cannot install it is a
-  platform supported on paper. `install.ps1` is the Windows counterpart
-  of `install.sh` for anyone who does want to build.
-
-### Fixed
-
-- **A finished job no longer reads as killed on macOS and the BSDs.**
-  Liveness was read from `/proc` on every Unix; where there is no `/proc`
-  that is not a missing answer but a wrong one — every job that had ended
-  cleanly showed as "gone, no exit code", which is what a killed one
-  looks like. Those platforms are asked with `ps` instead.
 
 ### Changed
 
