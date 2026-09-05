@@ -69,6 +69,72 @@ fn is_ours(entry: &Value, binary: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// THE PATH TO WRITE INTO THE HARNESS — and it prefers the symlink.
+///
+/// `current_exe()` follows symlinks, so a dev install declared the build
+/// tree itself. That is right in one way — a rebuild is picked up with no
+/// re-init — and wrong in another: the hook is then nailed to a
+/// directory, and moving or deleting the tree breaks every session at
+/// once. Measured the hard way.
+///
+/// Declared through the link instead, both hold: a rebuild still follows
+/// (the link points at the tree), and reinstalling or switching to a
+/// release binary moves the hook with it, because the address stays the
+/// same and only its target changes.
+///
+/// ONLY WHEN IT REALLY IS A LINK, and always as an absolute path: a hook
+/// runs with whatever working directory and PATH the harness has, so a
+/// bare name or a relative one would be a hook that works here and
+/// nowhere else.
+fn declared_binary() -> String {
+    let resolved = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "jbx".into());
+    let Some(invoked) = invocation_path() else { return resolved };
+    match fs::symlink_metadata(&invoked) {
+        Ok(meta) if meta.file_type().is_symlink() => invoked.display().to_string(),
+        _ => resolved,
+    }
+}
+
+/// The path this process was invoked by, made absolute WITHOUT resolving
+/// links — which is the whole point, since resolving is what we are
+/// trying not to do.
+fn invocation_path() -> Option<PathBuf> {
+    let argv0 = PathBuf::from(std::env::args_os().next()?);
+    if argv0.is_absolute() {
+        return Some(argv0);
+    }
+    if argv0.components().count() > 1 {
+        // Typed as a path, so it is relative to where we stand.
+        return Some(std::env::current_dir().ok()?.join(argv0));
+    }
+    // A bare name: whichever PATH entry would have been found first.
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|dir| dir.join(&argv0))
+        .find(|candidate| candidate.is_file())
+}
+
+/// Rewrite our own entries that name a different path, and say how many.
+fn repoint(settings: &mut Value, binary: &str) -> usize {
+    let wanted = format!("{binary} hook");
+    let mut changed = 0;
+    let Some(hooks) = settings["hooks"].as_object_mut() else { return 0 };
+    for (_event, matchers) in hooks.iter_mut() {
+        let Some(matchers) = matchers.as_array_mut() else { continue };
+        for matcher in matchers.iter_mut() {
+            let Some(entries) = matcher["hooks"].as_array_mut() else { continue };
+            for entry in entries.iter_mut() {
+                if is_ours(entry, binary) && entry["command"].as_str() != Some(wanted.as_str()) {
+                    entry["command"] = Value::String(wanted.clone());
+                    changed += 1;
+                }
+            }
+        }
+    }
+    changed
+}
+
 /// Whether this binary is already declared for an event.
 fn declared(settings: &Value, event: &str, binary: &str) -> bool {
     settings["hooks"][event]
@@ -109,12 +175,7 @@ pub fn init(undo: bool) -> i32 {
         eprintln!("jbx: cannot find the settings file — set CLAUDE_CONFIG_DIR");
         return 2;
     };
-    // OUR OWN ABSOLUTE PATH. There is one binary, so the thing declared
-    // to the harness is the thing running this — and by its path, never
-    // its name: a hook runs with whatever PATH the harness has.
-    let binary = std::env::current_exe()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|_| "jbx".into());
+    let binary = declared_binary();
     if undo {
         return restore(&path, &binary);
     }
@@ -128,7 +189,7 @@ pub fn init(undo: bool) -> i32 {
             let _ = fs::create_dir_all(parent);
         }
         if fs::write(&config, crate::config::TEMPLATE).is_ok() {
-            println!("wrote {}", config.display());
+            outln!("wrote {}", config.display());
         }
     }
 
@@ -147,9 +208,9 @@ pub fn init(undo: bool) -> i32 {
         if !local.exists() {
             let rtk = crate::config::rtk_answers();
             if fs::write(&local, crate::config::project_template(rtk)).is_ok() {
-                println!("wrote {}", local.display());
-                println!("  everything in it is commented — it changes nothing until you");
-                println!("  uncomment something. rtk {} when it was written.",
+                outln!("wrote {}", local.display());
+                outln!("  everything in it is commented — it changes nothing until you");
+                outln!("  uncomment something. rtk {} when it was written.",
                          if rtk { "answered" } else { "did not answer" });
             }
         }
@@ -192,6 +253,11 @@ pub fn init(undo: bool) -> i32 {
         matchers.retain(|m| !m["hooks"].as_array().map(|h| h.is_empty()).unwrap_or(false));
     }
 
+    // AN EXISTING DECLARATION IS BROUGHT UP TO DATE, not just noticed.
+    // Re-running `init` after a reinstall used to leave the harness
+    // pointing at the old path and say "already declared" — which reads
+    // like "nothing to do" and was not.
+    let moved = repoint(&mut settings, &binary);
     if !already {
         declare(&mut settings, "PreToolUse", "Bash", &binary);
     }
@@ -227,8 +293,18 @@ pub fn init(undo: bool) -> i32 {
         return 1;
     }
     outln!("wired into {}", path.display());
-    if already {
-        outln!("  (the hook was already declared — left as it was)");
+    if fs::symlink_metadata(&binary).map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+        // SAID, BECAUSE IT CHANGES WHAT A REBUILD DOES. Through a link
+        // the hook follows whatever the link points at — which is what
+        // somebody working on a checkout wants, and a surprise to
+        // somebody who thought they had pinned one binary.
+        outln!("  declared through {binary} — a link, so the hook");
+        outln!("  follows whatever it points at.");
+    }
+    if moved > 0 {
+        outln!("  {moved} declarations repointed at this binary");
+    } else if already {
+        outln!("  (the hook was already declared, and already correct)");
     }
     for d in &displaced {
         outln!(

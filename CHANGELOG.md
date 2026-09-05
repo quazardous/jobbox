@@ -18,6 +18,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.10] - 2026-09-06
+
+### Changed
+
+- **`jbx init` declares the link it was called through.** `current_exe()`
+  follows symlinks, so a development install nailed the hooks to the
+  build tree: right in that a rebuild is picked up with no re-init, wrong
+  in that moving or deleting the tree broke every session at once —
+  measured the hard way. Declared through the link, both hold: a rebuild
+  still follows, and reinstalling or switching to a release binary moves
+  the hooks with it, because the address stays and only its target
+  changes.
+- **Re-running `init` brings an existing declaration up to date** instead
+  of noticing one. It used to answer "already declared" and leave the
+  harness pointing wherever it pointed before, which reads like nothing
+  to do and was not.
+
 ## [0.5.9] - 2026-09-06
 
 ### Fixed

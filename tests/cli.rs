@@ -1067,3 +1067,46 @@ fn without_a_session_it_falls_back_to_where_it_stands() {
     let filed = readings(&s).last().and_then(|r| r["path"].as_str().map(str::to_string)).unwrap_or_default();
     assert_eq!(filed, here.display().to_string(), "it did not fall back to the cwd");
 }
+
+#[test]
+#[cfg(unix)]
+fn init_declares_the_link_it_was_called_through() {
+    let s = Scratch::new("through-a-link");
+    let config = s.0.join("claude");
+    std::fs::create_dir_all(&config).unwrap();
+    let here = s.project(None, "");
+    let link = s.0.join("jbx");
+    std::os::unix::fs::symlink(JBX, &link).unwrap();
+
+    let run = |program: &std::path::Path| {
+        Command::new(program)
+            .env_remove("JBX_WRAPPED")
+            .arg("init")
+            .current_dir(&here)
+            .env("JBX_DIR", &s.0)
+            .env("JBX_CONFIG", s.0.join("global.yaml"))
+            .env("CLAUDE_CONFIG_DIR", &config)
+            .output()
+            .unwrap()
+    };
+    let declared = || -> String {
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(config.join("settings.json")).unwrap()).unwrap();
+        v["hooks"]["PreToolUse"][0]["hooks"][0]["command"].as_str().unwrap().to_string()
+    };
+
+    // THROUGH A LINK, THE LINK IS WHAT IS DECLARED. `current_exe()`
+    // follows symlinks, so a dev install nailed the hook to the build
+    // tree — right in that a rebuild is picked up, wrong in that moving
+    // the tree breaks every session at once.
+    run(&link);
+    assert!(declared().starts_with(link.to_str().unwrap()),
+            "the link was resolved away: {}", declared());
+
+    // AND RE-RUNNING BRINGS AN OLD DECLARATION UP TO DATE rather than
+    // shrugging. "already declared" used to mean "left pointing at
+    // wherever it pointed before", which reads like nothing to do.
+    let out = run(std::path::Path::new(JBX));
+    assert!(text(&out).contains("repointed"), "it did not correct the path: {}", text(&out));
+    assert!(declared().starts_with(JBX), "still the old path: {}", declared());
+}
