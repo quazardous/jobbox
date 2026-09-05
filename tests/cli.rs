@@ -1357,3 +1357,40 @@ fn a_listing_can_show_the_whole_line_and_speak_json() {
     assert!(rows[0]["intent"].as_str().unwrap().starts_with("echo"),
             "the name is still four words of path: {}", rows[0]["intent"]);
 }
+
+#[test]
+fn a_job_is_named_by_whoever_ran_it_when_they_said() {
+    let s = Scratch::new("named");
+    // THE HARNESS ALREADY ASKS what each command is for, and hands the
+    // answer to the hook. Four words off the front of the line name
+    // nothing when every line starts the same way.
+    let said = text(&s.run(&[
+        "run", "--after", "1", "--intent", "replay the DAG simulation", "--", "sleep 3",
+    ]));
+    let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
+    let listed = text(&s.run(&["ps"]));
+    assert!(listed.contains("replay the DAG simulation"), "the name was dropped:\n{listed}");
+
+    // AND THE HOOK FILLS IT ON ITS OWN, from the description the harness
+    // gives it — so it costs nobody anything to type.
+    let event = serde_json::json!({
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "make test", "description": "run the unit tests", "timeout": 1},
+    }).to_string();
+    let mut child = Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
+        .arg("hook")
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .env("PATH", "/nonexistent")
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    use std::io::Write;
+    child.stdin.take().unwrap().write_all(event.as_bytes()).unwrap();
+    let out = String::from_utf8_lossy(&child.wait_with_output().unwrap().stdout).into_owned();
+    let answer: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+    let rewritten = answer["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap();
+    assert!(rewritten.contains("--intent 'run the unit tests'"),
+            "the description did not travel: {rewritten}");
+    let _ = s.run(&["wait", &id]);
+}

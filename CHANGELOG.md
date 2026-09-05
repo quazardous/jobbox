@@ -18,6 +18,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.12] - 2026-09-06
+
+### Added
+
+- **A job is named by whoever ran it.** The harness already asks for a
+  one-line description of every command and hands it to the hook, so the
+  hook passes it on: `jbx ps` shows "replay the DAG simulation" where it
+  showed four words off the front of the line. `--intent` sets it by hand
+  for anyone calling `jbx run` directly.
+
+### Fixed
+
+- **The shell that was checked is the shell that is run.** The check
+  skipped `C:\Windows\System32\bash.exe` — the WSL launcher, which is not
+  a shell — and then spawned `bash` by bare name, letting `Command` do
+  its own PATH lookup and find it again two lines later. Verifying one
+  thing and using another is its own kind of bug. Git for Windows is also
+  looked for where it installs, since it is often present and often not
+  on the PATH.
+- **`jbx kill` reports what happened, not what was attempted.** `kill`
+  answering successfully does not mean the process went; on one runner
+  the group form failed and a job stayed readable as waiting for a slot
+  it had been stopped from ever taking. The signal is now sent to the
+  tree AND to the supervisor by name, the outcome is checked, and `KILL`
+  follows if `TERM` did not settle it.
+
 ## [0.5.11] - 2026-09-06
 
 ### Added

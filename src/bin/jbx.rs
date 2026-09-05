@@ -47,7 +47,7 @@ fn dispatch(args: Vec<String>) -> i32 {
                     i += 1;
                 }
             }
-            run::run(after, &tail(rest))
+            run::run(after, &tail(rest), named(rest))
         }
         // NOT IN THE HELP: it is one half of this binary talking to the
         // other, and a verb a person can be tempted to type by hand is a
@@ -86,7 +86,7 @@ fn dispatch(args: Vec<String>) -> i32 {
         // command is. A `--` settles it either way.
         "fg" => match rest.first() {
             Some(first) if looks_like_an_id(first) && rest.len() == 1 => run::attach(first),
-            Some(_) => run::foreground(&tail(rest)),
+            Some(_) => run::foreground(&tail(rest), named(rest)),
             None => usage_error("fg needs a line or a job id"),
         },
         "queue" => match rest.first() {
@@ -467,31 +467,72 @@ fn wait(id: &str) -> i32 {
 /// leave the real work running with nothing watching it.
 fn kill(id: &str) -> i32 {
     let Some(r) = store::read_record(id) else {
-        eprintln!("jbx: {id} is unknown");
+        jobbox::outln!("jbx: {id} is unknown");
         return 1;
     };
-    #[cfg(unix)]
-    let done = std::process::Command::new("kill")
-        .args(["-TERM", &format!("-{}", r.pid)])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    #[cfg(windows)]
-    let done = std::process::Command::new("taskkill")
-        .args(["/T", "/F", "/PID", &r.pid.to_string()])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    if done {
-        // SAID OUT LOUD, because the code will not say it: a killed line
-        // leaves an interrupt code that a later reader would take for a
-        // failure of the command itself.
-        eprintln!("jbx: {id} stopped");
-        0
-    } else {
-        eprintln!("jbx: could not stop {id} (pid {})", r.pid);
-        1
+    stop(r.pid, "TERM");
+    // ASKED, THEN CHECKED. `kill` reporting success does not mean the
+    // process went — and on one CI runner the group form failed while
+    // reporting nothing useful, leaving a job that read as waiting for a
+    // slot it had been stopped from ever taking. What is reported here
+    // is what was observed, not what was attempted.
+    for _ in 0..20 {
+        if !store::alive(r.pid) {
+            // SAID OUT LOUD, because the code will not say it: a killed
+            // line leaves an interrupt code a later reader would take
+            // for a failure of the command itself.
+            jobbox::outln!("jbx: {id} stopped");
+            return 0;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
     }
+    // IT DID NOT GO. Ask harder rather than report a stop that did not
+    // happen — and then check again, for the same reason as before.
+    stop(r.pid, "KILL");
+    for _ in 0..20 {
+        if !store::alive(r.pid) {
+            jobbox::outln!("jbx: {id} stopped (it needed KILL)");
+            return 0;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    jobbox::outln!("jbx: {id} is still there (pid {}) — nothing this tool can do", r.pid);
+    1
+}
+
+/// Signal a job: the whole tree, then the supervisor itself.
+///
+/// BOTH, because neither is enough alone. The group carries everything
+/// the line started, which is the point; but the group form is written
+/// `-PID`, which some `kill` implementations read as an option, and one
+/// runner refused it. Naming the process too costs one more call and
+/// removes the dependency on that form working everywhere.
+#[cfg(unix)]
+fn stop(pid: u32, signal: &str) {
+    let dash = format!("-{signal}");
+    let group = format!("-{pid}");
+    // `--` ENDS THE OPTIONS, so a negative pid cannot be read as one.
+    let _ = std::process::Command::new("kill")
+        .args([dash.as_str(), "--", group.as_str()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    let _ = std::process::Command::new("kill")
+        .args([dash.as_str(), "--", &pid.to_string()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
+#[cfg(windows)]
+fn stop(pid: u32, signal: &str) {
+    // Windows has one hammer; `/T` takes the tree with it.
+    let _ = signal;
+    let _ = std::process::Command::new("taskkill")
+        .args(["/T", "/F", "/PID", &pid.to_string()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
 }
 
 /// `jbx slots [n]` — READ THE CAP, OR SET IT.
@@ -800,4 +841,15 @@ TO SET IT UP
 /// what makes two jobs beginning `cd /long/path && …` indistinguishable.
 fn shown_line(r: &store::Record, how: &Shape) -> String {
     if how.full { r.command.replace('\n', " ") } else { r.intent.clone() }
+}
+
+/// The `--intent` given before `--`, if any.
+///
+/// A NAME THE CALLER CHOSE beats four words taken off the front of the
+/// line. The hook fills it from the description the harness already asks
+/// for, so it costs nobody anything to type.
+fn named(args: &[String]) -> Option<&str> {
+    let end = args.iter().position(|a| a == "--").unwrap_or(args.len());
+    let at = args[..end].iter().position(|a| a == "--intent")?;
+    args.get(at + 1).map(String::as_str)
 }

@@ -191,9 +191,24 @@ pub fn hook(binary: &str) -> i32 {
     // who installed this had. A bare name here is a `command not found`
     // in place of every command on the machine, and the first test
     // written found exactly that.
+    // THE HARNESS ALREADY ASKED WHAT THIS COMMAND IS FOR, and hands us
+    // the answer. Passing it on names the job with the caller's own
+    // sentence instead of the first four words of the line — the
+    // difference between a list you read and one you decode.
+    let described = tool_input
+        .get("description")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(|d| format!("--intent {} ", quote(d)))
+        .unwrap_or_default();
     updated.insert(
         "command".into(),
-        Value::String(format!("{} run -- {}", shell_word(binary), quote(&through_rtk(line)))),
+        Value::String(format!(
+            "{} run {described}-- {}",
+            shell_word(binary),
+            quote(&through_rtk(line))
+        )),
     );
     // `permissionDecision` IS DELIBERATELY ABSENT. Setting it to "allow"
     // alongside an `updatedInput` makes the harness drop the rewrite

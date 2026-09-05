@@ -1,6 +1,6 @@
 [package]
 name = "jobbox"
-version = "0.5.11"
+version = "0.5.12"
 edition = "2021"
 description = "JobBox — wrap every command line; detach the ones that turn out to be long."
 license = "MIT"

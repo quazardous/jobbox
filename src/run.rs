@@ -79,8 +79,27 @@ pub fn shell_program() -> Shell {
         if let Some(named) = crate::config::shell() {
             return if named == "cmd" { Shell::Cmd } else { Shell::Posix(named) };
         }
-        if on_path("bash") {
-            return Shell::Posix("bash".into());
+        // THE PATH WE CHECKED IS THE PATH WE RUN. Returning the bare
+        // name let `Command` do its own lookup, which does not skip
+        // `System32` — so the check excluded the WSL launcher and the
+        // spawn picked it up again, two lines later. Verifying one thing
+        // and using another is its own kind of bug, and this is what it
+        // looks like.
+        if let Some(found) = find_on_path("bash") {
+            return Shell::Posix(found.display().to_string());
+        }
+        // GIT FOR WINDOWS IS OFTEN INSTALLED AND OFTEN NOT ON THE PATH.
+        // Looking where it lives costs two `stat`s and is the difference
+        // between a working install and `cmd`, which has no `sleep` and
+        // understands none of the quoting the hook writes.
+        #[cfg(windows)]
+        for candidate in [
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files (x86)\Git\bin\bash.exe",
+        ] {
+            if std::path::Path::new(candidate).is_file() {
+                return Shell::Posix(candidate.into());
+            }
         }
         if cfg!(windows) {
             Shell::Cmd
@@ -97,9 +116,9 @@ pub fn shell_program() -> Shell {
 ///
 /// Running it to find out would cost a process on every wrapped command,
 /// which is the one budget this path does not have.
-fn on_path(program: &str) -> bool {
-    let Some(path) = std::env::var_os("PATH") else { return false };
-    std::env::split_paths(&path).any(|dir| {
+fn find_on_path(program: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path).find_map(|dir| {
         // `C:\Windows\System32\bash.exe` IS NOT A SHELL. It is the WSL
         // launcher, and on a machine with no distribution installed it
         // answers every command with "Windows Subsystem for Linux has no
@@ -108,9 +127,14 @@ fn on_path(program: &str) -> bool {
         // Windows runner for the first time; no amount of reading would
         // have shown it.
         if cfg!(windows) && in_system32(dir.as_path()) {
-            return false;
+            return None;
         }
-        dir.join(program).is_file() || dir.join(format!("{program}.exe")).is_file()
+        let plain = dir.join(program);
+        if plain.is_file() {
+            return Some(plain);
+        }
+        let exe = dir.join(format!("{program}.exe"));
+        exe.is_file().then_some(exe)
     })
 }
 
@@ -269,11 +293,11 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 /// there is nothing to return YET — so we return 0, which is the truth
 /// about what THIS process did, and the real code is written where
 /// `status` and `wait` read it.
-pub fn run(after: f64, line: &str) -> i32 {
-    run_inner(after, line, false)
+pub fn run(after: f64, line: &str, intent: Option<&str>) -> i32 {
+    run_inner(after, line, false, intent)
 }
 
-fn run_inner(after: f64, line: &str, fg: bool) -> i32 {
+fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>) -> i32 {
     if line.trim().is_empty() {
         eprintln!("jbx: nothing to run. `jbx run -- '<command line>'`");
         return 2;
@@ -374,7 +398,19 @@ fn run_inner(after: f64, line: &str, fg: bool) -> i32 {
         detached: Some(false),
         pid: child.id(),
         command: line.to_string(),
-        intent: store::intent_of(line),
+        // WHAT THE CALLER SAID IT WAS DOING, when they said anything.
+        //
+        // The harness already asks for a one-line description of every
+        // command and hands it to the hook — so a job can be named by
+        // whoever ran it rather than by the first four words of its own
+        // text. `make simulation-dag ARGS=…` becomes "run the DAG
+        // simulation after the rope fork", which is what a list is read
+        // for three hours later.
+        intent: intent
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(|t| t.chars().take(72).collect())
+            .unwrap_or_else(|| store::intent_of(line)),
         started: store::now(),
         client: store::client(),
         cwd: std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default(),
@@ -684,8 +720,8 @@ pub fn queue(intent: &str, line: &str) -> i32 {
 /// about it, and I need the answer before I can go on". Saying it out
 /// loud is the point: `jbx stats` counts what it cost, so a habit of
 /// reaching for it shows up as time that was never saved.
-pub fn foreground(line: &str) -> i32 {
-    run_inner(f64::INFINITY, line, true)
+pub fn foreground(line: &str, intent: Option<&str>) -> i32 {
+    run_inner(f64::INFINITY, line, true, intent)
 }
 
 /// `jbx fg <id>` — BRING A DETACHED JOB BACK.
