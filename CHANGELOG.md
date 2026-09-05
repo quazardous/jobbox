@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   go with it. A listing asks the terminal how wide it is and uses it; the
   fallback of 100 columns is for the reader who has no terminal, which is
   usually the agent.
+- **An `age` column in `jbx ps` and `jbx list`** — how long ago each job
+  started. `finished exit 0` read the same for something that ended a
+  minute ago and something that ended yesterday.
 - **`jbx list --help` and `jbx ps --help` answer.** They used to print a
   list of jobs and say nothing about the flag, which is a typo that looks
   like it worked. Any flag those verbs do not know is now an error.
@@ -62,6 +65,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A listing drew one character past the width it was given.** The
+  space after the intent column was printed by the column and counted by
+  nobody, so a full-screen terminal wrapped every row of the table. A
+  test now measures each row against the width it asked for.
 - **The shell that was checked is the shell that is run.** The check
   skipped `C:\Windows\System32\bash.exe` — the WSL launcher, which is not
   a shell — and then spawned `bash` by bare name, letting `Command` do

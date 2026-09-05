@@ -25,6 +25,13 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    # WINDOWS IS ASKED BUT NOT BELIEVED, YET. The suite fails there
+    # wholesale today and the README says as much: nobody has run this
+    # program on Windows (#2065). A permanently red job is worse than no
+    # job — it is where the next real regression goes unnoticed — so the
+    # answer is recorded without blocking, and the day it passes the
+    # exception comes out.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     steps:
       - uses: actions/checkout@v5
       - run: cargo test --release

@@ -1065,7 +1065,13 @@ fn without_a_session_it_falls_back_to_where_it_stands() {
         .output()
         .unwrap();
     let filed = readings(&s).last().and_then(|r| r["path"].as_str().map(str::to_string)).unwrap_or_default();
-    assert_eq!(filed, here.display().to_string(), "it did not fall back to the cwd");
+    // CANONICAL BOTH SIDES. On macOS the scratch lives under
+    // `/var/folders/…`, which is a link to `/private/var/…` — two
+    // spellings of one directory, and the reading is filed under the
+    // one the kernel answers with.
+    let filed = std::fs::canonicalize(&filed).unwrap_or_else(|_| filed.into());
+    let here = std::fs::canonicalize(&here).unwrap_or(here);
+    assert_eq!(filed, here, "it did not fall back to the cwd");
 }
 
 #[test]
@@ -1343,7 +1349,7 @@ fn a_listing_can_show_the_whole_line_and_speak_json() {
     // one, so its intent would be the first four words of the line
     // printed beside the line — a column that repeats its neighbour. It
     // appears when a caller actually said something, and not before.
-    let short = text(&s.run(&["ps", "--width", "60"]));
+    let short = text(&s.run(&["ps", "--width", "80"]));
     assert!(!short.contains("intent"), "a column of nothing was drawn: {short}");
     assert!(short.contains("echo a very long line"), "the line column is gone: {short}");
     s.run(&["run", "--after", "1", "--intent", "measure the index", "--", "sleep 3"]);
@@ -1431,9 +1437,22 @@ fn a_job_is_named_by_whoever_ran_it_when_they_said() {
     let listed = text(&s.run(&["ps", "--width", "200"]));
     assert!(listed.contains("replay the DAG simulation"), "the name was dropped:\n{listed}");
     // AND IT IS CUT TO THE COLUMN, not to a number written years ago.
-    let narrow = text(&s.run(&["ps", "--width", "80"]));
-    assert!(!narrow.contains("replay the DAG simulation"), "80 columns drew 200:\n{narrow}");
+    let narrow = text(&s.run(&["ps", "--width", "100"]));
+    assert!(!narrow.contains("replay the DAG simulation"), "100 columns drew 200:\n{narrow}");
     assert!(narrow.contains("replay the"), "the name went missing entirely:\n{narrow}");
+
+    // AND NO ROW OUTRUNS THE WIDTH IT WAS GIVEN. One character over is
+    // invisible until a full-screen terminal wraps every line of the
+    // table — which is how it shipped: the space after the intent cell
+    // was printed by the cell and counted by nobody.
+    for wide in [80usize, 100, 137, 200] {
+        let drawn = text(&s.run(&["ps", "--all", "--width", &wide.to_string()]));
+        for row in drawn.lines() {
+            assert!(row.chars().count() <= wide,
+                    "a row ran {} past a {wide}-column table:\n{row}",
+                    row.chars().count() - wide);
+        }
+    }
 
     // AND THE HOOK FILLS IT ON ITS OWN, from the description the harness
     // gives it — so it costs nobody anything to type.

@@ -413,14 +413,17 @@ fn listing(only_alive: bool, how: &Shape) -> i32 {
     // others are as wide as what they hold and no wider; these two take
     // the room the terminal gives, because a full-screen window cutting
     // a line at 46 characters is the tool wasting what it was given.
-    let fixed = 10 + 1 + if all { 14 + 1 } else { 0 } + 16 + 1 + 10 + 1;
-    let free = table_width(how).saturating_sub(fixed).max(40);
+    let fixed = 10 + 1 + 5 + 1 + if all { 14 + 1 } else { 0 } + 16 + 1 + 10 + 1;
+    let free = table_width(how).saturating_sub(fixed).max(20);
     // AND THE NAME COLUMN ONLY WHEN SOMEBODY NAMED SOMETHING. A derived
     // name is the first four words of the line printed beside the line —
     // thirty columns that repeat what is already there. It appears when
     // a caller actually said what the work was for, and then it is the
     // most useful thing on the row.
-    let name_width = if records.iter().any(|r| !given_name(r).is_empty()) {
+    // AND NOT IN A NARROW WINDOW EITHER: below about forty-five columns
+    // of free space the two of them would each be too short to read, and
+    // the line is the one that cannot be guessed from anything else.
+    let name_width = if free >= 45 && records.iter().any(|r| !given_name(r).is_empty()) {
         (free * 2 / 5).clamp(20, 60)
     } else {
         0
@@ -432,18 +435,26 @@ fn listing(only_alive: bool, how: &Shape) -> i32 {
             format!("{:<name_width$} ", cut(text, name_width))
         }
     };
-    let wide = free - name_width;
+    // AND THE SPACE AFTER IT BELONGS TO IT. The cell prints
+    // `<name><space>`, so leaving that space out of the share made the
+    // row one character wider than the terminal — which is invisible
+    // until a full-screen window wraps every line of the table.
+    let wide = free - name_width - usize::from(name_width > 0);
     if all {
         jobbox::outln!(
-            "{:<10} {:<14} {:<16} {:<10} {}line",
+            "{:<10} {:>5} {:<14} {:<16} {:<10} {}line",
             "id",
+            "age",
             "project",
             "state",
             "",
             cell("intent")
         );
     } else {
-        jobbox::outln!("{:<10} {:<16} {:<10} {}line", "id", "state", "", cell("intent"));
+        jobbox::outln!(
+            "{:<10} {:>5} {:<16} {:<10} {}line",
+            "id", "age", "state", "", cell("intent")
+        );
     }
     for r in &records {
         // MUTENESS IS ONLY SAID WHEN IT MATTERS. On every line it would
@@ -459,8 +470,9 @@ fn listing(only_alive: bool, how: &Shape) -> i32 {
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "?".into());
             jobbox::outln!(
-                "{:<10} {:<14} {:<16} {:<10} {}{}",
+                "{:<10} {:>5} {:<14} {:<16} {:<10} {}{}",
                 r.id,
+                age(r),
                 project,
                 describe(&store::state_of(r)),
                 mute,
@@ -469,8 +481,9 @@ fn listing(only_alive: bool, how: &Shape) -> i32 {
             );
         } else {
             jobbox::outln!(
-                "{:<10} {:<16} {:<10} {}{}",
+                "{:<10} {:>5} {:<16} {:<10} {}{}",
                 r.id,
+                age(r),
                 describe(&store::state_of(r)),
                 mute,
                 cell(given_name(r)),
@@ -983,6 +996,25 @@ TO SET IT UP
 /// characters of identical preamble standing where the difference
 /// between two jobs should be. THE FINGERPRINT KEEPS THEM: what is
 /// dropped here is reading room, and stats must still group on what ran.
+/// HOW LONG AGO IT STARTED, which is the one instant every record
+/// holds. A finished job otherwise carried no time at all: `finished
+/// exit 0` reads the same for something that ended a minute ago and
+/// something that ended yesterday, and a list is read to tell them
+/// apart.
+///
+/// RELATIVE, NOT A CLOCK. A clock time is a timezone, and this program
+/// carries no calendar to be right about one — `--json` publishes the
+/// instant itself, which is where an exact answer belongs.
+fn age(r: &store::Record) -> String {
+    let secs = (store::now() - r.started).max(0.0);
+    match secs {
+        s if s < 90.0 => format!("{s:.0}s"),
+        s if s < 5400.0 => format!("{:.0}m", s / 60.0),
+        s if s < 172_800.0 => format!("{:.0}h", s / 3600.0),
+        s => format!("{:.0}d", s / 86400.0),
+    }
+}
+
 /// The name a CALLER gave, and nothing when the name was read off the
 /// line: `store::read_record` derives that one, so equality with what it
 /// would derive is exactly the question "did anybody say?".

@@ -108,6 +108,13 @@ jbx hook                       answers the harness; init declares this one
 
 `run` is what the hook calls. You rarely type it.
 
+**A listing says how long ago each job started.** `finished exit 0`
+reads the same for something that ended a minute ago and something that
+ended yesterday, which is exactly what a list is opened to tell apart.
+The column is relative — a clock time is a timezone, and this program
+carries no calendar to be right about one; `--json` publishes the
+instant itself.
+
 **A listing shows the intent beside the line.** The intent is what the
 caller said the job was for — the harness already asks, so it usually
 costs nobody anything — and the line is what actually runs, shortened to
