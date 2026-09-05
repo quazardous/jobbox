@@ -1,0 +1,507 @@
+//! RUNNING A LINE, AND LETTING GO OF IT WHEN IT TURNS OUT TO BE LONG.
+
+use std::fs::{File, OpenOptions};
+use std::io::{self, Read, Write};
+use std::process::{Command, Stdio};
+use std::time::Duration;
+
+use crate::input;
+use crate::store::{self, Record};
+
+/// How often the growing log is copied to our own output — CLOSE AT
+/// FIRST, THEN RELAXED.
+///
+/// The output travels through a file rather than a pipe, which is what
+/// lets it keep being written after we are gone; the price of that is a
+/// poll. A flat twenty milliseconds looks harmless and is not: MEASURED,
+/// it put 20 ms on every command on the machine, because a line that
+/// takes one millisecond still waits a whole tick to be noticed. Since
+/// most lines are short, that tick was the wrapper's entire cost.
+///
+/// So the first hundred milliseconds are watched closely and the rest is
+/// not. A long line is not made slower by being noticed 20 ms late; a
+/// short one is made 20 ms slower by exactly that.
+fn poll_after(elapsed: f64) -> Duration {
+    if elapsed < 0.1 {
+        Duration::from_micros(500)
+    } else if elapsed < 1.0 {
+        Duration::from_millis(5)
+    } else {
+        Duration::from_millis(20)
+    }
+}
+
+/// The shell that runs the line — the platform's own, not a choice.
+///
+/// The line was written for the shell the caller uses; handing it to a
+/// different one would change what it means. On Windows that is `cmd`,
+/// whose `/C` takes the rest as the command.
+fn shell(line: &str) -> Command {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("cmd");
+        cmd.arg("/C").arg(line);
+        cmd
+    }
+    #[cfg(not(windows))]
+    {
+        let program = if std::path::Path::new("/bin/bash").exists() { "bash" } else { "sh" };
+        let mut cmd = Command::new(program);
+        cmd.arg("-c").arg(line);
+        cmd
+    }
+}
+
+/// Detach a child from us, so that it outlives the process that started it.
+fn detach(cmd: &mut Command) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // ITS OWN PROCESS GROUP, so a Ctrl-C aimed at us does not reach
+        // it and so killing it later means killing one group, whatever
+        // the line spawned in the meantime.
+        cmd.process_group(0);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    }
+}
+
+/// THE SUPERVISOR: it runs the line, waits for it, and records its code.
+///
+/// IT EXISTS BECAUSE WE WILL NOT BE THERE TO REAP THE CHILD. Once the
+/// front process has let go, nobody is left to learn the exit status —
+/// an orphan's code is collected by init and thrown away. So a second
+/// copy of this binary stays behind for exactly one purpose: to wait,
+/// and to write down the number.
+///
+/// It is the same binary re-invoked rather than a shell trap, because a
+/// trap is a shell feature and `cmd.exe` has no equivalent. One
+/// mechanism on both platforms beats two that drift apart.
+pub fn supervise(id: &str, after: f64, queued: bool, fg: bool, line: &str) -> i32 {
+    let log = match OpenOptions::new().append(true).create(true).open(store::log_path(id)) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("jbx: cannot open the log: {e}");
+            return 1;
+        }
+    };
+    let err_side = match log.try_clone() {
+        Ok(f) => f,
+        Err(_) => return 1,
+    };
+    // BOTH STREAMS INTO ONE FILE, on purpose: they interleave the way
+    // they would have on a terminal, and a reader gets one story instead
+    // of two that have to be zipped back together by guesswork.
+    // THE WAIT HAPPENS HERE, BEHIND THE CALLER. `queue` handed the job
+    // over and left; standing in line is this process's work, not
+    // theirs. The slot is released when `held` falls out of scope, so it
+    // is released whichever way this function ends.
+    let _held = if queued {
+        let held = crate::slots::wait_for_one();
+        let _ = std::fs::write(store::started_path(id), "");
+        Some(held)
+    } else {
+        None
+    };
+
+    let mut cmd = shell(line);
+    // THE LINE KEEPS THE CALLER'S OWN STANDARD INPUT.
+    //
+    // Closing it would be a wrapper deciding, for every command it
+    // wraps, that none of them reads anything — and `sort`, `cat` and
+    // every filter in a pipeline read. Under a harness this changes
+    // nothing (the input is already at end of file); everywhere else it
+    // is the difference between wrapping a command and altering it.
+    cmd.stdin(Stdio::inherit()).stdout(Stdio::from(log)).stderr(Stdio::from(err_side));
+    let began = store::now();
+    let code = match cmd.spawn() {
+        Ok(mut child) => match child.wait() {
+            Ok(status) => exit_code(status),
+            Err(_) => 1,
+        },
+        Err(e) => {
+            eprintln!("jbx: cannot start the line: {e}");
+            127
+        }
+    };
+    let _ = store::write_code(id, code);
+    // THE READING IS TAKEN HERE AND NOWHERE ELSE. Only this process
+    // knows both how long the line really took and what it returned —
+    // the front let go of it long before either was true.
+    let took = store::now() - began;
+    crate::stats::record(&crate::stats::fingerprint(line), took, after, fg, code);
+    // ONLY A DETACHED JOB IS ANNOUNCED, and `took > after` is exactly
+    // that — no coordination with the front needed, which is the point:
+    // asking it would mean a handshake with a process that has already
+    // gone. A line that finished in time was never a job, and announcing
+    // every command would be a notification per shell call.
+    if queued || took > after {
+        let intent = store::read_record(id)
+            .map(|r| r.intent)
+            .unwrap_or_else(|| store::intent_of(line));
+        crate::signals::deposit(
+            id,
+            code,
+            &intent,
+            &store::log_path(id).display().to_string(),
+            &store::client(),
+        );
+    }
+    code
+}
+
+/// A status as a number, including the signal that ended it.
+///
+/// A killed process has no exit code at all. `128 + signal` is the
+/// convention every shell already uses for it, so the number stays
+/// readable by everything downstream rather than becoming a special case
+/// only this tool understands.
+fn exit_code(status: std::process::ExitStatus) -> i32 {
+    if let Some(code) = status.code() {
+        return code;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(sig) = status.signal() {
+            return 128 + sig;
+        }
+    }
+    1
+}
+
+/// THE FRONT: run the line, hand its output through as it comes, and
+/// detach it if it is still going after `after` seconds.
+///
+/// THE EXIT CODE IS NEVER LOST, ONLY DEFERRED. Finished in time, we
+/// return it unchanged, as though this had never been here. Detached,
+/// there is nothing to return YET — so we return 0, which is the truth
+/// about what THIS process did, and the real code is written where
+/// `status` and `wait` read it.
+pub fn run(after: f64, line: &str) -> i32 {
+    run_inner(after, line, false)
+}
+
+fn run_inner(after: f64, line: &str, fg: bool) -> i32 {
+    if line.trim().is_empty() {
+        eprintln!("jbx: nothing to run. `jbx run -- '<command line>'`");
+        return 2;
+    }
+
+    // A TTY MEANS A HUMAN IS WATCHING, AND WE GET OUT OF THE WAY.
+    //
+    // Everything that makes wrapping safe under a harness is a fact
+    // about a terminal that is not there: nothing can prompt, nothing
+    // needs to stay on screen, the output was already being captured.
+    // With a terminal all three come back at once — so the line goes
+    // straight to a shell and this wrapper stops existing.
+    if io::stdout().is_terminal_like() || io::stdin().is_terminal_like() {
+        let mut cmd = shell(line);
+        return match cmd.status() {
+            Ok(status) => exit_code(status),
+            Err(e) => {
+                eprintln!("jbx: {e}");
+                127
+            }
+        };
+    }
+
+    let dir = store::dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        eprintln!("jbx: cannot use {}: {e}", dir.display());
+        return 2;
+    }
+    store::forget_older_than(24.0);
+    crate::stats::forget_older_than(90.0);
+
+    let id = store::mint();
+    let log = store::log_path(&id);
+    if File::create(&log).is_err() {
+        eprintln!("jbx: cannot create {}", log.display());
+        return 2;
+    }
+
+    let mut cmd = Command::new(std::env::current_exe().unwrap_or_else(|_| "jbx".into()));
+    cmd.arg("supervise").arg(&id).arg("--after").arg(after.to_string());
+    if fg {
+        cmd.arg("--fg");
+    }
+    cmd.arg("--").arg(line);
+    // THE SUPERVISOR GETS NEITHER OF OUR OUTPUT STREAMS, AND THIS IS
+    // LOAD-BEARING.
+    //
+    // The harness reads our standard output until it closes. A detached
+    // child holding the same pipe keeps it open after we exit, so the
+    // tool would go on waiting for a process it cannot see — the exact
+    // hang this whole thing exists to remove, reintroduced by
+    // inheritance. Its streams are closed; the line's output goes to the
+    // log, which is where it can still be written from after we are
+    // gone.
+    cmd.stdin(Stdio::inherit()).stdout(Stdio::null()).stderr(Stdio::null());
+    detach(&mut cmd);
+    let child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("jbx: cannot start the supervisor: {e}");
+            return 2;
+        }
+    };
+
+    let record = Record {
+        id: id.clone(),
+        queued: false,
+        pid: child.id(),
+        command: line.to_string(),
+        intent: store::intent_of(line),
+        started: store::now(),
+        client: store::client(),
+        cwd: std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default(),
+    };
+    // WRITTEN NOW AND NOT AT DETACHMENT, so that a front process killed
+    // by a harness timeout still leaves something findable behind. It is
+    // removed again if the line finishes in time.
+    let _ = store::write_record(&record);
+
+    let started = store::now();
+    let mut reader = match File::open(&log) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("jbx: cannot follow {}: {e}", log.display());
+            return 2;
+        }
+    };
+    let mut buf = [0u8; 16 * 1024];
+    loop {
+        let moved = drain(&mut reader, &mut buf);
+        let done = store::code_path(&id).exists();
+        if done {
+            // ONE LAST DRAIN AFTER THE CODE APPEARS. The code is written
+            // by the supervisor only once the line has exited, so
+            // everything the line ever printed is already in the file —
+            // but not necessarily already read by us.
+            while drain(&mut reader, &mut buf) > 0 {}
+            let code = std::fs::read_to_string(store::code_path(&id))
+                .ok()
+                .and_then(|t| t.trim().parse::<i32>().ok())
+                .unwrap_or(1);
+            for path in [store::record_path(&id), store::code_path(&id), log] {
+                let _ = std::fs::remove_file(path);
+            }
+            return code;
+        }
+        if store::now() - started >= after {
+            return announce(&id, after, child.id());
+        }
+        if moved == 0 {
+            std::thread::sleep(poll_after(store::now() - started));
+        }
+    }
+}
+
+/// Copy whatever has appeared in the log since last time, straight out.
+///
+/// FLUSHED EVERY TIME, DELIBERATELY. Rust's standard output holds back
+/// until a line is complete, which turns a progress bar — the one kind
+/// of output whose entire job is to arrive early — into nothing at all
+/// until the command ends.
+fn drain(reader: &mut File, buf: &mut [u8]) -> usize {
+    match reader.read(buf) {
+        Ok(0) | Err(_) => 0,
+        Ok(n) => {
+            let out = io::stdout();
+            let mut out = out.lock();
+            // A CLOSED PIPE IS NOT AN ERROR: `… | head` closes it on
+            // purpose, and the line behind us is entitled to go on.
+            let _ = out.write_all(&buf[..n]);
+            let _ = out.flush();
+            n
+        }
+    }
+}
+
+/// Say that the line was detached, and how to pick it up again.
+///
+/// THE MESSAGE IS THE PRODUCT HERE. Whoever reads it — a person or an
+/// agent — has just been handed back a shell that is not finished, and
+/// what they do next depends entirely on being told plainly what
+/// happened, that nothing was lost, and which verb answers "and now?".
+fn announce(id: &str, after: f64, pid: u32) -> i32 {
+    let out = io::stdout();
+    let mut out = out.lock();
+    if let Some(stuck) = input::waiting_on_input(pid) {
+        // IT IS NOT LONG, IT IS BLOCKED — and here nobody can answer it,
+        // because there is no terminal to answer from. Saying so is the
+        // only useful thing left; detaching it quietly would promise a
+        // result that is never coming.
+        let _ = writeln!(
+            out,
+            "jbx: this line is WAITING FOR INPUT (pid {stuck}), and nothing here can\n\
+             answer it — there is no terminal. It was detached as {id}, but it will not\n\
+             finish on its own.\n\
+             \x20 jbx kill {id}    stop it\n\
+             \x20 re-run it with its input supplied — `… < file`, or the flag that makes\n\
+             \x20 it non-interactive (-y, --yes, --batch, -n)."
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "jbx: still running after {after:.0}s, so it was detached as {id}. Nothing\n\
+             was lost and it is still going; what it prints keeps going to its log.\n\
+             \x20 jbx status {id}   where it is, and its exit code once it lands\n\
+             \x20 jbx tail {id}     what it has printed so far\n\
+             \x20 jbx wait {id}     block here until it ends, and exit with its code\n\
+             \x20 jbx fg {id}       bring it back to the foreground and watch it\n\
+             Prefer doing something else and coming back: that is what detaching it was\n\
+             for. If you truly cannot go on without this result, say so next time with\n\
+             `jbx fg -- '<line>'` — it never lets go, and the cost is counted."
+        );
+    }
+    let _ = out.flush();
+    0
+}
+
+/// Whether a stream is a terminal.
+///
+/// `IsTerminal` is in the standard library on both platforms, but this
+/// keeps the call in one place with a name that says what it decides —
+/// the whole "get out of the way" rule turns on it.
+trait TerminalLike {
+    fn is_terminal_like(&self) -> bool;
+}
+impl<T: std::io::IsTerminal> TerminalLike for T {
+    fn is_terminal_like(&self) -> bool {
+        self.is_terminal()
+    }
+}
+
+/// `jbx queue <intent> -- <line>` — HAND WORK OVER BEFORE IT STARTS.
+///
+/// THE OTHER DOOR, and the only one where a cap means anything. `run`
+/// wraps a command that was going to run either way; this takes work
+/// that has NOT started, so it can be made to wait its turn — and a loop
+/// that files fifty jobs does not start fifty at once.
+///
+/// THE INTENT IS MANDATORY HERE AND NOWHERE ELSE. `run` names a line
+/// after the fact, from its first words, because nobody chose to
+/// background it. Somebody choosing to has a name in mind, and three
+/// words at that moment are what makes a list readable three hours later.
+pub fn queue(intent: &str, line: &str) -> i32 {
+    if intent.trim().is_empty() || line.trim().is_empty() {
+        eprintln!("jbx: `jbx queue <intent> -- '<line>'` — both are required");
+        return 2;
+    }
+    let dir = store::dir();
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        eprintln!("jbx: cannot use {}: {e}", dir.display());
+        return 2;
+    }
+    let id = store::mint();
+    if File::create(store::log_path(&id)).is_err() {
+        eprintln!("jbx: cannot create the log for {id}");
+        return 2;
+    }
+    let mut cmd = Command::new(std::env::current_exe().unwrap_or_else(|_| "jbx".into()));
+    cmd.arg("supervise")
+        .arg(&id)
+        .arg("--after")
+        .arg("0")
+        .arg("--queued")
+        .arg("--")
+        .arg(line);
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    detach(&mut cmd);
+    let child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("jbx: cannot start the supervisor: {e}");
+            return 2;
+        }
+    };
+    let record = Record {
+        id: id.clone(),
+        queued: true,
+        pid: child.id(),
+        command: line.to_string(),
+        intent: intent.to_string(),
+        started: store::now(),
+        client: store::client(),
+        cwd: std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default(),
+    };
+    let _ = store::write_record(&record);
+    // THE ID, AND NOTHING ELSE: it is what every other verb takes, and a
+    // caller in a script should not have to read prose to find it.
+    outln!("{id}");
+    0
+}
+
+/// `jbx fg -- <line>` — RUN IT, AND NEVER LET GO.
+///
+/// THE DELIBERATE FOREGROUND. Everything else here exists to stop a
+/// caller standing still; this is how a caller says "I have thought
+/// about it, and I need the answer before I can go on". Saying it out
+/// loud is the point: `jbx stats` counts what it cost, so a habit of
+/// reaching for it shows up as time that was never compressed.
+pub fn foreground(line: &str) -> i32 {
+    run_inner(f64::INFINITY, line, true)
+}
+
+/// `jbx fg <id>` — BRING A DETACHED JOB BACK.
+///
+/// The other half of the same word. A job that was let go of and now
+/// turns out to be the thing you are waiting for is picked back up here:
+/// what it has already printed, then what it prints next, and its exit
+/// code when it lands.
+///
+/// THE BLOCK IS WRITTEN DOWN, exactly as `wait` writes it down. Standing
+/// here is standing still whichever verb you typed, and a measurement
+/// that only counted one of them would flatter the tool.
+pub fn attach(id: &str) -> i32 {
+    let Some(record) = store::read_record(id) else {
+        eprintln!("jbx: {id} is unknown");
+        return 1;
+    };
+    let began = store::now();
+    let mut reader = match File::open(store::log_path(id)) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("jbx: cannot read the log of {id}: {e}");
+            return 1;
+        }
+    };
+    let mut buf = [0u8; 16 * 1024];
+    let code = loop {
+        let moved = drain(&mut reader, &mut buf);
+        match store::state_of(&record) {
+            store::State::Finished { code } => {
+                // EVERYTHING IT EVER PRINTED, not just what arrived
+                // while we watched: the exit code appears only once the
+                // line has exited, so the rest of the log is already
+                // there to be read.
+                while drain(&mut reader, &mut buf) > 0 {}
+                break code;
+            }
+            store::State::Lost => {
+                while drain(&mut reader, &mut buf) > 0 {}
+                eprintln!("jbx: {id} ended without leaving an exit code");
+                break 1;
+            }
+            _ => {
+                if moved == 0 {
+                    std::thread::sleep(POLL_SLOW);
+                }
+            }
+        }
+    };
+    crate::stats::record_wait(store::now() - began);
+    code
+}
+
+/// How often a re-attached job's log is checked. Slower than the front's
+/// first moments on purpose: this one has already been running a while,
+/// so there is no short command whose whole cost is one tick.
+const POLL_SLOW: Duration = Duration::from_millis(50);

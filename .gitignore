@@ -6,9 +6,15 @@ __pycache__/
 # connects to, and the harness settings for this checkout. They stay on
 # disk; they simply do not travel in the repository.
 #
-# `.claude/settings.json` in particular is what `jobbox init` writes:
-# tracking it would ship one machine's wiring to everybody who clones.
+# `.claude/settings.json` is what `jbx init` wires: tracking it would
+# ship one machine's hooks to everybody who clones. `.jbx.yaml` is the
+# same call made for the project's settings — `jbx init` writes it
+# commented, and it stays a local decision rather than a shared one.
 .aiball.yaml
 .aiball-session_id
 .mcp.json
 .claude/
+.jbx.yaml
+
+# The Rust build tree.
+target/

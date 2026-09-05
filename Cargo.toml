@@ -1,0 +1,27 @@
+[package]
+name = "jobbox"
+version = "0.5.0"
+edition = "2021"
+description = "JobBox — wrap every command line; detach the ones that turn out to be long."
+license = "MIT"
+
+[lib]
+name = "jobbox"
+path = "src/lib.rs"
+
+[[bin]]
+name = "jbx"
+path = "src/bin/jbx.rs"
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order"] }
+yaml-rust2 = "0.12.0"
+
+[dev-dependencies]
+serde_json = "1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"

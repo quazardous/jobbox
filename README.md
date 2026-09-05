@@ -1,132 +1,208 @@
-# jobbox
+# JobBox
 
-**Your agent runs a five-minute build and then sits there.** So do you.
-Each wait is short; it is their sum that costs.
+### Time is money. Your agent spends both, standing still.
 
-jobbox queues the command instead and **tells whoever needs to know when
-it ends** — the model on its next turn, you when the session stops.
-Nobody has to remember to look.
+A five-minute build runs. The agent waits. You wait. Nothing else
+happens — and you are billed for all of it, twice: your hour, and the
+tokens burning in a session that is doing nothing.
 
-One file, the standard library, and
-[`task-spooler`](https://vicerveza.homeunix.net/~viric/soft/ts/).
+No single wait is worth stopping for. **It is their sum that costs**, and
+the sum is invisible until something counts it.
+
+```console
+$ jbx stats
+project  calls  detached  elapsed  blocked  compressed
+acme-api    142        11    3h04m   35m12s   2h29m (81%)
+
+2h29m of command time went by while the caller was free — 81% of 3h04m.
+```
+
+That is one week. Put your own rate on it.
+
+---
+
+**JobBox wraps every command your agent runs.** The quick ones come back
+untouched — output as it is written, exit code unchanged, as though
+nothing were there. The slow ones **detach themselves**, say so, and tell
+whoever needs to know when they end.
+
+Nobody judges in advance which is which. That judgement is the thing
+everybody gets wrong, so JobBox does not make it: it runs the line and
+finds out.
+
+The command is `jbx`.
+
+One binary. Rust, `serde_json`, nothing else. Linux and Windows.
 
 ## Quickstart
 
 ```console
-$ sudo dnf install task-spooler          # or apt, brew, pkg…
 $ git clone https://github.com/quazardous/jobbox && cd jobbox
-$ ./install.sh                           # into ~/.local, no root
-
-$ cd ~/your-project && jobbox init       # wires Claude Code, merges safely
+$ cargo install --path .
+$ jbx init                        # declares its hooks, merges safely
 ```
 
-If `~/.local/bin` is not on your `PATH`, `install.sh` says so.
-
-Open a new session, then:
+Open a new session. Nothing changes — until something is slow:
 
 ```console
-$ jobbox run build-the-front -- npm run build
-j7f3a91c
+$ npm run build
+> building…
+jbx: still running after 30s, so it was detached as j7f3a91c. Nothing
+was lost and it is still going; what it prints keeps going to its log.
+  jbx status j7f3a91c   where it is, and its exit code once it lands
+  jbx tail j7f3a91c     what it has printed so far
+  jbx wait j7f3a91c     block here until it ends, and exit with its code
+Prefer doing something else and coming back: that is what detaching it was for.
 ```
 
-Go and do something else. When it ends, the model is told on its next
-turn and you are told when the session stops — a failure holds the
-session open and points at the log.
-
-→ **[doc/claude-code.md](doc/claude-code.md)** for what `init` writes and
-how the telling works.
-
-**Not tied to Claude Code.** Two verbs know that harness; everything else
-returns facts, and any CLI — or none — can read them.
-→ [doc/other-harnesses.md](doc/other-harnesses.md)
+The build output arrived **as it was written**, not replayed at the end.
+When it finishes, the model is told on its next turn and you are told
+when the session stops — a failure holds the session open and points at
+the log.
 
 ## The verbs
 
 ```
-jobbox run <intent> -- <command>       queue it, print the id
-jobbox list [--mine|--all]             waiting · running · finished
-           [--project-path]            …showing directories, not tags
-jobbox status <id>                     state, exit code, times, log
-jobbox tail <id> [-f|--follow]         the log
-              [-n|--lines N]           …how many lines
-jobbox kill <id>                       stop it
-jobbox health                          is the daemon there, who is stuck
-jobbox clients                         whose endings are still unread
-jobbox config                          every setting, and where it came from
-jobbox slots [n]                       how many jobs may run at once
-jobbox timings [--detail]              what actually takes time, measured
-              [-n|--top N] [--session] …how many shapes, whose calls
-              [--reset]                …forget everything measured
-jobbox signals <audience> [--json]     consume endings, for an integrator
-jobbox init [--force] [--client|--project]
+jbx run -- '<line>'            run it, detaching after 30s
+jbx fg -- '<line>'             run it and NEVER let go — said on purpose
+jbx fg <id>                    bring a detached job back to the foreground
+jbx queue <intent> -- '<line>' hand it over BEFORE it starts, and name it
+jbx list                       what is detached, and how it went
+jbx status <id>                state, exit code, where its log is
+jbx tail <id> [-f]             what it printed
+jbx wait <id>                  block until it ends, exit with its code
+jbx kill <id>                  stop it, and everything it started
+jbx slots [n|none]             how many queued jobs may run at once
+jbx health                     what runs, what is mute, what is stranded
+jbx clients                    whose endings are still unread
+jbx signals <agent|user>       endings not yet read
+jbx stats [project]            how much time was compressed
+jbx config                     every setting, and where it came from
+jbx init [--undo]              declare the hooks
 ```
 
-```console
-$ jobbox list
-        id  state    intent           project          session
-  jf4eacbb  running  build-the-front  jobbox-1de7      92183ccf
-  j3ca27c8  queued   nightly-backup   imagematch-4a01  d4a69872
-```
+`run` is what the hook calls. You rarely type it.
 
-A column nobody filled is not printed — nothing has exited here, so
-there is no `exit` column to skim past.
+## The one judgement left to make
 
-**The intent is mandatory**, and that is the point: a queue of
-`bash -c …` lines cannot be read back three hours later.
+The old answer to "when should this go to the background?" was a document
+telling an agent to estimate how long a command would take. Agents get
+that wrong, and so do people.
 
-**`--` separates.** Without it, your command's own options are read as
-jobbox's.
+jbx removes the question. What is left is a smaller one, and it is asked
+where the agent will read it — in the tool's own output, once per
+session:
 
-**The id is jobbox's own and never reused** — `tsp`'s numbers restart at
-zero when its daemon dies. → [doc/sessions.md](doc/sessions.md)
+> Do you need this result **before you can do anything else**?
 
-## Install
+Almost always, no: let it run, and jbx hands the shell back if it drags.
+When the answer is yes, say so — `jbx fg -- '<line>'` runs without ever
+letting go, and `jbx stats` counts what that cost. A habit of reaching
+for it becomes visible instead of invisible.
 
-`./install.sh --symlink` points the install at this checkout so edits are
-live; `--uninstall` removes it and keeps your logs. **No dependencies** —
-it runs under `python3 -S`, with site-packages switched off.
+Changed your mind halfway? `jbx fg <id>` picks a detached job back up:
+everything it has printed, then what it prints next, then its exit code.
 
-| variable | default | what it sets |
-|---|---|---|
-| `JOBBOX_DIR` | `~/.cache/jobbox` | where the logs go |
-| `JOBBOX_SOCKET` | `/tmp/jobbox-<uid>.sock` | which queue to talk to |
-| `JOBBOX_CLIENT` | the project and session | pins one fixed mailbox |
-| `JOBBOX_SLOTS` | half the cores | how wide a NEW queue opens (`none` for no cap) |
-| `JOBBOX_MUTE_AFTER` | `600` | seconds before a running job is called mute |
+## Two doors, and they are not the same door
+
+**`run` wraps a command that was going to run either way.** It holds
+nothing back, so there is nothing to queue and no cap to apply —
+detaching a line does not change how many processes exist.
+
+**`queue` takes work that has not started.** That can wait its turn, so
+`jbx slots` holds it: a loop that files fifty jobs does not start fifty
+at once. It is also the only place a name is required — somebody choosing
+to hand work over has one in mind, and three words at that moment make a
+list readable three hours later.
+
+## The number is a ceiling, and it says so
+
+`blocked` already subtracts the time handed back to `jbx wait`. Detaching
+a job you then stand and wait for saved nobody anything, and a tool that
+counted it would be reporting its own good intentions.
+
+What it cannot see is somebody waiting *some other way*. So `compressed`
+is an upper bound made as tight as the evidence allows — which is why it
+is deliberately not called **saved**.
+
+It never stores a command line as typed: `TOKEN=… ./deploy` is recorded
+as `./deploy`. A truncated secret is still a leaked prefix, so
+assignments are dropped whole.
+
+## It composes with rtk, rather than racing it
+
+[rtk](https://github.com/rtk-ai/rtk) rewrites commands to spend fewer
+tokens, from its own `PreToolUse` hook. Two hooks that both rewrite the
+same field are two writers of one value, in an order no harness
+documents: whoever writes last erases the other.
+
+So `jbx init` unregisters rtk's hook and **calls it directly**, on the
+original line, before wrapping. Both effects, every time, no race to win.
+`jbx init --undo` puts its registration back exactly.
+
+Set `compose: never` and jbx leaves rtk alone — including its hook, which
+`init` then does not touch: unregistering a tool it has also decided not
+to call would remove it from the machine outright.
 
 ## What it does not do
 
-- **It does not outlive its daemon.** The queue lives with the
-  `task-spooler` daemon; if that dies, what was waiting is lost.
-  Acceptable for development work — worth knowing, not worth hiding.
-- **It does not replace a scheduler.** No dependencies between jobs, no
-  retries, no calendar.
-- **It does not decide what is long.** That judgement stays with the
-  caller — a hook that decided automatically was built, measured, and
-  dropped. → [CONTRIBUTING.md](CONTRIBUTING.md)
+- **It does not predict.** A rule that guessed which commands would be
+  long was built, measured and refused: replaying 136 real calls, no
+  threshold recovered more than 0.7 of the 28 minutes — four of the five
+  long shapes had been seen exactly once. → [CONTRIBUTING.md](CONTRIBUTING.md)
+- **It gets out of the way of a terminal.** With a tty the line goes
+  straight to a shell and jbx stops existing. Everything that makes
+  wrapping safe is a fact about a terminal that is not there.
+- **It is not a scheduler.** No dependencies between jobs, no retries, no
+  calendar.
 
-## Documentation
+## Settings
 
-| | |
-|---|---|
-| [doc/claude-code.md](doc/claude-code.md) | wiring, hooks, what gets told to whom |
-| [doc/other-harnesses.md](doc/other-harnesses.md) | using jobbox from any CLI, or none |
-| [doc/sessions.md](doc/sessions.md) | several sessions on one queue, mailboxes, ids |
-| [doc/liveness.md](doc/liveness.md) | running vs making progress, and `health` |
-| [doc/timings.md](doc/timings.md) | measuring what your commands actually cost |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | scope, tests, and what was ruled out |
+**jbx works everywhere by default.** A project says otherwise in a
+`.jbx.yaml` at its root — found by walking up to the nearest `.claude`
+or `.git`, so it still applies three directories down:
+
+```yaml
+enabled: false          # jbx stays out of the way in this project
+after: 60               # …or just wait longer here
+integration:
+  rtk:
+    compose: auto       # auto | always | never
+```
+
+`jbx init` writes both files for you when they are missing — the global
+one, and this project's — **fully commented, so they change nothing**.
+The project's records what `rtk --version` actually answered on the day
+it was written, rather than what somebody assumed later. `init --undo`
+leaves your `.jbx.yaml` alone: it may have been edited, and it may be
+committed. **The project file wins key by
+key** — naming one setting does not silence the others — and an
+environment variable wins over both, because it is what you typed for
+this one run.
+
+| variable | key | what it sets |
+|---|---|---|
+| `JBX_ENABLED` | `enabled` | whether jbx does anything here at all |
+| `JBX_AFTER` | `after` | seconds before a line is detached (`30`) |
+| `JBX_DIR` | `dir` | where logs and records live (`~/.cache/jbx`) |
+| `JBX_SLOTS` | `slots` | how many QUEUED jobs run at once (`none` for no cap) |
+| `JBX_MUTE_AFTER` | `mute_after` | seconds of silence before a job is called mute (`600`) |
+| `JBX_RTK` | `integration.rtk.compose` | `auto`, `always`, or `never` |
+| `JBX_CLIENT` | — | pins one fixed mailbox |
+
+`jbx config` prints every value, where it came from, and which files it
+would be edited in.
 
 ## Tests
 
 ```console
-$ python3 tests/run.py     no dependency
-$ pytest tests/            if you have it
+$ cargo test
 ```
 
-They cover the places that can be wrong in silence: reading `tsp`'s
-table, consuming a signal, merging into a settings file that belongs to
-other tools, and the real notification chain against a live daemon on its
-own socket.
+They go through the command, never through the function. What this tool
+is worth is what happens **between** processes: a child that outlives its
+parent, an exit code written by one and read by another, a hook answering
+a harness on standard output. Wires are all there is here.
 
 ## License
 
