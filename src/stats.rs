@@ -451,8 +451,9 @@ pub fn stats(only: Option<&str>, full_path: bool) -> i32 {
                     human(all.chosen_secs)
                 );
             }
-            outln!("`saved` already subtracts the time you gave back to `jbx wait`. It cannot");
-            outln!("see you waiting some other way, so read it as a ceiling, not a receipt.");
+            outln!("`saved` is elapsed minus what you stood through, and it already subtracts");
+            outln!("the time you gave back to `jbx wait`. It cannot see you waiting some other");
+            outln!("way, so read it as a ceiling, not a receipt.");
             outln!("Name a project to see its shapes; `--project-path` for full paths.");
         }
         Some(want) => {
