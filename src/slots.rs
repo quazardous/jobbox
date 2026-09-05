@@ -115,6 +115,7 @@ fn try_take() -> Option<Held> {
 /// freed here is taken on the next turn of the loop, not here: removing
 /// and claiming in one gesture would race two waiters into one slot.
 fn reclaim_dead() {
+    let mut held: Vec<(PathBuf, u32)> = Vec::new();
     let Ok(entries) = fs::read_dir(slots_dir()) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
@@ -123,7 +124,11 @@ fn reclaim_dead() {
         }
         let Ok(text) = fs::read_to_string(&path) else { continue };
         let Ok(pid) = text.trim().parse::<u32>() else { continue };
-        if !store::alive(pid) {
+        held.push((path, pid));
+    }
+    let live = store::alive_many(&held.iter().map(|(_, p)| *p).collect::<Vec<_>>());
+    for (path, pid) in held {
+        if !live.contains(&pid) {
             let _ = fs::remove_file(&path);
         }
     }
@@ -176,8 +181,11 @@ fn outstanding() -> Vec<(u64, u32)> {
 /// way a queue with an order can do worse than one without, so the check
 /// is not an afterthought: it runs on every turn of the wait.
 fn reclaim_dead_tickets() {
-    for (number, pid) in outstanding() {
-        if !store::alive(pid) {
+    let waiting = outstanding();
+    let pids: Vec<u32> = waiting.iter().map(|(_, pid)| *pid).collect();
+    let live = store::alive_many(&pids);
+    for (number, pid) in waiting {
+        if !live.contains(&pid) {
             let _ = fs::remove_file(tickets_dir().join(format!("{number}.{pid}")));
         }
     }

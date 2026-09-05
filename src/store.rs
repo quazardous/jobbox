@@ -251,7 +251,23 @@ pub fn state_of(r: &Record) -> State {
 /// answers for one that left none.
 #[cfg(target_os = "linux")]
 pub fn alive(pid: u32) -> bool {
-    std::path::Path::new(&format!("/proc/{pid}")).exists()
+    // A ZOMBIE STILL HAS A `/proc` ENTRY, and existence was the whole
+    // test. A process whose parent has gone is reparented to init and
+    // reaped at once on an ordinary machine — but inside a container
+    // whose pid 1 reaps nothing, a killed supervisor stays listed for
+    // ever. The job then reads `queued` or `running` long after it was
+    // stopped, which is exactly the failure the CI runners showed and
+    // this machine could not.
+    let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) else {
+        return false;
+    };
+    // The state letter follows the closing parenthesis of the name,
+    // which is where it has to be read from: a process can be called
+    // `weird ) name`.
+    match stat.rsplit_once(") ") {
+        Some((_, rest)) => rest.split_whitespace().next() != Some("Z"),
+        None => true,
+    }
 }
 
 /// The other Unixes have no `/proc`, so they are asked with the tool
@@ -311,6 +327,64 @@ pub fn silence(r: &Record) -> Option<f64> {
     let modified = fs::metadata(log_path(&r.id)).ok()?.modified().ok()?;
     let age = SystemTime::now().duration_since(modified).ok()?;
     Some(age.as_secs_f64())
+}
+
+/// WHICH OF THESE ARE STILL THERE — asked once for all of them.
+///
+/// `alive` is a `stat` on Linux and a PROCESS on Windows, where it shells
+/// out to `tasklist`. The queue asks about every outstanding ticket on
+/// every turn of a 200 ms wait, so ten waiters meant ten `tasklist`
+/// launches five times a second — bearable where the answer is a `stat`,
+/// and not where it is a process.
+///
+/// One listing answers for everybody, so the cost stops growing with the
+/// length of the line.
+pub fn alive_many(pids: &[u32]) -> std::collections::HashSet<u32> {
+    #[cfg(target_os = "linux")]
+    {
+        pids.iter().copied().filter(|p| alive(*p)).collect()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let listing = live_pids();
+        match listing {
+            Some(live) => pids.iter().copied().filter(|p| live.contains(p)).collect(),
+            // COULD NOT ASK: everything is assumed alive. Reclaiming a
+            // ticket that is still held would let somebody jump the
+            // line; leaving a dead one costs a wait that the next
+            // successful listing ends.
+            None => pids.iter().copied().collect(),
+        }
+    }
+}
+
+#[cfg(windows)]
+fn live_pids() -> Option<std::collections::HashSet<u32>> {
+    let out = std::process::Command::new("tasklist")
+        .args(["/NH", "/FO", "CSV"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    // "name","pid","session","#","mem" — the second field, and the
+    // quoting is what makes it parseable without knowing the language
+    // the rest of the line is written in.
+    Some(
+        text.lines()
+            .filter_map(|l| l.split("\",\"").nth(1))
+            .filter_map(|f| f.trim_matches('"').parse().ok())
+            .collect(),
+    )
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn live_pids() -> Option<std::collections::HashSet<u32>> {
+    let out = std::process::Command::new("ps").args(["-A", "-o", "pid="]).output().ok()?;
+    Some(
+        String::from_utf8_lossy(&out.stdout)
+            .split_whitespace()
+            .filter_map(|f| f.parse().ok())
+            .collect(),
+    )
 }
 
 pub fn all() -> Vec<Record> {

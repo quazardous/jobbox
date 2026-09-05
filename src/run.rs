@@ -100,8 +100,22 @@ pub fn shell_program() -> Shell {
 fn on_path(program: &str) -> bool {
     let Some(path) = std::env::var_os("PATH") else { return false };
     std::env::split_paths(&path).any(|dir| {
+        // `C:\Windows\System32\bash.exe` IS NOT A SHELL. It is the WSL
+        // launcher, and on a machine with no distribution installed it
+        // answers every command with "Windows Subsystem for Linux has no
+        // installed distributions" — in UTF-16, which is how it was
+        // finally recognised. Found by running the suite on a real
+        // Windows runner for the first time; no amount of reading would
+        // have shown it.
+        if cfg!(windows) && in_system32(dir.as_path()) {
+            return false;
+        }
         dir.join(program).is_file() || dir.join(format!("{program}.exe")).is_file()
     })
+}
+
+fn in_system32(dir: &std::path::Path) -> bool {
+    dir.to_string_lossy().to_ascii_lowercase().contains("system32")
 }
 
 /// Detach a child from us, so that it outlives the process that started it.

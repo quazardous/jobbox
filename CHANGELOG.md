@@ -32,6 +32,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   line may take a slot. A dead holder's ticket is reclaimed on every turn
   of the wait — a queue with an order can otherwise do worse than one
   without, and that is the way.
+- **A zombie is no longer alive.** Liveness was "does `/proc/<pid>`
+  exist", and a reaped-by-nobody process still has one. On an ordinary
+  machine an orphan is reparented to init and reaped at once, so this
+  never showed; inside a container whose pid 1 reaps nothing, a stopped
+  job read `queued` or `background` for ever. Found by running the suite
+  on CI runners, which this machine could not have shown.
+- **`bash` is not taken from `System32` on Windows.** What is there is
+  the WSL launcher, and on a machine with no distribution installed it
+  answers every command with "Windows Subsystem for Linux has no
+  installed distributions" — in UTF-16, which is how it was finally
+  recognised. Found the first time the suite ran on a real Windows
+  runner; no amount of reading would have shown it.
+- **Liveness is asked once for everybody.** It is a `stat` on Linux and a
+  PROCESS on Windows, and the queue asked about every outstanding ticket
+  on every turn of a 200 ms wait: ten waiters meant ten `tasklist`
+  launches five times a second.
+- **A job record carries its project**, so `jbx ps --all` groups by the
+  Claude Code that ran it rather than by whatever directory the launcher
+  stood in. Records written before this reconstruct it from that
+  directory, which is what it used to mean.
 
 ## [0.5.10] - 2026-09-06
 
