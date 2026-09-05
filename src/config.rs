@@ -146,7 +146,13 @@ pub fn project_path() -> Option<PathBuf> {
 /// The nearest ancestor holding either wins, which makes a subdirectory
 /// of a project part of that project rather than a project of its own.
 pub fn project_root() -> PathBuf {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    project_root_of(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+}
+
+/// The same, walking up from a directory given rather than the one we
+/// happen to be standing in.
+pub fn project_root_of(from: &std::path::Path) -> PathBuf {
+    let cwd = from.to_path_buf();
     let mut at: &std::path::Path = &cwd;
     loop {
         if at.join(".claude").exists() || at.join(".git").exists() {

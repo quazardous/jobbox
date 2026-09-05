@@ -43,6 +43,57 @@ pub fn mailbox(client: &str, audience: &str) -> PathBuf {
     }
 }
 
+/// WHERE THIS SESSION STARTED, remembered the first time we are asked.
+///
+/// A session's working directory MOVES — `cd` in one command changes it
+/// for every command after — so filing a reading by it splits one
+/// session's time across whatever it walked through. Measured on a real
+/// store: a session began at a repository root, moved into a
+/// sub-project, and its first row froze at the minute it moved while a
+/// second row started filling.
+///
+/// Where Claude Code STARTED does not move, and it is what somebody
+/// means by "which project was I working on". Only the hook can see it:
+/// `CLAUDE_PROJECT_DIR` is given to hooks and not to commands, and the
+/// event carries a `cwd` besides. So the hook writes it down once, and
+/// everything else looks it up by the session id — which every process
+/// does have.
+///
+/// WRITTEN ONCE AND NEVER UPDATED. A later `cd` must not move it; that
+/// is the whole point of preferring it to the working directory.
+pub fn remember_session_root(event: &Value) {
+    let Some(session) = session_id() else { return };
+    let dir = std::env::var_os("CLAUDE_PROJECT_DIR")
+        .map(PathBuf::from)
+        .or_else(|| event["cwd"].as_str().map(PathBuf::from))
+        .or_else(|| std::env::current_dir().ok());
+    let Some(dir) = dir else { return };
+    let path = roots_dir().join(&session);
+    if path.exists() {
+        return;
+    }
+    let _ = fs::create_dir_all(roots_dir());
+    let _ = fs::write(path, dir.display().to_string());
+}
+
+/// Where this session started, if the hook has told us.
+pub fn session_root() -> Option<PathBuf> {
+    let session = session_id()?;
+    let text = fs::read_to_string(roots_dir().join(session)).ok()?;
+    let dir = PathBuf::from(text.trim());
+    dir.is_dir().then_some(dir)
+}
+
+fn roots_dir() -> PathBuf {
+    store::dir().join("sessions")
+}
+
+fn session_id() -> Option<String> {
+    let raw = std::env::var("CLAUDE_CODE_SESSION_ID").ok()?;
+    let clean: String = raw.chars().take(16).filter(|c| c.is_ascii_alphanumeric()).collect();
+    (!clean.is_empty()).then_some(clean)
+}
+
 /// WHO IS ASKING — one store for everyone, one mailbox each.
 ///
 /// THE SESSION IS THE ADDRESS, and it has to be, because the two ends of

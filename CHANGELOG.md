@@ -18,6 +18,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.9] - 2026-09-06
+
+### Fixed
+
+- **A reading belongs to the Claude Code that ran it, not to wherever the
+  command happened to be.** Readings were filed by the launcher's working
+  directory, and a session's working directory moves — one `cd` moves it
+  for every command after. Measured on a real store: a session began at a
+  repository root, stepped into a sub-project, and its first row froze at
+  that minute while a second row started filling. A tree worked in for
+  hours from elsewhere never appeared at all.
+
+  The hook writes down the calling session's own directory the first time
+  it sees it — only a hook is told that, `CLAUDE_PROJECT_DIR` is not
+  given to commands — and everything else looks it up by session id.
+  Written once and never updated, because a later `cd` must not move it:
+  that is the whole point of preferring it to the working directory.
+
+  A plain shell has no session and no hook to have written one down; it
+  still walks up from where it stands, which is what a person in a
+  terminal means anyway.
+
 ## [0.5.8] - 2026-09-06
 
 Documentation only — but the README travels inside every release

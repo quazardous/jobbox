@@ -91,7 +91,7 @@ impl Scratch {
         if let Some(text) = jbx_yaml {
             std::fs::write(root.join(".jbx.yaml"), text).unwrap();
         }
-        let here = root.join(deeper);
+        let here = if deeper.is_empty() { root.clone() } else { root.join(deeper) };
         std::fs::create_dir_all(&here).unwrap();
         here
     }
@@ -1005,4 +1005,65 @@ fn a_wrapped_line_that_runs_jbx_makes_one_job_not_two() {
     assert_eq!(s.run(&["wait", &id]).status.code(), Some(0));
     assert!(text(&s.run(&["tail", &id])).contains("REAL"),
             "the announced id was not the one carrying the work");
+}
+
+#[test]
+fn a_reading_belongs_to_the_calling_session_not_to_wherever_it_ran() {
+    let s = Scratch::new("session-root");
+    let home = s.project(None, "");
+    // What the hook writes down the first time it sees a session: the
+    // directory of the Claude Code that is calling.
+    let roots = s.0.join("jobs/sessions");
+    std::fs::create_dir_all(&roots).unwrap();
+    std::fs::write(roots.join("abcd1234"), home.display().to_string()).unwrap();
+
+    // A COMMAND RUN SOMEWHERE ELSE ENTIRELY. A session's working
+    // directory moves — one `cd` moves it for every command after — so
+    // filing by it splits one session's time across whatever it walked
+    // through: measured on a real store, a row froze at the minute a
+    // session stepped into a sub-project and a second row started.
+    let elsewhere = s.0.join("far/away");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
+        .args(["run", "--", "echo x"])
+        .current_dir(&elsewhere)
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .env("CLAUDE_CODE_SESSION_ID", "abcd1234")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+
+    let where_filed = readings(&s)
+        .last()
+        .and_then(|r| r["path"].as_str().map(str::to_string))
+        .unwrap_or_default();
+    assert_eq!(
+        where_filed,
+        home.display().to_string(),
+        "the reading followed the working directory instead of the session"
+    );
+}
+
+#[test]
+fn without_a_session_it_falls_back_to_where_it_stands() {
+    let s = Scratch::new("no-session");
+    let here = s.project(None, "");
+    // A PLAIN SHELL HAS NO SESSION AND NO HOOK to have written one down.
+    // Refusing to file anything would lose the reading; walking up from
+    // here is the honest answer, and it is what a person in a terminal
+    // means anyway.
+    Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
+        .args(["run", "--", "echo x"])
+        .current_dir(&here)
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let filed = readings(&s).last().and_then(|r| r["path"].as_str().map(str::to_string)).unwrap_or_default();
+    assert_eq!(filed, here.display().to_string(), "it did not fall back to the cwd");
 }

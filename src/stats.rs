@@ -85,11 +85,21 @@ fn base(path: &str) -> Option<String> {
 /// THE PROJECT A COMMAND BELONGS TO — see `config::project_root` for
 /// where one begins, and why `.claude` is asked before `.git`.
 pub fn project() -> (String, String) {
-    // ONE DEFINITION OF "PROJECT", in `config`, because the name a
-    // reading is filed under and the directory a `.jbx.yaml` is looked
-    // for in have to be the same place. Two walks that disagreed would
-    // put a project's settings on one row and its readings on another.
-    let at = crate::config::project_root();
+    // THE CALLING CLAUDE CODE'S DIRECTORY WINS, when a hook has told us
+    // which it is. A session's WORKING directory moves — one `cd` moves
+    // it for every command after — so filing by it splits one session's
+    // time across whatever it walked through: measured on a real store,
+    // a row froze at the minute a session stepped into a sub-project and
+    // a second row started filling.
+    //
+    // Failing that — a plain shell, no hook — the walk up from here, in
+    // `config`, because the name a reading is filed under and the
+    // directory a `.jbx.yaml` is looked for in have to be the same
+    // place.
+    let at = match crate::signals::session_root() {
+        Some(root) => crate::config::project_root_of(&root),
+        None => crate::config::project_root(),
+    };
     let name = at
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())

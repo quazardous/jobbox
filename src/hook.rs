@@ -131,6 +131,11 @@ pub fn hook(binary: &str) -> i32 {
         return 0;
     }
     let Ok(event) = serde_json::from_str::<Value>(&raw) else { return 0 };
+    // THE CALLING CLAUDE CODE'S OWN DIRECTORY, written down the first
+    // time we see this session. Only a hook is told it, and everything
+    // else needs it to file a reading under the project somebody was
+    // actually working on rather than wherever a `cd` last went.
+    crate::signals::remember_session_root(&event);
     // TURNED OFF HERE MEANS TURNED OFF ENTIRELY. `enabled: false` in a
     // project's `.jbx.yaml` makes this hook say nothing at all — not a
     // longer threshold, not a quieter mode: commands run exactly as they
