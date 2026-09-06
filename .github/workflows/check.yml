@@ -66,6 +66,20 @@ jobs:
           for f in probe/jobs/*.log probe/jobs/*.code probe/jobs/*.json; do
             echo "--- $f"; cat "$f"; echo
           done
+          # DID BASH RUN AT ALL? Two lines settle it. If the file is
+          # written, bash ran and only its stdout handle is unusable; if
+          # the code is 7, it ran and exited as told. Empty log plus a
+          # code of 1 is what a shell whose every write fails looks like
+          # — and it is also what a shell that never started looks like.
+          echo "=== did it run, though?"
+          rm -rf probe out.txt
+          "$jbx" run --after 0 -- 'echo ecrit-par-la-ligne > out.txt'
+          sleep 2
+          echo "out.txt:"; cat out.txt 2>&1
+          rm -rf probe
+          "$jbx" run --after 0 -- 'exit 7'
+          sleep 2
+          for f in probe/jobs/*.code; do echo "--- $f"; cat "$f"; echo; done
           echo "=== the shell, called directly"
           "C:/Program Files/Git/usr/bin/bash.exe" -c 'echo direct-usr-bin'
           echo "direct exit=$?"
