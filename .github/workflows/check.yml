@@ -43,24 +43,31 @@ jobs:
       - name: what jbx sees on this machine
         shell: bash
         run: |
+          # NO `set -e` HERE. The point of this step is to WATCH things
+          # fail; the shell exiting at the first non-zero hid the very
+          # answer it was run to get.
+          set +e
           set -x
           cargo build --release
           jbx=target/release/jbx
           [ -f "$jbx.exe" ] && jbx="$jbx.exe"
-          command -v bash sh || true
-          "$jbx" config || true
-          # DOES THE CHILD WRITE, OR DOES THE MIRROR LOSE IT? Those are
-          # two different bugs and they look identical from here — the
-          # caller sees nothing either way. `--after 0` detaches at once,
-          # which is the only way to keep a record for a line this short,
-          # and `tail` then reads the LOG rather than the mirror.
-          "$jbx" run -- 'echo bonjour'; echo "run exit=$?"
-          "$jbx" fg -- 'echo salut'; echo "fg exit=$?"
-          "$jbx" run --after 0 -- 'echo dans-le-journal'; echo "detached exit=$?"
-          "$jbx" list --json || true
-          for id in $("$jbx" list --json | grep '"id"' | cut -d'"' -f4); do
-            echo "--- log of $id"; "$jbx" tail "$id" || true
-          done
+          export JBX_DIR="$PWD/probe"
+          "$jbx" config
+          echo "=== a line that must finish in time"
+          "$jbx" run -- 'echo bonjour'
+          echo "run exit=$?"
+          echo "=== the same, detached at once, so its log survives"
+          "$jbx" run --after 0 -- 'echo dans-le-journal'
+          echo "detached exit=$?"
+          sleep 3
+          "$jbx" list --json
+          echo "=== what is on disk"
+          find probe -type f | head -20
+          for f in probe/jobs/*.log; do echo "--- $f"; cat "$f"; done
+          echo "=== the shell, called directly"
+          "C:/Program Files/Git/usr/bin/bash.exe" -c 'echo direct-usr-bin'
+          echo "direct exit=$?"
+          exit 0
       - run: cargo test --release
 
   # Windows is a declared platform, so it is compiled and linted on every
