@@ -155,22 +155,15 @@ fn detach(cmd: &mut Command) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        // NO WINDOW, NOT NO CONSOLE — and the difference cost twenty
-        // tests.
-        //
-        // `DETACHED_PROCESS` was the obvious flag and it is the wrong
-        // one: it leaves the supervisor with no console at all, and the
-        // MSYS runtime behind Git Bash cannot start without one. On a
-        // real runner the line then exited 1 with an EMPTY log — no
-        // output, no error, nothing to read — while the very same line
-        // through `cmd /C`, which needs no console, wrote its output
-        // perfectly. Both Git Bash binaries failed alike, which is what
-        // ruled out the shell and pointed here.
-        //
-        // `CREATE_NO_WINDOW` gives it a console that is never displayed.
-        // Nothing pops up, and what we actually need is untouched: a
+        // NO WINDOW RATHER THAN NO CONSOLE. This was tried as the fix
+        // for the silent Windows failures and IT CHANGED NOTHING — the
+        // cause was the log handle, next door in `supervise`. It is kept
+        // because it says what we actually want: nothing pops up, a
         // Windows process already outlives its parent, and the new
-        // process group still keeps a Ctrl-C from reaching it.
+        // process group still keeps a Ctrl-C from reaching the job.
+        // `DETACHED_PROCESS` additionally denies the process a console
+        // at all, which we never needed and which nothing here relies
+        // on.
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
@@ -189,8 +182,41 @@ fn detach(cmd: &mut Command) {
 /// trap is a shell feature and `cmd.exe` has no equivalent. One
 /// mechanism on both platforms beats two that drift apart.
 pub fn supervise(id: &str, after: f64, queued: bool, fg: bool, line: &str) -> i32 {
-    let log = match OpenOptions::new().append(true).create(true).open(store::log_path(id)) {
-        Ok(f) => f,
+    // OPENED FOR WRITING AND SEEKED, NOT APPENDED — and on Windows that
+    // is the difference between a working program and twenty silent
+    // failures.
+    //
+    // `append(true)` asks Windows for `FILE_APPEND_DATA` and nothing
+    // else: a handle that cannot be seeked and carries no read access.
+    // `cmd /C` never notices, because it only ever calls WriteFile. The
+    // MSYS runtime behind Git Bash adopts an inherited handle and does
+    // more with it than that, and on an append-only one it fails —
+    // every write from the line fails, `echo` returns non-zero, bash
+    // exits 1, and the error explaining it goes to the same broken
+    // handle. An empty log and a code of 1, with nothing to read.
+    //
+    // MEASURED, after two wrong guesses. `jbx run -- 'echo x > out.txt'`
+    // wrote `out.txt` and `jbx run -- 'exit 7'` recorded 7: the shell
+    // was running the line perfectly and only its output was lost.
+    //
+    // Standard output and standard error are two clones of this handle
+    // and therefore share one file position, so they still interleave
+    // the way they would on a terminal.
+    let log = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        // NEVER TRUNCATE. The front creates this file before we exist;
+        // emptying it here would throw away whatever a queued job's
+        // waiting had already put in it.
+        .truncate(false)
+        .open(store::log_path(id))
+    {
+        Ok(mut f) => {
+            use std::io::Seek;
+            let _ = f.seek(std::io::SeekFrom::End(0));
+            f
+        }
         Err(e) => {
             eprintln!("jbx: cannot open the log: {e}");
             return 1;
