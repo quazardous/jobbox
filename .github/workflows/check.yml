@@ -34,6 +34,23 @@ jobs:
     continue-on-error: ${{ matrix.os == 'windows-latest' }}
     steps:
       - uses: actions/checkout@v5
+      # A PROBE BEFORE THE SUITE, AND ON EVERY PLATFORM so there is
+      # something to compare against. Twenty failures on Windows share
+      # one shape — the line's own output comes back empty while jbx's
+      # announcement prints perfectly — and no runner had ever been
+      # asked which shell it picked. `jbx config` answers that; nobody
+      # had thought to make it say so where it mattered.
+      - name: what jbx sees on this machine
+        shell: bash
+        run: |
+          set -x
+          cargo build --release
+          jbx=target/release/jbx
+          [ -f "$jbx.exe" ] && jbx="$jbx.exe"
+          command -v bash sh || true
+          "$jbx" config || true
+          "$jbx" run -- 'echo bonjour' || true
+          "$jbx" list --json || true
       - run: cargo test --release
 
   # Windows is a declared platform, so it is compiled and linted on every
