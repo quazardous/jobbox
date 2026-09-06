@@ -80,6 +80,31 @@ jobs:
           "$jbx" run --after 0 -- 'exit 7'
           sleep 2
           for f in probe/jobs/*.code; do echo "--- $f"; cat "$f"; echo; done
+          # DOES A LINE TAKE ITS TIME? Eleven failures say a job is
+          # already finished where it should still be running, and that
+          # is either a line that does not last or a launcher that does
+          # not let go at `after`. Timing the call apart from the job
+          # separates them.
+          echo "=== does it hold, and for how long?"
+          rm -rf probe
+          begin=$SECONDS
+          "$jbx" run --after 30 -- 'sleep 4'
+          echo "held for $((SECONDS - begin))s, expected about 4"
+          rm -rf probe
+          begin=$SECONDS
+          "$jbx" run --after 2 -- 'sleep 8' >/dev/null
+          echo "let go after $((SECONDS - begin))s, expected about 2"
+          "$jbx" list --json | grep -E '"(id|state)"'
+          # AND DOES THE CAP HOLD? `0 of 1 busy` was reported with a job
+          # running, so either the lock is not taken or it is not seen.
+          echo "=== the cap"
+          rm -rf probe
+          JBX_SLOTS=1 "$jbx" queue job-1 -- 'sleep 6'
+          JBX_SLOTS=1 "$jbx" queue job-2 -- 'sleep 6'
+          sleep 2
+          JBX_SLOTS=1 "$jbx" slots
+          JBX_SLOTS=1 "$jbx" list
+          find probe -type d
           echo "=== the shell, called directly"
           "C:/Program Files/Git/usr/bin/bash.exe" -c 'echo direct-usr-bin'
           echo "direct exit=$?"
