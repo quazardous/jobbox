@@ -155,9 +155,25 @@ fn detach(cmd: &mut Command) {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        // NO WINDOW, NOT NO CONSOLE — and the difference cost twenty
+        // tests.
+        //
+        // `DETACHED_PROCESS` was the obvious flag and it is the wrong
+        // one: it leaves the supervisor with no console at all, and the
+        // MSYS runtime behind Git Bash cannot start without one. On a
+        // real runner the line then exited 1 with an EMPTY log — no
+        // output, no error, nothing to read — while the very same line
+        // through `cmd /C`, which needs no console, wrote its output
+        // perfectly. Both Git Bash binaries failed alike, which is what
+        // ruled out the shell and pointed here.
+        //
+        // `CREATE_NO_WINDOW` gives it a console that is never displayed.
+        // Nothing pops up, and what we actually need is untouched: a
+        // Windows process already outlives its parent, and the new
+        // process group still keeps a Ctrl-C from reaching it.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        cmd.creation_flags(CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP);
     }
 }
 
