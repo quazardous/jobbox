@@ -606,6 +606,13 @@ fn replay(readings: &[Reading]) -> Value {
             // finishes ten seconds later cost an announcement, an id and
             // a turn, and bought ten seconds. That is the price of
             // lowering the cut, and `saved` cannot see it.
+            //
+            // IT IS A LOCAL COUNT AND NOT A CUMULATIVE ONE — the ten
+            // seconds just above THIS cut, nothing else — so it does not
+            // fall as the cut rises, and it read as an inconsistency the
+            // first time somebody compared two rows: nothing at all ran
+            // for 60-70s while two lines ran for 126s and 128s, so the
+            // column went 0 then 2. The table now says so itself.
             let barely = lines.iter().filter(|s| **s > after && **s <= after + 10.0).count();
             // EVERY FIELD HERE IS A CONDITIONAL, AND IS NAMED ONE.
             // `saved` in the table next door is a measured fact — time
@@ -758,8 +765,11 @@ fn show_thresholds(v: &Value) {
     outln!();
     outln!("`for <10s` is the price of lowering the cut: jobs that would let go and");
     outln!("then finish within ten seconds, costing an announcement and an id for");
-    outln!("very little. Deliberate foregrounds are excluded — `jbx fg` detaches at");
-    outln!("no threshold at all.");
+    outln!("very little. IT COUNTS ONLY THE TEN SECONDS JUST ABOVE EACH CUT, so it");
+    outln!("rises and falls with wherever the durations happen to cluster — a larger");
+    outln!("number at a higher cut is not a contradiction, it means more lines land");
+    outln!("just past that one. Deliberate foregrounds are excluded: `jbx fg`");
+    outln!("detaches at no threshold at all.");
 }
 
 /// A number out of a value. A missing one is zero here rather than an
