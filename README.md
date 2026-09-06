@@ -98,6 +98,7 @@ jbx health                     what runs, what is mute, what is stranded
 jbx clients                    whose endings are still unread
 jbx signals <agent|user>       endings not yet read
 jbx stats [project]            how much time was saved
+jbx stats --thresholds         … and whether 30s is the right cut
 jbx stats --project-path       … with full paths instead of names
 jbx config                     every setting, and where it came from
 jbx how [id]                   what you can do with it, right now
@@ -107,6 +108,11 @@ jbx hook                       answers the harness; init declares this one
 ```
 
 `run` is what the hook calls. You rarely type it.
+
+**Every verb that reads answers `--json`**, and every verb refuses a flag
+it does not take. What a verb accepts is declared once — in the table
+`jbx describe` publishes — so a flag cannot be accepted without being
+documented, nor documented without being accepted.
 
 **A listing says how long ago each job started.** `finished exit 0`
 reads the same for something that ended a minute ago and something that

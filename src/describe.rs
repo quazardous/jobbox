@@ -57,54 +57,124 @@ pub const TAGS: &[(&str, &str)] = &[
     ("block", "does not return until something else ends"),
 ];
 
-/// Every verb: its name, what it is for, its tags, and the sentence for
-/// a person.
+/// ONE FLAG, WHAT IT DOES.
+pub type Flag = (&'static str, &'static str);
+
+/// A verb: what it is for, what it does to the world, and WHAT IT TAKES.
 ///
-/// ONE TABLE, so `--help` and this cannot drift apart. A test compares
-/// them in both directions — the README taught that lesson: a guard that
-/// only checks for what is false never notices what is missing.
-pub const VERBS: &[(&str, &str, &[&str], &str)] = &[
-    ("run", "run a line, detaching it if it turns out to be long",
-     &["execute"], "runs an arbitrary command line"),
-    ("fg", "run a line and never let go, or bring a detached job back",
-     &["execute", "block"], "runs a line without ever letting go, or attaches to one"),
-    ("queue", "hand work over before it starts, under a cap",
-     &["create"], "creates pending work"),
-    ("kill", "stop a job and everything it started",
-     &["destroy"], "stops a process tree"),
-    ("slots", "how many queued jobs may run at once",
-     &["read", "capacity"], "changes future capacity; reads when given no number"),
-    ("wait", "block until a job ends, and exit with its code",
-     &["read", "block"], "reads, and blocks until the job ends"),
-    ("signals", "endings not yet read",
-     &["consume"], "reports each ending once and then forgets it"),
-    ("init", "declare the hooks, and take rtk's over",
-     &["configure"], "edits the harness settings and writes configuration files"),
-    ("hook", "answer the harness; `init` declares this one",
-     &["rewrite"], "rewrites the command the harness is about to run"),
-    ("list", "what is detached, and how it went", &["read"], "reads"),
-    ("ps", "what is happening right now", &["read"], "reads"),
-    ("status", "one job: where it is, its exit code, its log", &["read"], "reads"),
-    ("tail", "what a job printed", &["read"], "reads; `-f` blocks until the job ends"),
-    ("stats", "how much time was saved", &["read"], "reads"),
-    ("health", "what runs, what is mute, what nobody will read", &["read"], "reads"),
-    ("clients", "whose endings are still unread", &["read"], "reads"),
-    ("config", "every setting, and where it came from", &["read"], "reads"),
-    ("describe", "this document", &["read"], "reads"),
-    ("how", "what you can do with a job, right now", &["read"], "reads"),
-    ("why", "why it works this way", &["read"], "reads"),
+/// The flags are here and not in the parser, and that is the point: this
+/// table is what the parser accepts, what `--help` prints, and what the
+/// document publishes. A flag that exists is documented and a flag that
+/// is documented is accepted, because there is only one list.
+///
+/// Before that there were three, and they drifted the way three lists
+/// do: `jbx list --help` printed a table of jobs and said nothing about
+/// the flag, and `jbx status --json` was ignored in silence. Neither was
+/// a bug in a verb — both were a list nobody had.
+pub struct Verb {
+    pub name: &'static str,
+    pub summary: &'static str,
+    pub tags: &'static [&'static str],
+    pub effect: &'static str,
+    pub flags: &'static [Flag],
+}
+
+/// Flags a listing takes, named once because two verbs share them.
+const LISTING: &[Flag] = &[
+    ("--all", "every project on this machine, not just this one"),
+    ("--full", "the line as recorded, wrappers and all, never cut"),
+    ("--json", "every field of every record, cut nothing"),
+    ("--width", "columns to draw in; `auto` asks the terminal"),
 ];
+const JSON_ONLY: &[Flag] = &[("--json", "answer as JSON rather than as a table")];
+const NOTHING: &[Flag] = &[];
+
+/// Every verb. ONE TABLE, so `--help`, the parser and this document
+/// cannot drift apart. A test compares them in both directions — the
+/// README taught that lesson: a guard that only checks for what is false
+/// never notices what is missing.
+pub const VERBS: &[Verb] = &[
+    Verb { name: "run", summary: "run a line, detaching it if it turns out to be long",
+        tags: &["execute"], effect: "runs an arbitrary command line",
+        flags: &[("--after", "seconds to hold the caller before detaching"),
+                 ("--intent", "what this job is for, in a few words")] },
+    Verb { name: "fg", summary: "run a line and never let go, or bring a detached job back",
+        tags: &["execute", "block"],
+        effect: "runs a line without ever letting go, or attaches to one",
+        flags: &[("--intent", "what this job is for, in a few words")] },
+    Verb { name: "queue", summary: "hand work over before it starts, under a cap",
+        tags: &["create"], effect: "creates pending work", flags: NOTHING },
+    Verb { name: "kill", summary: "stop a job and everything it started",
+        tags: &["destroy"], effect: "stops a process tree", flags: NOTHING },
+    Verb { name: "slots", summary: "how many queued jobs may run at once",
+        tags: &["read", "capacity"],
+        effect: "changes future capacity; reads when given no number", flags: JSON_ONLY },
+    Verb { name: "wait", summary: "block until a job ends, and exit with its code",
+        tags: &["read", "block"], effect: "reads, and blocks until the job ends",
+        flags: NOTHING },
+    Verb { name: "signals", summary: "endings not yet read", tags: &["consume"],
+        effect: "reports each ending once and then forgets it",
+        flags: &[("--json", "answer as JSON rather than as a table"),
+                 ("--client", "read another mailbox than this session's")] },
+    Verb { name: "init", summary: "declare the hooks, and take rtk's over",
+        tags: &["configure"],
+        effect: "edits the harness settings and writes configuration files",
+        flags: &[("--undo", "put back what was there before")] },
+    Verb { name: "hook", summary: "answer the harness; `init` declares this one",
+        tags: &["rewrite"], effect: "rewrites the command the harness is about to run",
+        flags: NOTHING },
+    Verb { name: "list", summary: "what is detached, and how it went",
+        tags: &["read"], effect: "reads", flags: LISTING },
+    Verb { name: "ps", summary: "what is happening right now",
+        tags: &["read"], effect: "reads", flags: LISTING },
+    Verb { name: "status", summary: "one job: where it is, its exit code, its log",
+        tags: &["read"], effect: "reads", flags: JSON_ONLY },
+    Verb { name: "tail", summary: "what a job printed", tags: &["read"],
+        effect: "reads; `-f` blocks until the job ends",
+        flags: &[("-f", "keep printing until the job ends")] },
+    Verb { name: "stats", summary: "how much time was saved", tags: &["read"],
+        effect: "reads",
+        flags: &[("--json", "answer as JSON rather than as a table"),
+                 ("--project-path", "full paths instead of names"),
+                 ("--thresholds", "what another `after` would have cost, replayed")] },
+    Verb { name: "health", summary: "what runs, what is mute, what nobody will read",
+        tags: &["read"], effect: "reads", flags: JSON_ONLY },
+    Verb { name: "clients", summary: "whose endings are still unread",
+        tags: &["read"], effect: "reads", flags: JSON_ONLY },
+    Verb { name: "config", summary: "every setting, and where it came from",
+        tags: &["read"], effect: "reads", flags: JSON_ONLY },
+    Verb { name: "describe", summary: "this document", tags: &["read"], effect: "reads",
+        flags: NOTHING },
+    Verb { name: "how", summary: "what you can do with a job, right now",
+        tags: &["read"], effect: "reads", flags: JSON_ONLY },
+    Verb { name: "why", summary: "why it works this way", tags: &["read"], effect: "reads",
+        flags: JSON_ONLY },
+];
+
+/// What one verb takes, for the parser and for `--help`.
+pub fn verb(name: &str) -> Option<&'static Verb> {
+    VERBS.iter().find(|v| v.name == name)
+}
 
 /// `jbx describe` — the document.
 pub fn describe() -> i32 {
     let commands: Vec<serde_json::Value> = VERBS
         .iter()
-        .map(|(name, summary, tags, effect)| {
+        .map(|v| {
             serde_json::json!({
-                "name": name,
-                "description": summary,
-                "x-jbx-tags": tags,
-                "x-jbx-effect": effect,
+                "name": v.name,
+                "description": v.summary,
+                // WHAT IT TAKES, from the same table the parser reads.
+                // A flag published here is accepted; one that is not is
+                // refused by name. They cannot disagree.
+                "options": v.flags
+                    .iter()
+                    .map(|(flag, what)| serde_json::json!({
+                        "name": flag, "description": what,
+                    }))
+                    .collect::<Vec<_>>(),
+                "x-jbx-tags": v.tags,
+                "x-jbx-effect": v.effect,
             })
         })
         .collect();

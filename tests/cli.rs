@@ -1279,6 +1279,73 @@ fn the_head_of_the_line_goes_first_even_when_slots_are_free() {
 // ── SAYING WHAT WE ARE, TO A MACHINE ────────────────────────────────────
 
 #[test]
+fn every_declared_verb_refuses_a_flag_it_does_not_take() {
+    let s = Scratch::new("refuses");
+    let doc: serde_json::Value =
+        serde_json::from_str(text(&s.run(&["describe"])).trim()).expect("valid JSON");
+    for c in doc["commands"].as_array().unwrap() {
+        let verb = c["name"].as_str().unwrap();
+        // `hook` answers a harness on stdin and takes no flags at all;
+        // everything else parses BEFORE it acts, so this cannot start a
+        // job or edit a setting on the way to being refused.
+        if verb == "hook" {
+            continue;
+        }
+        let out = s.run(&[verb, "--pleinecran"]);
+        assert_eq!(out.status.code(), Some(2),
+                   "`jbx {verb}` took a flag it never declared:\n{}", text(&out));
+    }
+}
+
+#[test]
+fn every_verb_that_declares_json_speaks_it() {
+    let s = Scratch::new("speaks");
+    // A JOB TO ASK ABOUT, so `status` has something real to answer.
+    s.run(&["run", "--after", "1", "--intent", "measure the index", "--", "sleep 3"]);
+    std::thread::sleep(std::time::Duration::from_millis(1400));
+    let id = text(&s.run(&["list", "--json"]));
+    let id: serde_json::Value = serde_json::from_str(id.trim()).expect("valid JSON");
+    let id = id[0]["id"].as_str().expect("a job").to_string();
+
+    let doc: serde_json::Value =
+        serde_json::from_str(text(&s.run(&["describe"])).trim()).expect("valid JSON");
+    let mut asked = 0;
+    for c in doc["commands"].as_array().unwrap() {
+        let verb = c["name"].as_str().unwrap();
+        let takes_json = c["options"]
+            .as_array()
+            .map(|o| o.iter().any(|f| f["name"] == "--json"))
+            .unwrap_or(false);
+        if !takes_json {
+            continue;
+        }
+        // WHAT EACH ONE NEEDS BESIDES THE FLAG. A verb that wants an
+        // argument and is given none answers a usage error, which is
+        // not JSON and would say nothing about this rule.
+        let mut args: Vec<&str> = vec![verb];
+        match verb {
+            "status" => args.push(&id),
+            "signals" => args.push("agent"),
+            _ => {}
+        }
+        args.push("--json");
+        let out = text(&s.run(&args));
+        // `signals` empties a mailbox and answers nothing when it is
+        // already empty; nothing is not invalid.
+        if out.trim().is_empty() {
+            continue;
+        }
+        serde_json::from_str::<serde_json::Value>(out.trim())
+            .unwrap_or_else(|e| panic!("`jbx {verb} --json` did not answer JSON ({e}):\n{out}"));
+        asked += 1;
+    }
+    // AND THE COUNT IS PART OF THE TEST. A document that stopped
+    // declaring `--json` anywhere would pass an empty loop in silence —
+    // which is the exact shape of the bug this whole rule exists for.
+    assert!(asked >= 6, "only {asked} verbs were checked; the document lost its flags");
+}
+
+#[test]
 fn describe_covers_every_verb_and_invents_none() {
     let s = Scratch::new("describe");
     let doc: serde_json::Value =

@@ -345,11 +345,7 @@ impl Tally {
 /// still be ambiguous — two `api` under unrelated parents — gets four
 /// characters of the path's hash, which is what the Python this replaces
 /// did, and it is only spent where it is needed.
-fn arrange(
-    by: &BTreeMap<String, Tally>,
-    names: &BTreeMap<String, String>,
-    full_path: bool,
-) -> Vec<Vec<String>> {
+fn arrange(by: &BTreeMap<String, Tally>, names: &BTreeMap<String, String>) -> Vec<Value> {
     let paths: Vec<&String> = by.keys().collect();
     // The nearest other row that contains this one, if any.
     let parent = |p: &str| -> Option<String> {
@@ -386,7 +382,7 @@ fn arrange(
     // Depth first, and heaviest first among siblings.
     let mut order: Vec<&String> = paths.clone();
     order.sort_by(|a, b| by[*b].saved().total_cmp(&by[*a].saved()));
-    let layout = Layout { order: &order, parent: &parent, by, label: &label, full_path };
+    let layout = Layout { order: &order, parent: &parent, by, label: &label };
     let mut rows = Vec::new();
     layout.walk(None, 0, &mut rows);
     rows
@@ -398,29 +394,24 @@ struct Layout<'a> {
     parent: &'a dyn Fn(&str) -> Option<String>,
     by: &'a BTreeMap<String, Tally>,
     label: &'a BTreeMap<&'a String, String>,
-    full_path: bool,
 }
 
 impl Layout<'_> {
-    fn walk(&self, here: Option<&String>, depth: usize, rows: &mut Vec<Vec<String>>) {
+    /// THE DEPTH TRAVELS WITH THE ROW instead of being baked into a
+    /// string: the table indents with it and the JSON carries it, out of
+    /// one walk rather than two.
+    fn walk(&self, here: Option<&String>, depth: usize, rows: &mut Vec<Value>) {
         for p in self.order {
             if (self.parent)(p).as_ref() != here {
                 continue;
             }
             let t = &self.by[*p];
-            let shown = if self.full_path {
-                (*p).clone()
-            } else {
-                format!("{}{}", "  ".repeat(depth), self.label[*p])
-            };
-            rows.push(vec![
-                shown,
-                t.calls.to_string(),
-                t.detached.to_string(),
-                human(t.elapsed),
-                human(t.waited),
-                format!("{} ({:.0}%)", human(t.saved()), t.ratio() * 100.0),
-            ]);
+            rows.push(serde_json::json!({
+                "path": p, "name": self.label[*p], "depth": depth,
+                "calls": t.calls, "detached": t.detached,
+                "elapsed": t.elapsed, "waited": t.waited,
+                "saved": t.saved(), "ratio": t.ratio(), "worst": t.worst,
+            }));
             self.walk(Some(p), depth + 1, rows);
         }
     }
@@ -492,59 +483,33 @@ fn print_table(headings: &[&str], rows: Vec<Vec<String>>) {
 /// every block this tool can SEE — the `jbx wait` calls — and it cannot
 /// see somebody staring at the screen instead. So the number is an upper
 /// bound that has been made as tight as the evidence allows, and the
-/// footer says so rather than letting the column imply otherwise.
-pub fn stats(only: Option<&str>, full_path: bool) -> i32 {
+/// footer says so rather than letting the column imply otherwise./// EVERYTHING THE TABLE KNOWS, AS A VALUE.
+///
+/// The rendering below reads this and nothing else, so `--json` and the
+/// table cannot come to say different things — which is exactly what
+/// happened while every verb printed its own answer by hand.
+pub fn measure(only: Option<&str>) -> Result<Value, i32> {
     let readings = read_all();
-    if readings.is_empty() {
-        outln!("nothing measured yet — the table fills as commands run through `jbx run`.");
-        return 0;
+    let mut all = Tally::default();
+    for r in &readings {
+        all.add(r);
     }
 
-    match only {
+    let rows = match only {
         None => {
             // GROUPED BY PATH, NOT BY NAME. Two directories called `api`
-            // are two projects, and summing them made one row whose every
-            // number was the sum of two unrelated things.
+            // are two projects, and summing them made one row whose
+            // every number was the sum of two unrelated things.
             let mut by: BTreeMap<String, Tally> = BTreeMap::new();
             let mut names: BTreeMap<String, String> = BTreeMap::new();
-            let mut all = Tally::default();
             for r in &readings {
                 let key = if r.path.is_empty() { r.project.clone() } else { r.path.clone() };
                 by.entry(key.clone()).or_default().add(r);
                 names.entry(key).or_insert_with(|| r.project.clone());
-                all.add(r);
             }
-            print_table(
-                &["project", "calls", "detached", "elapsed", "waited", "saved"],
-                arrange(&by, &names, full_path),
-            );
-            outln!();
-            outln!(
-                "{} saved — command time that ran while the caller was free, {:.0}% of {}.",
-                human(all.saved()),
-                all.ratio() * 100.0,
-                human(all.elapsed)
-            );
-            if all.chosen > 0 {
-                // THE DELIBERATE FOREGROUND, COUNTED. Choosing it is
-                // legitimate and sometimes right; a HABIT of choosing it
-                // is what is worth seeing, and it is invisible unless
-                // somebody adds it up.
-                outln!(
-                    "{} of {} calls asked for the foreground on purpose, costing {}.",
-                    all.chosen,
-                    all.calls,
-                    human(all.chosen_secs)
-                );
-            }
-            outln!("`waited` is what you actually stood still for, and `saved` is the rest");
-            outln!("of `elapsed` — it already subtracts the time you gave back to `jbx wait`.");
-            outln!("It cannot see you waiting some other way: a ceiling, not a receipt.");
-            outln!("Name a project to see its shapes; `--project-path` for full paths.");
+            arrange(&by, &names)
         }
         Some(want) => {
-            let mut by: BTreeMap<String, Tally> = BTreeMap::new();
-            let mut seen = false;
             // A NAME, A PATH, OR THE TAIL OF ONE. Whatever the table
             // showed you is what you should be able to type back.
             let matches = |r: &Reading| {
@@ -553,40 +518,233 @@ pub fn stats(only: Option<&str>, full_path: bool) -> i32 {
                         || r.path == want
                         || r.path.ends_with(&format!("/{want}")))
             };
+            let mut by: BTreeMap<String, Tally> = BTreeMap::new();
             for r in readings.iter().filter(|r| matches(r)) {
-                seen = true;
                 by.entry(r.shape.clone()).or_default().add(r);
             }
-            if !seen {
+            if by.is_empty() && !readings.is_empty() {
                 eprintln!("jbx: nothing measured for {want:?}");
-                return 1;
+                return Err(1);
             }
-            let mut rows: Vec<(f64, Vec<String>)> = by
+            let mut rows: Vec<Value> = by
                 .into_iter()
                 .map(|(shape, t)| {
-                    (t.saved(), vec![
-                        shape,
-                        t.calls.to_string(),
-                        t.detached.to_string(),
-                        human(t.worst),
-                        human(t.saved()),
-                    ])
+                    serde_json::json!({
+                        "shape": shape, "calls": t.calls, "detached": t.detached,
+                        "worst": t.worst, "saved": t.saved(),
+                    })
                 })
                 .collect();
-            rows.sort_by(|a, b| b.0.total_cmp(&a.0));
-            print_table(
-                &["shape", "calls", "detached", "worst", "saved"],
-                rows.into_iter().map(|(_, r)| r).collect(),
-            );
-            outln!();
-            // PER SHAPE, THE BLOCKS CANNOT BE ATTRIBUTED: a `jbx wait`
-            // names a job, not the shape it came from. Saying so beats
-            // quietly spreading them over the rows.
-            outln!("Per shape, `saved` does not subtract time given back to `jbx wait` —");
-            outln!("a block names a job, not a shape. The project total above does subtract it.");
+            rows.sort_by(|a, b| num(b, "saved").total_cmp(&num(a, "saved")));
+            rows
         }
+    };
+
+    Ok(serde_json::json!({
+        "scope": only.unwrap_or("all"),
+        "rows": rows,
+        "total": {
+            "calls": all.calls, "detached": all.detached,
+            "elapsed": all.elapsed, "waited": all.waited,
+            "saved": all.saved(), "ratio": all.ratio(),
+            "chosen": all.chosen, "chosen_secs": all.chosen_secs,
+        },
+        "durations": spread(&readings),
+        "thresholds": replay(&readings),
+    }))
+}
+
+/// WHAT THE LINES ACTUALLY TOOK, as an ordered summary.
+///
+/// A mean alone says nothing here and the distribution is the point:
+/// almost every call is under a second and a handful are minutes, so the
+/// average lands in a region where no command ever does.
+fn spread(readings: &[Reading]) -> Value {
+    let mut secs: Vec<f64> = readings.iter().filter(|r| r.ran).map(|r| r.secs).collect();
+    if secs.is_empty() {
+        return Value::Null;
     }
-    0
+    secs.sort_by(f64::total_cmp);
+    let at = |q: f64| secs[((secs.len() - 1) as f64 * q).round() as usize];
+    serde_json::json!({
+        "calls": secs.len(),
+        "median": at(0.5), "p75": at(0.75), "p90": at(0.9), "p99": at(0.99),
+        "max": secs[secs.len() - 1],
+        "mean": secs.iter().sum::<f64>() / secs.len() as f64,
+    })
+}
+
+/// WHAT ANOTHER THRESHOLD WOULD HAVE DONE, on the same calls.
+///
+/// "Is 30s the right number" cannot be answered by looking at 30s. Every
+/// reading holds the duration the line really took, so every other
+/// threshold replays against it exactly — a COUNTERFACTUAL, not a
+/// prediction. It says what already happened would have cost, which is
+/// the one thing a measurement is entitled to say.
+///
+/// Deliberate foregrounds are left out: `jbx fg` detaches at no
+/// threshold, so counting it would credit every candidate with a saving
+/// none of them could have made.
+fn replay(readings: &[Reading]) -> Value {
+    let lines: Vec<f64> = readings.iter().filter(|r| r.ran && !r.fg).map(|r| r.secs).collect();
+    if lines.is_empty() {
+        return Value::Null;
+    }
+    let elapsed: f64 = lines.iter().sum();
+    [2.0, 5.0, 10.0, 15.0, 30.0, 45.0, 60.0, 120.0, 300.0]
+        .iter()
+        .map(|&after| {
+            let waited: f64 = lines.iter().map(|s| s.min(after)).sum();
+            let detached = lines.iter().filter(|s| **s > after).count();
+            // DETACHED FOR ALMOST NOTHING. A line that lets go and then
+            // finishes ten seconds later cost an announcement, an id and
+            // a turn, and bought ten seconds. That is the price of
+            // lowering the cut, and `saved` cannot see it.
+            let barely = lines.iter().filter(|s| **s > after && **s <= after + 10.0).count();
+            serde_json::json!({
+                "after": after,
+                "detached": detached,
+                "barely_worth_it": barely,
+                "waited": waited,
+                "saved": elapsed - waited,
+                "ratio": if elapsed > 0.0 { (elapsed - waited) / elapsed } else { 0.0 },
+            })
+        })
+        .collect::<Vec<_>>()
+        .into()
+}
+
+/// THE TABLE, READ OFF THE VALUE ABOVE.
+pub fn render(v: &Value, full_path: bool, thresholds: bool) {
+    if thresholds {
+        return show_thresholds(v);
+    }
+    let rows = v["rows"].as_array().map(Vec::as_slice).unwrap_or_default();
+    if rows.is_empty() {
+        outln!("nothing measured yet — the table fills as commands run through `jbx run`.");
+        return;
+    }
+    let total = &v["total"];
+    if v["scope"] == "all" {
+        print_table(
+            &["project", "calls", "detached", "elapsed", "waited", "saved"],
+            rows.iter()
+                .map(|r| {
+                    let shown = if full_path {
+                        r["path"].as_str().unwrap_or("").to_string()
+                    } else {
+                        format!(
+                            "{}{}",
+                            "  ".repeat(r["depth"].as_u64().unwrap_or(0) as usize),
+                            r["name"].as_str().unwrap_or("")
+                        )
+                    };
+                    vec![
+                        shown,
+                        r["calls"].to_string(),
+                        r["detached"].to_string(),
+                        human(num(r, "elapsed")),
+                        human(num(r, "waited")),
+                        format!("{} ({:.0}%)", human(num(r, "saved")), num(r, "ratio") * 100.0),
+                    ]
+                })
+                .collect(),
+        );
+        outln!();
+        outln!(
+            "{} saved — command time that ran while the caller was free, {:.0}% of {}.",
+            human(num(total, "saved")),
+            num(total, "ratio") * 100.0,
+            human(num(total, "elapsed"))
+        );
+        if total["chosen"].as_u64().unwrap_or(0) > 0 {
+            // THE DELIBERATE FOREGROUND, COUNTED. Choosing it is
+            // legitimate and sometimes right; a HABIT of choosing it is
+            // what is worth seeing, and it is invisible unless somebody
+            // adds it up.
+            outln!(
+                "{} of {} calls asked for the foreground on purpose, costing {}.",
+                total["chosen"],
+                total["calls"],
+                human(num(total, "chosen_secs"))
+            );
+        }
+        outln!("`waited` is what you actually stood still for, and `saved` is the rest");
+        outln!("of `elapsed` — it already subtracts the time you gave back to `jbx wait`.");
+        outln!("It cannot see you waiting some other way: a ceiling, not a receipt.");
+        outln!("Name a project to see its shapes; `--thresholds` asks whether the cut");
+        outln!("is at the right number; `--project-path` for full paths.");
+        return;
+    }
+    print_table(
+        &["shape", "calls", "detached", "worst", "saved"],
+        rows.iter()
+            .map(|r| {
+                vec![
+                    r["shape"].as_str().unwrap_or("").to_string(),
+                    r["calls"].to_string(),
+                    r["detached"].to_string(),
+                    human(num(r, "worst")),
+                    human(num(r, "saved")),
+                ]
+            })
+            .collect(),
+    );
+    outln!();
+    // PER SHAPE, THE BLOCKS CANNOT BE ATTRIBUTED: a `jbx wait` names a
+    // job, not the shape it came from. Saying so beats quietly spreading
+    // them over the rows.
+    outln!("Per shape, `saved` does not subtract time given back to `jbx wait` —");
+    outln!("a block names a job, not a shape. The project total above does subtract it.");
+}
+
+/// WOULD ANOTHER NUMBER HAVE DONE BETTER? Replayed, not guessed.
+fn show_thresholds(v: &Value) {
+    let d = &v["durations"];
+    if d.is_null() {
+        outln!("nothing measured yet — the table fills as commands run through `jbx run`.");
+        return;
+    }
+    outln!(
+        "{} lines measured — median {}, p90 {}, p99 {}, longest {}.",
+        d["calls"],
+        human(num(d, "median")),
+        human(num(d, "p90")),
+        human(num(d, "p99")),
+        human(num(d, "max"))
+    );
+    outln!();
+    print_table(
+        &["after", "detached", "for <10s", "waited", "saved"],
+        v["thresholds"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+            .iter()
+            .map(|t| {
+                vec![
+                    format!("{}s", num(t, "after")),
+                    t["detached"].to_string(),
+                    t["barely_worth_it"].to_string(),
+                    human(num(t, "waited")),
+                    format!("{} ({:.0}%)", human(num(t, "saved")), num(t, "ratio") * 100.0),
+                ]
+            })
+            .collect(),
+    );
+    outln!();
+    outln!("What each cut WOULD have cost, replayed on the same lines. Every reading");
+    outln!("holds the duration the line really took, so this is a counterfactual and");
+    outln!("not a prediction. `for <10s` is the price of lowering it: jobs that let go");
+    outln!("and then finished within ten seconds, costing an announcement and an id");
+    outln!("for very little. Deliberate foregrounds are excluded — `jbx fg` detaches");
+    outln!("at no threshold at all.");
+}
+
+/// A number out of a value. A missing one is zero here rather than an
+/// error: an old reading simply did not carry the field.
+fn num(v: &Value, key: &str) -> f64 {
+    v[key].as_f64().unwrap_or(0.0)
 }
 
 /// Drop readings older than `days`, but only once the table is big

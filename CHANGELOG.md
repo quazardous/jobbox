@@ -30,6 +30,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`--json` on every verb that reads.** `status`, `health`, `clients`,
+  `config`, `slots`, `stats`, `how` and `why` answer as JSON when asked;
+  before, three verbs did and the rest ignored the flag in silence. A
+  verb now builds a value and one place decides whether it is printed as
+  JSON or rendered for a person, so the two cannot come to disagree.
+- **`jbx stats --thresholds`** — what another `after` would have cost,
+  replayed on the lines already measured. Every reading holds the
+  duration the line really took, so this is a counterfactual rather than
+  a prediction: it says what already happened would have cost. It also
+  shows the distribution (median, p90, p99) and, per candidate, how many
+  jobs would have detached *and then finished within ten seconds* —
+  which is the price of lowering the cut, and the one thing `saved`
+  cannot see.
+- **Every verb refuses a flag it does not take**, and answers `--help`.
+  What a verb accepts is declared once, in the same table `jbx describe`
+  publishes, so a flag cannot be accepted without being documented nor
+  documented without being accepted. `jbx describe` now carries each
+  verb's `options`.
 - **`--width <n>` on `jbx ps` and `jbx list`**, and a `width` setting to
   go with it. A listing asks the terminal how wide it is and uses it; the
   fallback of 100 columns is for the reader who has no terminal, which is

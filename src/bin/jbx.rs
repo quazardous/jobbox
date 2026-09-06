@@ -34,21 +34,14 @@ fn dispatch(args: Vec<String>) -> i32 {
             print!("{}", usage());
             0
         }
-        "run" => {
-            let mut after = default_after();
-            let mut i = 0;
-            while i < rest.len() && rest[i] != "--" {
-                if rest[i] == "--after" && i + 1 < rest.len() {
-                    if let Ok(v) = rest[i + 1].parse() {
-                        after = v;
-                    }
-                    i += 2;
-                } else {
-                    i += 1;
-                }
-            }
-            run::run(after, &tail(rest), named(rest))
-        }
+        "run" => match Flags::of("run", rest) {
+            Ok(how) => run::run(
+                how.after.unwrap_or_else(default_after),
+                &tail(rest),
+                how.intent.as_deref(),
+            ),
+            Err(code) => code,
+        },
         // NOT IN THE HELP: it is one half of this binary talking to the
         // other, and a verb a person can be tempted to type by hand is a
         // verb that will be typed by hand.
@@ -84,10 +77,13 @@ fn dispatch(args: Vec<String>) -> i32 {
         // `fg` TAKES EITHER, AND THE TWO CANNOT BE CONFUSED: an id is
         // `j` followed by seven hex digits and nothing else, which no
         // command is. A `--` settles it either way.
-        "fg" => match rest.first() {
-            Some(first) if looks_like_an_id(first) && rest.len() == 1 => run::attach(first),
-            Some(_) => run::foreground(&tail(rest), named(rest)),
-            None => usage_error("fg needs a line or a job id"),
+        "fg" => match Flags::of("fg", rest) {
+            Err(code) => code,
+            Ok(how) => match rest.first() {
+                Some(first) if looks_like_an_id(first) && rest.len() == 1 => run::attach(first),
+                Some(_) => run::foreground(&tail(rest), how.intent.as_deref()),
+                None => usage_error("fg needs a line or a job id"),
+            },
         },
         "queue" => match rest.first() {
             Some(intent) if intent != "--" && rest.len() > 1 => {
@@ -95,58 +91,62 @@ fn dispatch(args: Vec<String>) -> i32 {
             }
             _ => usage_error("queue needs an intent and a line: `jbx queue build -- make`"),
         },
-        "slots" => slots_cmd(rest.first().map(String::as_str)),
-        "how" => how(rest.first().filter(|a| looks_like_an_id(a)).map(String::as_str)),
-        "describe" => jobbox::describe::describe(),
-        "why" => why(),
-        "health" => health(),
-        "clients" => clients(),
-        "config" => config(),
-        "signals" => match rest.first() {
-            Some(audience) => signals::signals(
-                audience,
-                rest.iter().any(|a| a == "--json"),
-                rest.iter()
-                    .position(|a| a == "--client")
-                    .and_then(|i| rest.get(i + 1))
-                    .map(String::as_str),
-            ),
+        "slots" => with("slots", rest, |f| slots_cmd(f.free.first().map(String::as_str), f)),
+        "how" => with("how", rest, |f| {
+            how(f.free.first().filter(|a| looks_like_an_id(a)).map(String::as_str), f)
+        }),
+        "describe" => with("describe", rest, |_| jobbox::describe::describe()),
+        "why" => with("why", rest, why),
+        "health" => with("health", rest, health),
+        "clients" => with("clients", rest, clients),
+        "config" => with("config", rest, config),
+        "signals" => with("signals", rest, |how| match how.free.first() {
+            Some(audience) => signals::signals(audience, how.json, how.client.as_deref()),
             None => usage_error("signals needs an audience: agent or user"),
-        },
-        "stats" => stats::stats(
-            rest.first().filter(|a| !a.starts_with('-')).map(String::as_str),
-            rest.iter().any(|a| a == "--project-path"),
-        ),
-        "init" => init::init(rest.iter().any(|a| a == "--undo")),
-        "list" => match Shape::of(rest) {
-            Ok(how) => listing(false, &how),
+        }),
+        "stats" => with("stats", rest, |how| match stats::measure(
+            how.free.first().map(String::as_str),
+        ) {
             Err(code) => code,
-        },
-        "ps" => match Shape::of(rest) {
-            Ok(how) => listing(true, &how),
-            Err(code) => code,
-        },
-        "status" => match rest.first() {
-            Some(id) => status(id),
+            Ok(v) => Answer(v, 0).show(how, |v| {
+                stats::render(v, how.project_path, how.thresholds)
+            }),
+        }),
+        "init" => with("init", rest, |how| init::init(how.undo)),
+        "list" => with("list", rest, |how| listing(false, how)),
+        "ps" => with("ps", rest, |how| listing(true, how)),
+        "status" => with("status", rest, |how| match how.free.first() {
+            Some(id) => status(id, how),
             None => usage_error("status needs an id"),
-        },
-        "tail" => match rest.first() {
-            Some(id) => tail_log(id, rest.iter().any(|a| a == "-f")),
+        }),
+        "tail" => with("tail", rest, |how| match how.free.first() {
+            Some(id) => tail_log(id, how.follow),
             None => usage_error("tail needs an id"),
-        },
-        "wait" => match rest.first() {
+        }),
+        "wait" => with("wait", rest, |how| match how.free.first() {
             Some(id) => wait(id),
             None => usage_error("wait needs an id"),
-        },
-        "kill" => match rest.first() {
+        }),
+        "kill" => with("kill", rest, |how| match how.free.first() {
             Some(id) => kill(id),
             None => usage_error("kill needs an id"),
-        },
+        }),
         other => {
             eprintln!("jbx: unknown verb {other:?}");
             eprint!("{}", usage());
             2
         }
+    }
+}
+
+/// PARSE, THEN DO — and if the parsing failed, that IS the answer.
+///
+/// Every verb goes through here, so no verb can forget to refuse a flag
+/// it does not take, and none has to remember to handle `--help`.
+fn with(verb: &str, args: &[String], go: impl FnOnce(&Flags) -> i32) -> i32 {
+    match Flags::of(verb, args) {
+        Ok(how) => go(&how),
+        Err(code) => code,
     }
 }
 
@@ -227,56 +227,139 @@ fn describe(state: &store::State) -> String {
 /// TWO VERBS BECAUSE THEY ANSWER TWO QUESTIONS. "What is going on right
 /// now" is asked far more often than "what went on today", and a day of
 /// finished jobs between you and the answer is a list you stop reading.
-/// How a listing was asked for.
-pub struct Shape {
+/// WHAT A VERB ANSWERED, BEFORE ANYBODY DECIDED HOW TO SHOW IT.
+///
+/// A verb builds a value; this decides whether it is printed as JSON or
+/// rendered for a person — and the rendering reads THE SAME VALUE, so
+/// the table and the JSON cannot say different things. Written by hand
+/// side by side, they did: `--json` existed on three verbs out of twenty
+/// because each one had to be remembered separately.
+struct Answer(serde_json::Value, i32);
+
+impl Answer {
+    fn show(self, how: &Flags, human: impl FnOnce(&serde_json::Value)) -> i32 {
+        if how.json {
+            jobbox::outln!("{}", serde_json::to_string_pretty(&self.0).unwrap_or_default());
+        } else {
+            human(&self.0);
+        }
+        self.1
+    }
+}
+
+/// A `&str` out of a value, because every reader below wants one and
+/// `as_str().unwrap_or("")` twenty times reads like an accident.
+fn text<'a>(v: &'a serde_json::Value, key: &str) -> &'a str {
+    v[key].as_str().unwrap_or("")
+}
+
+/// EVERY FLAG OF EVERY VERB, PARSED IN ONE PLACE.
+///
+/// What a verb accepts is declared in `describe::VERBS` — the same table
+/// `jbx describe` publishes — so a flag cannot be accepted without being
+/// documented, nor documented without being accepted.
+///
+/// AN UNKNOWN FLAG IS AN ERROR, NOT A NO-OP. `jbx list --help` printed a
+/// table of jobs and said nothing about the flag; `jbx status --json`
+/// was ignored in silence. Neither was a bug in a verb: both were a typo
+/// that looked like it worked, which is the one failure this program
+/// refuses everywhere else.
+#[derive(Default)]
+pub struct Flags {
     all: bool,
     full: bool,
     json: bool,
-    /// Columns the table may use. `None` asks the terminal.
+    undo: bool,
+    follow: bool,
+    project_path: bool,
+    thresholds: bool,
     width: Option<usize>,
+    client: Option<String>,
+    after: Option<f64>,
+    intent: Option<String>,
+    /// Positional arguments in order — an id, a project name, a number.
+    free: Vec<String>,
 }
 
-impl Shape {
-    /// AN UNKNOWN FLAG IS AN ERROR, NOT A NO-OP. `jbx list --help`
-    /// printed a list of jobs and said nothing, which is the exact shape
-    /// of failure this suite exists to catch: a typo that looks like it
-    /// worked. Anything unrecognised now stops and says so.
-    fn of(args: &[String]) -> Result<Shape, i32> {
-        let mut how = Shape { all: false, full: false, json: false, width: None };
+impl Flags {
+    fn of(verb: &str, args: &[String]) -> Result<Flags, i32> {
+        let known = jobbox::describe::verb(verb).map(|v| v.flags).unwrap_or(&[]);
+        let mut flags = Flags::default();
         let mut rest = args.iter();
         while let Some(arg) = rest.next() {
+            // EVERYTHING AFTER A BARE `--` IS THE COMMAND LINE. It is
+            // not ours to read, and reading it is how a wrapper starts
+            // altering the thing it wraps.
+            if arg == "--" {
+                break;
+            }
+            if !arg.starts_with('-') {
+                flags.free.push(arg.clone());
+                continue;
+            }
             let (flag, inline) = match arg.split_once('=') {
                 Some((flag, value)) => (flag, Some(value.to_string())),
                 None => (arg.as_str(), None),
             };
+            if flag == "-h" || flag == "--help" {
+                print!("{}", verb_usage(verb));
+                return Err(0);
+            }
+            if !known.iter().any(|(name, _)| *name == flag) {
+                eprintln!("jbx: `{flag}` is not a flag `jbx {verb}` takes");
+                eprint!("{}", verb_usage(verb));
+                return Err(2);
+            }
+            let mut value = || inline.clone().or_else(|| rest.next().cloned());
             match flag {
-                "--all" => how.all = true,
-                "--full" => how.full = true,
-                "--json" => how.json = true,
-                "--width" => {
-                    let given = inline.or_else(|| rest.next().cloned());
-                    match given.as_deref().map(str::trim) {
-                        Some("auto") => how.width = None,
-                        Some(n) => match n.parse::<usize>() {
-                            Ok(n) => how.width = Some(n.max(40)),
-                            Err(_) => return Err(usage_error("`--width` wants columns, or `auto`")),
-                        },
-                        None => return Err(usage_error("`--width` wants columns, or `auto`")),
-                    }
-                }
-                "-h" | "--help" => {
-                    print!("{}", listing_usage());
-                    return Err(0);
-                }
+                "--all" => flags.all = true,
+                "--full" => flags.full = true,
+                "--json" => flags.json = true,
+                "--undo" => flags.undo = true,
+                "--project-path" => flags.project_path = true,
+                "--thresholds" => flags.thresholds = true,
+                "-f" => flags.follow = true,
+                "--client" => flags.client = value(),
+                "--intent" => flags.intent = value(),
+                "--after" => match value().as_deref().map(str::trim).map(str::parse::<f64>) {
+                    Some(Ok(n)) => flags.after = Some(n),
+                    _ => return Err(usage_error("`--after` wants a number of seconds")),
+                },
+                "--width" => match value().as_deref().map(str::trim) {
+                    Some("auto") => flags.width = None,
+                    Some(n) => match n.parse::<usize>() {
+                        Ok(n) => flags.width = Some(n.max(40)),
+                        Err(_) => return Err(usage_error("`--width` wants columns, or `auto`")),
+                    },
+                    None => return Err(usage_error("`--width` wants columns, or `auto`")),
+                },
+                // UNREACHABLE BY CONSTRUCTION: the table said it exists.
+                // If this ever fires, the table gained a flag nobody
+                // taught the parser, and saying so beats ignoring it.
                 other => {
-                    return Err(usage_error(&format!(
-                        "`{other}` is not a flag `jbx list` or `jbx ps` takes"
-                    )))
+                    eprintln!("jbx: `{other}` is declared but not implemented — please report it");
+                    return Err(70);
                 }
             }
         }
-        Ok(how)
+        Ok(flags)
     }
+}
+
+/// What ONE verb takes, printed from the table that accepts it.
+fn verb_usage(name: &str) -> String {
+    let Some(v) = jobbox::describe::verb(name) else {
+        return usage();
+    };
+    let mut text = format!("jbx {} — {}\n", v.name, v.summary);
+    if v.flags.is_empty() {
+        text.push_str("  takes no flags.\n");
+        return text;
+    }
+    for (flag, what) in v.flags {
+        text.push_str(&format!("  {flag:<16} {what}\n"));
+    }
+    text
 }
 
 /// How wide the table may draw itself.
@@ -284,7 +367,7 @@ impl Shape {
 /// The flag first, then the setting, then the terminal — and 100 when
 /// nothing can say, which is the case that matters most: the usual
 /// reader of `jbx ps` is an agent with no terminal at all.
-fn table_width(how: &Shape) -> usize {
+fn table_width(how: &Flags) -> usize {
     if let Some(asked) = how.width {
         return asked;
     }
@@ -321,26 +404,7 @@ fn terminal_columns() -> Option<usize> {
     String::from_utf8_lossy(&out.stdout).split_whitespace().nth(1)?.parse().ok()
 }
 
-/// What a listing takes, on its own, because `jbx --help` is already a
-/// page and a reader who typed `jbx list --help` asked a narrower
-/// question than "what is this tool".
-fn listing_usage() -> String {
-    "jbx list [flags]    every job of this project, finished ones for a day\n\
-     jbx ps   [flags]    only what is running or queued right now\n\
-     \n\
-     \x20 --all          every project on this machine, with a project column\n\
-     \x20 --full         the line as recorded, wrappers and all, never cut\n\
-     \x20 --json         every field of every record, cut nothing\n\
-     \x20 --width <n>    columns to draw in; `auto` asks the terminal\n\
-     \n\
-     The table shows the INTENT — what the caller said the job was for —\n\
-     beside the LINE, which is what runs. The line is shortened to fit and\n\
-     drops the wrappers it arrived in (`cd <root> &&`, `timeout <n>`,\n\
-     `rtk proxy`); `--full` and `--json` give it back whole.\n"
-        .to_string()
-}
-
-fn listing(only_alive: bool, how: &Shape) -> i32 {
+fn listing(only_alive: bool, how: &Flags) -> i32 {
     let all = how.all;
     // THIS PROJECT BY DEFAULT. The store is machine-wide, and a list
     // holding four projects' work is a list where you cannot find your
@@ -498,45 +562,69 @@ fn listing(only_alive: bool, how: &Shape) -> i32 {
     0
 }
 
-fn status(id: &str) -> i32 {
+fn status(id: &str, how: &Flags) -> i32 {
     let Some(r) = store::read_record(id) else {
         eprintln!("jbx: {id} is unknown");
         return 1;
     };
     let state = store::state_of(&r);
-    jobbox::outln!("  id       {}", r.id);
-    jobbox::outln!("  state    {}", describe(&state));
-    if matches!(state, store::State::Queued) {
-        // "QUEUED IS NOT STUCK." It is waiting its turn, and saying which
-        // is the difference between leaving it alone and going to look
-        // for a fault that is not there.
-        jobbox::outln!("           waiting for a slot — nothing is wrong; `jbx slots`");
-        jobbox::outln!("           says how many may run at once.");
-    }
-    if matches!(state, store::State::Lost) {
-        // THE EXPLANATION LIVES HERE, where somebody came to understand
-        // one line rather than to scan forty.
-        jobbox::outln!("           nothing recorded a code: it was stopped, or the");
-        jobbox::outln!("           machine went down under it.");
-    }
-    jobbox::outln!("  line     {}", r.command);
-    jobbox::outln!("  client   {}", r.client);
-    jobbox::outln!("  where    {}", r.cwd);
-    jobbox::outln!("  log      {}", store::log_path(&r.id).display());
-    if r.mirror_cut {
-        // THE ONE PLACE THIS CAN BE SAID. Whoever piped the launcher and
-        // closed it early had no channel left to be warned on — and the
-        // truncated view they kept reads exactly like a finished job.
-        jobbox::outln!("  note     whoever was reading the launcher stopped early, so what");
-        jobbox::outln!("           they saw was a truncated MIRROR. This log is the whole of it.");
-    }
     // THE JOB'S CODE BECOMES OURS, so a script can decide without
     // reading a word of this.
-    match state {
+    let code = match state {
         store::State::Finished { code: 0 } => 0,
         store::State::Finished { .. } => 1,
         _ => 0,
-    }
+    };
+    Answer(
+        serde_json::json!({
+            "id": r.id,
+            "state": describe(&state),
+            "queued": matches!(state, store::State::Queued),
+            "lost": matches!(state, store::State::Lost),
+            "exit": match state { store::State::Finished { code } => Some(code), _ => None },
+            "detached": r.detached,
+            "pid": r.pid,
+            "intent": r.intent,
+            "line": r.command,
+            "client": r.client,
+            "cwd": r.cwd,
+            "project": r.project,
+            "started": r.started,
+            "silent_for": store::silence(&r),
+            "mirror_cut": r.mirror_cut,
+            "log": store::log_path(&r.id).display().to_string(),
+        }),
+        code,
+    )
+    .show(how, |v| {
+        jobbox::outln!("  id       {}", text(v, "id"));
+        jobbox::outln!("  state    {}", text(v, "state"));
+        if v["queued"] == true {
+            // "QUEUED IS NOT STUCK." It is waiting its turn, and saying
+            // which is the difference between leaving it alone and going
+            // to look for a fault that is not there.
+            jobbox::outln!("           waiting for a slot — nothing is wrong; `jbx slots`");
+            jobbox::outln!("           says how many may run at once.");
+        }
+        if v["lost"] == true {
+            // THE EXPLANATION LIVES HERE, where somebody came to
+            // understand one line rather than to scan forty.
+            jobbox::outln!("           nothing recorded a code: it was stopped, or the");
+            jobbox::outln!("           machine went down under it.");
+        }
+        jobbox::outln!("  line     {}", text(v, "line"));
+        jobbox::outln!("  client   {}", text(v, "client"));
+        jobbox::outln!("  where    {}", text(v, "cwd"));
+        jobbox::outln!("  log      {}", text(v, "log"));
+        if v["mirror_cut"] == true {
+            // THE ONE PLACE THIS CAN BE SAID. Whoever piped the launcher
+            // and closed it early had no channel left to be warned on —
+            // and the truncated view they kept reads exactly like a
+            // finished job.
+            jobbox::outln!("  note     whoever was reading the launcher stopped early, so what");
+            jobbox::outln!("           they saw was a truncated MIRROR. This log is the whole of it.");
+        }
+    })
 }
 
 fn tail_log(id: &str, follow: bool) -> i32 {
@@ -690,7 +778,7 @@ fn stop(pid: u32, signal: &str) {
 /// It governs `queue` alone. A wrapped line is already running by the
 /// time this tool sees it, so capping those would cap nothing — the
 /// message says so rather than letting a number imply otherwise.
-fn slots_cmd(value: Option<&str>) -> i32 {
+fn slots_cmd(value: Option<&str>, how: &Flags) -> i32 {
     if let Some(value) = value {
         if value != "none" && value.parse::<usize>().is_err() {
             eprintln!("jbx: slots takes a number, or `none`");
@@ -702,20 +790,16 @@ fn slots_cmd(value: Option<&str>) -> i32 {
         }
     }
     let (busy, cap) = slots::busy();
-    match cap {
-        Some(cap) => jobbox::outln!("  {busy} of {cap} slots busy"),
-        None => jobbox::outln!("  {busy} running, no cap (`jbx slots <n>` sets one)"),
-    }
-    jobbox::outln!("  it holds back `jbx queue` only — a wrapped line is already running.");
-    0
+    Answer(serde_json::json!({ "busy": busy, "cap": cap }), 0).show(how, |v| {
+        match v["cap"].as_u64() {
+            Some(cap) => jobbox::outln!("  {} of {cap} slots busy", v["busy"]),
+            None => jobbox::outln!("  {} running, no cap (`jbx slots <n>` sets one)", v["busy"]),
+        }
+        jobbox::outln!("  it holds back `jbx queue` only — a wrapped line is already running.");
+    })
 }
 
-/// `jbx health` — WHAT RUNS, WHAT IS STUCK, AND WHAT NOBODY WILL READ.
-///
-/// It answers the question `list` cannot: a job that RUNS is not
-/// necessarily a job MAKING PROGRESS, and the two look identical from
-/// outside. Freshness of the log separates them.
-fn health() -> i32 {
+fn health(how: &Flags) -> i32 {
     let records = store::all();
     let mut queued = 0;
     let mut running = 0;
@@ -735,60 +819,93 @@ fn health() -> i32 {
             _ => finished += 1,
         }
     }
-    jobbox::outln!("  {running} running · {queued} queued · {finished} finished and kept");
     let (busy, cap) = jobbox::slots::busy();
-    match cap {
-        Some(cap) => jobbox::outln!("  {busy} of {cap} slots busy — `jbx queue` waits when they are full"),
-        None => jobbox::outln!("  {busy} slots held, no cap"),
-    }
-    if mute.is_empty() {
-        jobbox::outln!("  nothing is mute.");
-    } else {
-        // NAMED, NOT COUNTED. A number here would send somebody to `list`
-        // to find out which one, and the point is to answer that now.
-        jobbox::outln!("  MUTE — running, but nothing written to their log for a while:");
-        for (id, secs) in &mute {
-            jobbox::outln!("    {id}  silent {secs}s   jbx tail {id}");
+    let stranded = jobbox::signals::stranded(&store::client());
+    let code = if mute.is_empty() && stranded.is_empty() { 0 } else { 1 };
+    Answer(
+        serde_json::json!({
+            "running": running,
+            "queued": queued,
+            "finished": finished,
+            "slots_busy": busy,
+            "slots_cap": cap,
+            "mute": mute.iter().map(|(id, secs)| serde_json::json!({
+                "id": id, "silent_for": secs,
+            })).collect::<Vec<_>>(),
+            "stranded": stranded.iter().map(|(who, held)| serde_json::json!({
+                "client": who, "waiting": held,
+            })).collect::<Vec<_>>(),
+        }),
+        code,
+    )
+    .show(how, |v| {
+        jobbox::outln!(
+            "  {} running · {} queued · {} finished and kept",
+            v["running"], v["queued"], v["finished"]
+        );
+        match v["slots_cap"].as_u64() {
+            Some(cap) => jobbox::outln!(
+                "  {} of {cap} slots busy — `jbx queue` waits when they are full", v["slots_busy"]
+            ),
+            None => jobbox::outln!("  {} slots held, no cap", v["slots_busy"]),
         }
-    }
-    let me = store::client();
-    let stranded = jobbox::signals::stranded(&me);
-    if !stranded.is_empty() {
-        jobbox::outln!("  endings addressed to sessions that are gone — nobody will read these:");
-        for (who, held) in &stranded {
-            jobbox::outln!("    {who}  {held} waiting   jbx signals agent --client {who}");
+        let mute = v["mute"].as_array().map(Vec::as_slice).unwrap_or_default();
+        if mute.is_empty() {
+            jobbox::outln!("  nothing is mute.");
+        } else {
+            // NAMED, NOT COUNTED. A number here would send somebody to
+            // `list` to find out which one, and the point is to answer
+            // that now.
+            jobbox::outln!("  MUTE — running, but nothing written to their log for a while:");
+            for m in mute {
+                let id = text(m, "id");
+                jobbox::outln!("    {id}  silent {}s   jbx tail {id}", m["silent_for"]);
+            }
         }
-    }
-    if mute.is_empty() && stranded.is_empty() { 0 } else { 1 }
+        let stranded = v["stranded"].as_array().map(Vec::as_slice).unwrap_or_default();
+        if !stranded.is_empty() {
+            jobbox::outln!("  endings addressed to sessions that are gone — nobody will read these:");
+            for s in stranded {
+                let who = text(s, "client");
+                jobbox::outln!("    {who}  {} waiting   jbx signals agent --client {who}", s["waiting"]);
+            }
+        }
+    })
 }
 
-/// `jbx clients` — WHOSE ENDINGS ARE STILL UNREAD.
-fn clients() -> i32 {
+fn clients(how: &Flags) -> i32 {
     let me = store::client();
     let all = jobbox::signals::all_clients();
-    if all.is_empty() {
-        jobbox::outln!("  no mailbox yet — nothing has finished in the background.");
-        return 0;
-    }
-    jobbox::outln!("  {:<28} {:<8} {}", "client", "waiting", "");
-    for (who, held) in all {
-        let mark = if who == me { "  ← this session" } else { "" };
-        jobbox::outln!("  {who:<28} {held:<8}{mark}");
-    }
-    // THE PERSON'S BOX IS SHARED ON PURPOSE — one human wants every
-    // ending, whichever session started it — so it is one line, not a
-    // column repeated down the table.
-    jobbox::outln!("  {:<28} {:<8}  ← the person, shared by every session",
-             "(you)", jobbox::signals::held_for_the_person());
-    0
+    Answer(
+        serde_json::json!({
+            "me": me,
+            "clients": all.iter().map(|(who, held)| serde_json::json!({
+                "client": who, "waiting": held, "is_this_session": *who == me,
+            })).collect::<Vec<_>>(),
+            // THE PERSON'S BOX IS SHARED ON PURPOSE — one human wants
+            // every ending, whichever session started it — so it is one
+            // field, not a column repeated down the table.
+            "person_waiting": jobbox::signals::held_for_the_person(),
+        }),
+        0,
+    )
+    .show(how, |v| {
+        let rows = v["clients"].as_array().map(Vec::as_slice).unwrap_or_default();
+        if rows.is_empty() {
+            jobbox::outln!("  no mailbox yet — nothing has finished in the background.");
+            return;
+        }
+        jobbox::outln!("  {:<28} {:<8} {}", "client", "waiting", "");
+        for row in rows {
+            let mark = if row["is_this_session"] == true { "  ← this session" } else { "" };
+            jobbox::outln!("  {:<28} {:<8}{mark}", text(row, "client"), row["waiting"]);
+        }
+        jobbox::outln!("  {:<28} {:<8}  ← the person, shared by every session",
+                 "(you)", v["person_waiting"]);
+    })
 }
 
-/// `jbx config` — EVERY SETTING, AND WHERE IT CAME FROM.
-///
-/// The point is the SECOND column. A value alone invites the reader to
-/// guess whether it is theirs, a project's, or a default — and the day
-/// those disagree is the day the question matters.
-fn config() -> i32 {
+fn config(how: &Flags) -> i32 {
     use jobbox::config;
 
     let (after, after_from) = config::after();
@@ -797,53 +914,84 @@ fn config() -> i32 {
     let (dir, dir_from) = config::dir(store::root());
     let (compose, compose_from) = config::compose();
     let (on, on_from) = config::enabled();
+    let (width, width_from) = config::width();
 
-    let slots = match slots {
+    let slots_said = match slots {
         Some(n) if n > 0 => format!("{n} queued jobs at once"),
-        Some(_) => "no cap".to_string(),
-        None => "no cap".to_string(),
+        _ => "no cap".to_string(),
     };
-
-    let rows: Vec<(&str, String, &str)> = vec![
-        ("enabled", if on { "yes".into() } else { "NO — jbx stays out of the way here".into() }, on_from.as_str()),
-        ("after", format!("{after:.0}s before detaching"), after_from.as_str()),
-        ("mute_after", format!("{mute:.0}s of silence is mute"), mute_from.as_str()),
-        ("slots", slots, slots_from.as_str()),
-        ("dir", dir.display().to_string(), dir_from.as_str()),
-        ("integration.rtk.compose", compose.as_str().to_string(), compose_from.as_str()),
-    ];
-    jobbox::outln!("  {:<24} {:<34} {}", "setting", "value", "from");
-    for (name, value, from) in rows {
-        jobbox::outln!("  {name:<24} {value:<34} {from}");
-    }
-
-    jobbox::outln!();
-    jobbox::outln!("  {:<24} {}", "client", store::client());
     let (project, path) = jobbox::stats::project();
-    jobbox::outln!("  {:<24} {}  ({path})", "project", project);
-    // WHICH SHELL WILL RUN A LINE. On Windows the answer decides whether
-    // anything works at all — the hook quotes for a POSIX shell, so the
-    // runner has to be one.
-    jobbox::outln!("  {:<24} {}", "shell", match jobbox::run::shell_program() {
+    let shell = match jobbox::run::shell_program() {
         jobbox::run::Shell::Posix(p) => format!("{p} -c"),
         jobbox::run::Shell::Cmd => "cmd /C".into(),
-    });
-    jobbox::outln!("  {:<24} {}", "rtk on the PATH",
-                   if which_rtk() { "yes" } else { "no" });
-
-    jobbox::outln!();
-    // WHERE TO EDIT, ALWAYS — including when the file is not there. A
-    // reader who wants to change something needs the path more than they
-    // need to be told the path does not exist yet.
+    };
     let global = config::path();
-    jobbox::outln!("  global config   {}{}", global.display(),
-                   if global.exists() { "" } else { "   (not written yet)" });
-    match config::project_path() {
-        Some(local) => jobbox::outln!("  this project    {}", local.display()),
-        None => jobbox::outln!("  this project    {}/.jbx.yaml   (none — jbx works everywhere by default)",
-                               config::project_root().display()),
-    }
-    0
+
+    // ONE ROW PER SETTING, AND IT CARRIES ITS OWN VALUE. The table used
+    // to hold a sentence — "30s before detaching" — and nothing else, so
+    // reading a setting back meant parsing English.
+    let row = |name: &str, said: String, value: serde_json::Value, from: &str| {
+        serde_json::json!({ "setting": name, "said": said, "value": value, "from": from })
+    };
+    Answer(
+        serde_json::json!({
+            "settings": [
+                row("enabled",
+                    if on { "yes".into() } else { "NO — jbx stays out of the way here".to_string() },
+                    on.into(), on_from.as_str()),
+                row("after", format!("{after:.0}s before detaching"), after.into(),
+                    after_from.as_str()),
+                row("mute_after", format!("{mute:.0}s of silence is mute"), mute.into(),
+                    mute_from.as_str()),
+                row("slots", slots_said, slots.into(), slots_from.as_str()),
+                row("width",
+                    width.map(|w| format!("{w} columns")).unwrap_or_else(|| "auto".into()),
+                    width.into(), width_from.as_str()),
+                row("dir", dir.display().to_string(), dir.display().to_string().into(),
+                    dir_from.as_str()),
+                row("integration.rtk.compose", compose.as_str().to_string(),
+                    compose.as_str().into(), compose_from.as_str()),
+            ],
+            "client": store::client(),
+            "project": project,
+            "project_path": path,
+            "shell": shell,
+            "rtk_on_the_path": which_rtk(),
+            "global_config": global.display().to_string(),
+            "global_config_exists": global.exists(),
+            "project_config": config::project_path().map(|p| p.display().to_string()),
+            "project_config_would_be":
+                format!("{}/.jbx.yaml", config::project_root().display()),
+        }),
+        0,
+    )
+    .show(how, |v| {
+        jobbox::outln!("  {:<24} {:<34} {}", "setting", "value", "from");
+        for r in v["settings"].as_array().map(Vec::as_slice).unwrap_or_default() {
+            jobbox::outln!("  {:<24} {:<34} {}",
+                           text(r, "setting"), text(r, "said"), text(r, "from"));
+        }
+        jobbox::outln!();
+        jobbox::outln!("  {:<24} {}", "client", text(v, "client"));
+        jobbox::outln!("  {:<24} {}  ({})", "project", text(v, "project"), text(v, "project_path"));
+        // WHICH SHELL WILL RUN A LINE. On Windows the answer decides
+        // whether anything works at all — the hook quotes for a POSIX
+        // shell, so the runner has to be one.
+        jobbox::outln!("  {:<24} {}", "shell", text(v, "shell"));
+        jobbox::outln!("  {:<24} {}", "rtk on the PATH",
+                       if v["rtk_on_the_path"] == true { "yes" } else { "no" });
+        jobbox::outln!();
+        // WHERE TO EDIT, ALWAYS — including when the file is not there.
+        // A reader who wants to change something needs the path more
+        // than they need to be told the path does not exist yet.
+        jobbox::outln!("  global config   {}{}", text(v, "global_config"),
+                       if v["global_config_exists"] == true { "" } else { "   (not written yet)" });
+        match v["project_config"].as_str() {
+            Some(local) => jobbox::outln!("  this project    {local}"),
+            None => jobbox::outln!("  this project    {}   (none — jbx works everywhere by default)",
+                                   text(v, "project_config_would_be")),
+        }
+    })
 }
 
 /// Whether rtk is reachable. Asked by running it, not by guessing from a
@@ -875,8 +1023,8 @@ fn looks_like_an_id(word: &str) -> bool {
 /// detaches a command has no room to argue. This is where the argument
 /// lives: why it wraps everything, why waiting is the cost, and what to
 /// do when you genuinely cannot go on without the result.
-fn why() -> i32 {
-    jobbox::outln!("{}", "\
+fn why(how: &Flags) -> i32 {
+    let text = "\
 jbx — why it does that
 
 WHY IT WRAPS EVERY COMMAND
@@ -925,8 +1073,12 @@ WHAT IT NEVER DOES
   never breaks a command to save a token. Where there is a terminal, it hands
   the line straight to a shell and stops existing.
 
-  `jbx how` is the other half of this: what to type, rather than why.");
-    0
+  `jbx how` is the other half of this: what to type, rather than why.";
+    // PROSE IS STILL A VALUE. One field rather than none, so that the
+    // rule "every verb answers something a machine can read" has no
+    // exceptions to remember.
+    Answer(serde_json::json!({ "text": text }), 0)
+        .show(how, |v| jobbox::outln!("{}", v["text"].as_str().unwrap_or("")))
 }
 
 /// `jbx how [id]` — WHAT TO DO, RIGHT NOW.
@@ -935,21 +1087,40 @@ WHAT IT NEVER DOES
 /// list, which made it four lines longer than the thing it was trying to
 /// say — and the thing it was trying to say is "do not wait". Given an
 /// id it answers about that job, so the lines can be copied as they are.
-fn how(id: Option<&str>) -> i32 {
-    match id {
-        Some(id) => {
+fn how(id: Option<&str>, flags: &Flags) -> i32 {
+    if let Some(id) = id {
+        // A MACHINE WANTS THE COMMANDS, A PERSON WANTS THE SENTENCE.
+        // Both are built from this one list, so neither can go stale
+        // while the other is updated.
+        let offers: Vec<(String, &str)> = vec![
+            (format!("jbx status {id}"), "where it is, and its exit code once it lands"),
+            (format!("jbx tail {id}"), "what it has printed so far"),
+            (format!("jbx tail {id} -f"), "… and keep watching"),
+            (format!("jbx fg {id}"), "bring it back to the foreground and watch it"),
+            (format!("jbx wait {id}"), "block until it ends — ONLY if you cannot go on"),
+            (format!("jbx kill {id}"), "stop it, and everything it started"),
+        ];
+        return Answer(
+            serde_json::json!({
+                "id": id,
+                "commands": offers.iter().map(|(c, w)| serde_json::json!({
+                    "command": c, "what": w,
+                })).collect::<Vec<_>>(),
+                "advice": "You will be told when it ends, on a later turn. \
+                           Go and do something else; come back to it then.",
+            }),
+            0,
+        )
+        .show(flags, |v| {
             jobbox::outln!("jbx: what you can do with {id}, which is running in the background.\n");
-            jobbox::outln!("  jbx status {id}   where it is, and its exit code once it lands");
-            jobbox::outln!("  jbx tail {id}     what it has printed so far");
-            jobbox::outln!("  jbx tail {id} -f  … and keep watching");
-            jobbox::outln!("  jbx fg {id}       bring it back to the foreground and watch it");
-            jobbox::outln!("  jbx wait {id}     block until it ends — ONLY if you cannot go on");
-            jobbox::outln!("  jbx kill {id}     stop it, and everything it started");
+            for c in v["commands"].as_array().map(Vec::as_slice).unwrap_or_default() {
+                jobbox::outln!("  {:<18} {}", text(c, "command"), text(c, "what"));
+            }
             jobbox::outln!("\nBUT THE USUAL ANSWER IS NONE OF THESE. You will be told when it ends,");
             jobbox::outln!("on a later turn. Go and do something else; come back to it then.");
-        }
-        None => {
-            jobbox::outln!("{}", "\
+        });
+    }
+    let text = "\
 jbx — what to type
 
 NOTHING, USUALLY
@@ -979,10 +1150,9 @@ TO SET IT UP
   jbx init [--undo]         declare the hooks; writes a commented config
   jbx config                every setting, and where it came from
 
-  `jbx why` is the other half of this: why it works this way.");
-        }
-    }
-    0
+  `jbx why` is the other half of this: why it works this way.";
+    Answer(serde_json::json!({ "text": text }), 0)
+        .show(flags, |v| jobbox::outln!("{}", v["text"].as_str().unwrap_or("")))
 }
 
 /// The line itself, beside the intent rather than instead of it.
@@ -1026,7 +1196,7 @@ fn given_name(r: &store::Record) -> &str {
     }
 }
 
-fn shown_line(r: &store::Record, how: &Shape, width: usize) -> String {
+fn shown_line(r: &store::Record, how: &Flags, width: usize) -> String {
     if how.full {
         return r.command.replace('\n', " ");
     }
@@ -1043,13 +1213,3 @@ fn cut(text: &str, width: usize) -> String {
     text.chars().take(width - 1).collect::<String>() + "…"
 }
 
-/// The `--intent` given before `--`, if any.
-///
-/// A NAME THE CALLER CHOSE beats four words taken off the front of the
-/// line. The hook fills it from the description the harness already asks
-/// for, so it costs nobody anything to type.
-fn named(args: &[String]) -> Option<&str> {
-    let end = args.iter().position(|a| a == "--").unwrap_or(args.len());
-    let at = args[..end].iter().position(|a| a == "--intent")?;
-    args.get(at + 1).map(String::as_str)
-}
