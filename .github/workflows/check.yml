@@ -63,10 +63,21 @@ jobs:
           "$jbx" list --json
           echo "=== what is on disk"
           find probe -type f | head -20
-          for f in probe/jobs/*.log; do echo "--- $f"; cat "$f"; done
+          for f in probe/jobs/*.log probe/jobs/*.code probe/jobs/*.json; do
+            echo "--- $f"; cat "$f"; echo
+          done
           echo "=== the shell, called directly"
           "C:/Program Files/Git/usr/bin/bash.exe" -c 'echo direct-usr-bin'
           echo "direct exit=$?"
+          # AND THE SAME LINE THROUGH THE OTHER SHELL. If `cmd /C` fills
+          # the log where bash leaves it empty, the fault is in how bash
+          # is spawned under a detached parent and not in the redirection
+          # itself — two very different repairs.
+          echo "=== through cmd instead"
+          rm -rf probe
+          JBX_SHELL=cmd "$jbx" run --after 0 -- 'echo par-cmd'
+          sleep 3
+          for f in probe/jobs/*.log probe/jobs/*.code; do echo "--- $f"; cat "$f"; echo; done
           exit 0
       - run: cargo test --release
 
