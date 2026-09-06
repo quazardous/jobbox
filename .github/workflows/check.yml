@@ -105,6 +105,20 @@ jobs:
           JBX_SLOTS=1 "$jbx" slots
           JBX_SLOTS=1 "$jbx" list
           find probe -type d
+          # THE TEST'S OWN SHAPE, since neither the launcher nor the cap
+          # is broken when asked on its own. What the failing tests do
+          # and this had not: a held job running CONCURRENTLY, standard
+          # input closed, and output captured rather than inherited.
+          echo "=== two at once, the way the tests do it"
+          rm -rf probe
+          begin=$SECONDS
+          "$jbx" run --after 30 -- 'sleep 4' >/dev/null 2>&1 </dev/null &
+          held=$!
+          "$jbx" run --after 1 -- 'sleep 4' >/dev/null 2>&1 </dev/null
+          echo "the second returned after $((SECONDS - begin))s, expected about 1"
+          sleep 2
+          "$jbx" list
+          wait $held 2>/dev/null || true
           echo "=== the shell, called directly"
           "C:/Program Files/Git/usr/bin/bash.exe" -c 'echo direct-usr-bin'
           echo "direct exit=$?"
