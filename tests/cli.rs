@@ -386,7 +386,11 @@ fn init_displaces_rtk_and_undo_puts_it_back() {
     // no `hook` verb and would answer a harness with a usage error on
     // every single command.
     let declared = entries[0]["command"].as_str().unwrap();
-    assert!(declared.contains("jbx hook"), "declared the wrong binary: {declared}");
+    // `jbx hook`, OR `jbx.exe hook` — the extension is Windows's and
+    // not a different binary. The test used to spell the Unix name and
+    // called a correct declaration wrong.
+    assert!(declared.contains("jbx") && declared.ends_with(" hook"),
+            "declared the wrong binary: {declared}");
     // WHAT WAS NOT OURS IS UNTOUCHED.
     assert_eq!(now["model"], "opus");
 

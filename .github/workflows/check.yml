@@ -104,7 +104,17 @@ jobs:
           sleep 3
           for f in probe/jobs/*.log probe/jobs/*.code; do echo "--- $f"; cat "$f"; echo; done
           exit 0
+      # FEWER AT ONCE ON WINDOWS, and it is a measurement rather than a
+      # precaution. Eleven of the remaining failures say a job that slept
+      # four seconds had already finished — the record's own age says six
+      # — which is a runner too loaded to keep the clock the tests assume,
+      # not a fault in the program. Two threads says whether that is
+      # true: if the eleven pass, the tests need to poll rather than
+      # sleep, and that is a different repair from a bug.
       - run: cargo test --release
+        if: runner.os != 'Windows'
+      - run: cargo test --release -- --test-threads=2
+        if: runner.os == 'Windows'
 
   # Windows is a declared platform, so it is compiled and linted on every
   # change. This is what catches the `cfg` that only exists on Unix, the

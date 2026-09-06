@@ -348,10 +348,17 @@ impl Tally {
 fn arrange(by: &BTreeMap<String, Tally>, names: &BTreeMap<String, String>) -> Vec<Value> {
     let paths: Vec<&String> = by.keys().collect();
     // The nearest other row that contains this one, if any.
+    // BY COMPONENTS, NOT BY TEXT. `format!("{other}/")` is a Unix path
+    // spelled out by hand: on Windows every path is separated by `\`,
+    // so no row ever contained another and nesting silently never
+    // happened there — the table read as flat and correct. `Path` knows
+    // both separators, and it also refuses to call `/a/bc` a child of
+    // `/a/b`, which text matching would have got wrong on any platform.
     let parent = |p: &str| -> Option<String> {
+        let here = Path::new(p);
         paths
             .iter()
-            .filter(|other| p.starts_with(&format!("{other}/")))
+            .filter(|other| here != Path::new(other.as_str()) && here.starts_with(other.as_str()))
             .max_by_key(|other| other.len())
             .map(|s| s.to_string())
     };
