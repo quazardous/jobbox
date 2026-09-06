@@ -49,8 +49,18 @@ jobs:
           [ -f "$jbx.exe" ] && jbx="$jbx.exe"
           command -v bash sh || true
           "$jbx" config || true
-          "$jbx" run -- 'echo bonjour' || true
+          # DOES THE CHILD WRITE, OR DOES THE MIRROR LOSE IT? Those are
+          # two different bugs and they look identical from here — the
+          # caller sees nothing either way. `--after 0` detaches at once,
+          # which is the only way to keep a record for a line this short,
+          # and `tail` then reads the LOG rather than the mirror.
+          "$jbx" run -- 'echo bonjour'; echo "run exit=$?"
+          "$jbx" fg -- 'echo salut'; echo "fg exit=$?"
+          "$jbx" run --after 0 -- 'echo dans-le-journal'; echo "detached exit=$?"
           "$jbx" list --json || true
+          for id in $("$jbx" list --json | grep '"id"' | cut -d'"' -f4); do
+            echo "--- log of $id"; "$jbx" tail "$id" || true
+          done
       - run: cargo test --release
 
   # Windows is a declared platform, so it is compiled and linted on every
