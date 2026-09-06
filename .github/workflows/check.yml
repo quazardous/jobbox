@@ -78,6 +78,17 @@ jobs:
           JBX_SHELL=cmd "$jbx" run --after 0 -- 'echo par-cmd'
           sleep 3
           for f in probe/jobs/*.log probe/jobs/*.code; do echo "--- $f"; cat "$f"; echo; done
+          # THE OTHER BASH. `Git\usr\bin\bash.exe` is the raw MSYS
+          # binary and `Git\bin\bash.exe` is the launcher meant to be
+          # called from a native program. The PATH offers the first, and
+          # it dies silently under a detached parent — so the question is
+          # whether the second does too. If it does not, the fix is which
+          # one we pick; if it does, the fix is how we detach.
+          echo "=== through the Git launcher instead"
+          rm -rf probe
+          JBX_SHELL="C:/Program Files/Git/bin/bash.exe" "$jbx" run --after 0 -- 'echo par-le-lanceur'
+          sleep 3
+          for f in probe/jobs/*.log probe/jobs/*.code; do echo "--- $f"; cat "$f"; echo; done
           exit 0
       - run: cargo test --release
 
