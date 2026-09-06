@@ -216,10 +216,15 @@ to call would remove it from the machine outright.
 
 ## On Windows
 
-**Honest first: nobody has run it there yet.** It compiles and lints on
-every change, the release binaries are built there, and the test suite
-does not run there — the tests drive `sh` and `sleep`. So what follows is
-what the code does, not what anybody has watched it do. Reports welcome.
+**Honest first: the suite runs there now, and does not all pass yet.**
+It compiles and lints on every change, the release binaries are built
+there, and every change runs the full test suite on a Windows runner —
+which is how the first real Windows bug was found rather than reasoned
+about: the log was opened append-only, which on Windows grants a handle
+Git Bash cannot use, so every line ran perfectly and lost all of its
+output. Nobody has yet used it in a real session on a real desktop, so
+what follows is still partly what the code does rather than what anybody
+has watched it do. Reports welcome.
 
 Install `jbx.exe` from the
 [releases](https://github.com/quazardous/jobbox/releases) and put it
