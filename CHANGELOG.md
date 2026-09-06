@@ -42,7 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shows the distribution (median, p90, p99) and, per candidate, how many
   jobs would have detached *and then finished within ten seconds* —
   which is the price of lowering the cut, and the one thing `saved`
-  cannot see.
+  cannot see. Its columns are named as the conditionals they are —
+  `would detach`, `would wait`, `would save` — because `saved` next door
+  is a measured fact and one word for both meanings is how a reader
+  comes to trust a number that was never true. The cut actually in force
+  is marked.
 - **Every verb refuses a flag it does not take**, and answers `--help`.
   What a verb accepts is declared once, in the same table `jbx describe`
   publishes, so a flag cannot be accepted without being documented nor

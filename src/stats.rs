@@ -454,7 +454,10 @@ fn row(cells: &[String], widths: &[usize]) -> String {
             let _ = write!(out, "{:<width$}  ", cell, width = widths[i]);
         }
     }
-    out
+    // NO TRAILING SPACE. A column that is empty on most rows — the mark
+    // on the threshold in force — otherwise pads every other row to a
+    // width nothing occupies, which copies badly and diffs worse.
+    out.trim_end().to_string()
 }
 
 fn print_table(headings: &[&str], rows: Vec<Vec<String>>) {
@@ -591,6 +594,9 @@ fn replay(readings: &[Reading]) -> Value {
         return Value::Null;
     }
     let elapsed: f64 = lines.iter().sum();
+    // WHERE THE CUT ACTUALLY IS, so one row can be marked as the one
+    // being lived rather than left to be worked out by whoever reads.
+    let now = crate::config::after().0;
     [2.0, 5.0, 10.0, 15.0, 30.0, 45.0, 60.0, 120.0, 300.0]
         .iter()
         .map(|&after| {
@@ -601,12 +607,19 @@ fn replay(readings: &[Reading]) -> Value {
             // a turn, and bought ten seconds. That is the price of
             // lowering the cut, and `saved` cannot see it.
             let barely = lines.iter().filter(|s| **s > after && **s <= after + 10.0).count();
+            // EVERY FIELD HERE IS A CONDITIONAL, AND IS NAMED ONE.
+            // `saved` in the table next door is a measured fact — time
+            // that really did run while the caller was free. These are
+            // what another cut WOULD have come to, and one word for two
+            // meanings, a flag apart, is how a reader comes to trust a
+            // number that was never true.
             serde_json::json!({
                 "after": after,
-                "detached": detached,
+                "in_force": (after - now).abs() < 0.5,
+                "would_detach": detached,
                 "barely_worth_it": barely,
-                "waited": waited,
-                "saved": elapsed - waited,
+                "would_wait": waited,
+                "would_save": elapsed - waited,
                 "ratio": if elapsed > 0.0 { (elapsed - waited) / elapsed } else { 0.0 },
             })
         })
@@ -715,7 +728,7 @@ fn show_thresholds(v: &Value) {
     );
     outln!();
     print_table(
-        &["after", "detached", "for <10s", "waited", "saved"],
+        &["after", "would detach", "for <10s", "would wait", "would save", ""],
         v["thresholds"]
             .as_array()
             .map(Vec::as_slice)
@@ -724,21 +737,29 @@ fn show_thresholds(v: &Value) {
             .map(|t| {
                 vec![
                     format!("{}s", num(t, "after")),
-                    t["detached"].to_string(),
+                    t["would_detach"].to_string(),
                     t["barely_worth_it"].to_string(),
-                    human(num(t, "waited")),
-                    format!("{} ({:.0}%)", human(num(t, "saved")), num(t, "ratio") * 100.0),
+                    human(num(t, "would_wait")),
+                    format!("{} ({:.0}%)", human(num(t, "would_save")), num(t, "ratio") * 100.0),
+                    // THE ONE BEING LIVED, MARKED. Without it a reader
+                    // compares nine hypotheticals against nothing.
+                    if t["in_force"] == true { "← yours".into() } else { String::new() },
                 ]
             })
             .collect(),
     );
     outln!();
-    outln!("What each cut WOULD have cost, replayed on the same lines. Every reading");
-    outln!("holds the duration the line really took, so this is a counterfactual and");
-    outln!("not a prediction. `for <10s` is the price of lowering it: jobs that let go");
-    outln!("and then finished within ten seconds, costing an announcement and an id");
-    outln!("for very little. Deliberate foregrounds are excluded — `jbx fg` detaches");
-    outln!("at no threshold at all.");
+    outln!("EVERY NUMBER HERE IS A CONDITIONAL. `jbx stats` says what was saved;");
+    outln!("this says what each cut WOULD have saved, replayed on the same lines —");
+    outln!("every reading holds the duration the line really took, so it is a");
+    outln!("counterfactual and not a prediction. It will not match the table next");
+    outln!("door to the second: that one also subtracts time given back to");
+    outln!("`jbx wait`, which no threshold can undo.");
+    outln!();
+    outln!("`for <10s` is the price of lowering the cut: jobs that would let go and");
+    outln!("then finish within ten seconds, costing an announcement and an id for");
+    outln!("very little. Deliberate foregrounds are excluded — `jbx fg` detaches at");
+    outln!("no threshold at all.");
 }
 
 /// A number out of a value. A missing one is zero here rather than an
