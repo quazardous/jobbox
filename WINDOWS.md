@@ -58,9 +58,16 @@ unsigned executables, and it refuses them **whatever their origin**:
   zip downloaded, its SHA-256 matched the sum that release published, and
   the binary inside still would not start.
 
-There is no per-file exception to grant, and turning the feature off is a
-one-way door — Microsoft documents that it cannot be turned back on
-without reinstalling Windows. So do not turn it off for this.
+**It refuses the file; it does not refuse you.** Unlike SmartScreen there
+is no "run anyway" and no allow-list — you cannot grant an exception to a
+FILE. What it honours is a signature its machine trusts, and it does not
+insist that the trust be Microsoft's. That distinction is easy to state
+backwards, and stating it backwards is how this page first said a machine
+with the feature on could not run jbx at all, which is untrue.
+
+Turning the feature off would work and is the wrong move: Microsoft
+documents it as a one-way door, and it cannot be turned back on without
+reinstalling Windows. Do not turn it off for this.
 
 **What works is a certificate your own machine trusts:**
 
