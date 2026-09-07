@@ -334,7 +334,7 @@ fn a_quoted_line_still_means_what_it_meant() {
     // AN APOSTROPHE IS THE WHOLE TEST. Quoting a line into a single
     // shell word is where a wrapper silently changes a command, and a
     // French comment or a `don't` is enough to do it.
-    let tricky = r#"echo "c'est l'ete""#;
+    let tricky = r#"echo "don't stop, it's summer""#;
     let answer: serde_json::Value = serde_json::from_str(hook(&s, tricky).trim()).unwrap();
     let rewritten = answer["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap();
     let through = Command::new("sh")

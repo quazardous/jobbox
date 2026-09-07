@@ -59,7 +59,7 @@ jobs:
           "$jbx" run -- 'echo bonjour'
           echo "run exit=$?"
           echo "=== the same, detached at once, so its log survives"
-          "$jbx" run --after 0 -- 'echo dans-le-journal'
+          "$jbx" run --after 0 -- 'echo into-the-log'
           echo "detached exit=$?"
           sleep 3
           "$jbx" list --json
@@ -75,7 +75,7 @@ jobs:
           # — and it is also what a shell that never started looks like.
           echo "=== did it run, though?"
           rm -rf probe out.txt
-          "$jbx" run --after 0 -- 'echo ecrit-par-la-ligne > out.txt'
+          "$jbx" run --after 0 -- 'echo written-by-the-line > out.txt'
           sleep 2
           echo "out.txt:"; cat out.txt 2>&1
           rm -rf probe
@@ -159,7 +159,7 @@ jobs:
           # one we pick; if it does, the fix is how we detach.
           echo "=== through the Git launcher instead"
           rm -rf probe
-          JBX_SHELL="C:/Program Files/Git/bin/bash.exe" "$jbx" run --after 0 -- 'echo par-le-lanceur'
+          JBX_SHELL="C:/Program Files/Git/bin/bash.exe" "$jbx" run --after 0 -- 'echo by-the-launcher'
           sleep 3
           for f in probe/jobs/*.log probe/jobs/*.code; do echo "--- $f"; cat "$f"; echo; done
           exit 0

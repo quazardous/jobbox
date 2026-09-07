@@ -33,6 +33,38 @@ $Src  = if ($PSScriptRoot) { $PSScriptRoot } else { $null }
 
 function Say($text) { Write-Host "  $text" }
 
+# THE USER'S PATH, NOT THE PROCESS'S -- AND THE DIFFERENCE IS NOT
+# COSMETIC.
+#
+# `$env:PATH` is the machine PATH and the user PATH already joined
+# together. Writing that back to the user scope, which is exactly what
+# the advice printed here used to tell people to do
+# (`setx PATH "$env:PATH;..."`), copies every machine entry into the
+# user's own and leaves it there; `setx` compounds it by truncating at
+# 1024 characters. So the value is read from the scope it will be written
+# to, and from nowhere else.
+function Add-ToUserPath($dir) {
+    $current = [Environment]::GetEnvironmentVariable('PATH', 'User')
+    $parts = @()
+    if ($current) { $parts = @($current -split ';' | Where-Object { $_ }) }
+    if ($parts -contains $dir) { return $false }
+    [Environment]::SetEnvironmentVariable('PATH', (@($parts) + $dir) -join ';', 'User')
+    # AND THE SHELL WE ARE STANDING IN, which will not see the registry
+    # change on its own. Somebody who runs `jbx init` on the next line
+    # should not have to open a new window between the two.
+    $env:PATH = "$env:PATH;$dir"
+    return $true
+}
+
+function Remove-FromUserPath($dir) {
+    $current = [Environment]::GetEnvironmentVariable('PATH', 'User')
+    if (-not $current) { return $false }
+    $kept = @($current -split ';' | Where-Object { $_ -and $_ -ne $dir }) -join ';'
+    if ($kept -eq $current) { return $false }
+    [Environment]::SetEnvironmentVariable('PATH', $kept, 'User')
+    return $true
+}
+
 # THE CERTIFICATE'S NAME IS ITS HANDLE. `-Uninstall` finds it by subject
 # and by nothing else, so this string must not drift.
 $CertSubject = 'CN=jbx local install'
@@ -111,6 +143,7 @@ if ($Uninstall) {
     Remove-Item -Force -ErrorAction SilentlyContinue $Exe
     Say "removed $Exe"
     Remove-LocalTrust
+    if (Remove-FromUserPath $Bin) { Say "took $Bin back out of your PATH." }
     Say "your logs and readings are untouched."
     exit 0
 }
@@ -169,13 +202,13 @@ if ($FromSource -or $Symlink) {
     try {
         Say "fetching $Version for windows-x86_64..."
         $zip = Join-Path $tmp $name
-        Invoke-WebRequest "https://github.com/$Repo/releases/download/$Version/$name" -OutFile $zip
+        Invoke-WebRequest "https://github.com/$Repo/releases/download/$Version/$name" -OutFile $zip -UseBasicParsing
 
         # CHECKED AGAINST THE PUBLISHED SUMS. TLS says the bytes came from
         # GitHub; it does not say they are the bytes that release built.
         # A release without sums is said out loud rather than passed over.
         try {
-            $sums = Invoke-WebRequest "https://github.com/$Repo/releases/download/$Version/SHA256SUMS"
+            $sums = Invoke-WebRequest "https://github.com/$Repo/releases/download/$Version/SHA256SUMS" -UseBasicParsing
             # GITHUB SERVES A RELEASE ASSET AS `application/octet-stream`,
             # so PowerShell hands `Content` back as a Byte[] and not as a
             # string -- and `-split` then splits the BYTES. MEASURED: the
@@ -246,8 +279,14 @@ if (($env:PATH -split ';') -contains $Bin) {
     Say "than racing it. ``jbx why`` says what it does and why."
 } else {
     Write-Host ""
-    Say "$Bin is NOT on your PATH. The hooks jbx declares will still work"
-    Say "(they carry the full path) but you cannot type ``jbx``. To add it:"
-    Say "    setx PATH `"`$env:PATH;$Bin`""
-    Say "then open a new terminal."
+    if (Add-ToUserPath $Bin) {
+        Say "added $Bin to your PATH."
+        Say "This window has it already; other terminals need reopening."
+    } else {
+        Say "$Bin is on your PATH, but this shell has not picked it up yet."
+        Say "Open a new terminal, or restart this one."
+    }
+    Write-Host ""
+    Say "Next: ``jbx init`` declares its hooks -- and takes rtk's over rather"
+    Say "than racing it. ``jbx why`` says what it does and why."
 }
