@@ -84,6 +84,22 @@ impl Scratch {
             .expect("the binary runs")
     }
 
+    /// STOP WHAT THIS TEST STARTED.
+    ///
+    /// The long-lived jobs exist so a listing can be read while they are
+    /// still running; they have no reason to outlive the reading. On a
+    /// runner that costs nothing, and on somebody's machine it is a
+    /// handful of `sleep 30` left behind by `cargo test`.
+    fn stop_everything(&self) {
+        let listed = text(&self.run(&["list", "--json"]));
+        let Ok(rows) = serde_json::from_str::<serde_json::Value>(listed.trim()) else { return };
+        for row in rows.as_array().map(Vec::as_slice).unwrap_or_default() {
+            if let Some(id) = row["id"].as_str() {
+                let _ = self.run(&["kill", id]);
+            }
+        }
+    }
+
     /// Feed one harness event to the hook and take what it answers.
     fn event(&self, who: &str, json: &str) -> String {
         use std::io::Write;
@@ -1434,10 +1450,13 @@ fn every_verb_that_declares_json_speaks_it() {
     let s = Scratch::new("speaks");
     // A JOB TO ASK ABOUT, so `status` has something real to answer.
     s.run(&["run", "--after", "1", "--intent", "measure the index", "--", "sleep 30"]);
+    // NO SLEEP AFTER AN `until`. The poll above already waited for the
+    // exact thing the next line needs, and a fixed pause beside it is a
+    // guess about machine speed reintroduced into a test that had just
+    // been rid of one.
     until("the named job is listed as running", || {
         text(&s.run(&["ps"])).contains("measure the index")
     });
-    std::thread::sleep(std::time::Duration::from_millis(1400));
     let id = text(&s.run(&["list", "--json"]));
     let id: serde_json::Value = serde_json::from_str(id.trim()).expect("valid JSON");
     let id = id[0]["id"].as_str().expect("a job").to_string();
@@ -1478,6 +1497,7 @@ fn every_verb_that_declares_json_speaks_it() {
     // declaring `--json` anywhere would pass an empty loop in silence —
     // which is the exact shape of the bug this whole rule exists for.
     assert!(asked >= 6, "only {asked} verbs were checked; the document lost its flags");
+    s.stop_everything();
 }
 
 #[test]
@@ -1586,6 +1606,7 @@ fn a_listing_can_show_the_whole_line_and_speak_json() {
             "the name is still four words of path: {}", cut_one["intent"]);
     assert!(rows.iter().any(|r| r["intent"] == "measure the index"),
             "a name somebody gave is missing from the JSON");
+    s.stop_everything();
 }
 
 #[test]
