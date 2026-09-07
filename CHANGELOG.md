@@ -87,6 +87,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **On Windows, `jbx queue` never gave the shell back at all.** The fix
+  that stopped `jbx run` holding the caller's pipe was never applied to
+  its twin, so a queued job still handed the supervisor our standard
+  output. Measured on the same twenty-five second line: `queue` returned
+  in one second with its output discarded and twenty-five with it
+  captured — the whole job, from a verb whose entire purpose is to hand
+  work over before it starts. It also made the queue look broken: with
+  one slot, three queued jobs could never be seen to overlap, because
+  the caller was stuck rather than the queue wrong.
 - **On Windows, a detached job kept the caller waiting anyway.** The
   launcher announced that it had let go — and the harness reading its
   output stayed blocked until the job finished, because Windows hands a
