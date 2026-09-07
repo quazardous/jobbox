@@ -164,8 +164,8 @@ fn text(out: &Output) -> String {
 #[test]
 fn a_short_line_is_transparent() {
     let s = Scratch::new("short");
-    let out = s.run(&["run", "--", "echo bonjour"]);
-    assert_eq!(text(&out), "bonjour\n");
+    let out = s.run(&["run", "--", "echo straight through"]);
+    assert_eq!(text(&out), "straight through\n");
     assert_eq!(out.status.code(), Some(0));
 }
 

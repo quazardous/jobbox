@@ -56,7 +56,7 @@ jobs:
           export JBX_DIR="$PWD/probe"
           "$jbx" config
           echo "=== a line that must finish in time"
-          "$jbx" run -- 'echo bonjour'
+          "$jbx" run -- 'echo straight through'
           echo "run exit=$?"
           echo "=== the same, detached at once, so its log survives"
           "$jbx" run --after 0 -- 'echo into-the-log'
