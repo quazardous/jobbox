@@ -119,6 +119,24 @@ jobs:
           sleep 2
           "$jbx" list
           wait $held 2>/dev/null || true
+          # THE ONE DIFFERENCE LEFT. Everything above passes on this
+          # runner; the failing tests differ only in CAPTURING the output
+          # through a pipe rather than throwing it away. Command
+          # substitution makes exactly the pipe `.output()` makes. If the
+          # call returns in four seconds rather than one, the supervisor
+          # is holding the caller's pipe open — which is the very hang
+          # this program exists to remove, reintroduced through Windows
+          # handle inheritance.
+          echo "=== the same call, but with the output captured"
+          rm -rf probe
+          begin=$SECONDS
+          captured=$("$jbx" run --after 1 -- 'sleep 6' 2>&1 </dev/null)
+          echo "captured: returned after $((SECONDS - begin))s, expected about 1"
+          echo "it said: $(echo "$captured" | head -1)"
+          rm -rf probe
+          begin=$SECONDS
+          "$jbx" run --after 1 -- 'sleep 6' >/dev/null 2>&1 </dev/null
+          echo "thrown away: returned after $((SECONDS - begin))s, expected about 1"
           echo "=== the shell, called directly"
           "C:/Program Files/Git/usr/bin/bash.exe" -c 'echo direct-usr-bin'
           echo "direct exit=$?"
