@@ -760,6 +760,17 @@ pub fn queue(intent: &str, line: &str) -> i32 {
         .arg("--")
         .arg(line);
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    // THE SAME HANDLE LOAN `run` REVOKES, AND FOR THE SAME REASON.
+    //
+    // `Stdio::null()` says what the child MAY WRITE TO; on Windows it
+    // does not stop it INHERITING the pipe the harness is reading, and a
+    // supervisor still holding that pipe keeps the harness waiting long
+    // after we have exited. MEASURED, `sleep 25` with `after=2`: through
+    // a pipe `queue` returned in 25s — the whole line — against 1s to a
+    // file, while `run`, which already revoked the loan, returned in 2s
+    // either way. Point 10 of the Windows check-list looked like a queue
+    // that never queued; the queue was right and the caller was stuck.
+    stop_lending_our_output();
     detach(&mut cmd);
     let child = match cmd.spawn() {
         Ok(c) => c,
