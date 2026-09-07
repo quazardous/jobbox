@@ -18,6 +18,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-09-07
+
+### Fixed
+
+- **On Windows, `jbx init` declared a hook the shell could not run.** The
+  harness does not exec a hook's command; it hands the line to `bash`,
+  where a backslash is an escape and not a separator. So a declaration
+  written as `C:\Users\...\jbx.exe hook` arrived as
+  `C:UsersAppDataLocaljbxbinjbx.exe: command not found` — on every
+  prompt, in every session, from an install that had just reported
+  success, and with nothing anywhere saying which of the two was wrong.
+  The path is now spelled with forward slashes, which Windows accepts
+  everywhere it accepts a backslash and `bash` leaves alone. Running
+  `jbx init` again repairs a declaration already written the old way.
+
 ## [0.7.0] - 2026-09-07
 
 ### Added

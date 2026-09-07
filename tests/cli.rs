@@ -1122,6 +1122,49 @@ fn without_a_session_it_falls_back_to_where_it_stands() {
 }
 
 #[test]
+fn the_declared_hook_survives_the_shell_that_runs_it() {
+    let s = Scratch::new("hook-spelling");
+    let config = s.0.join("claude");
+    std::fs::create_dir_all(&config).unwrap();
+    let here = s.project(None, "");
+    Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
+        .arg("init")
+        .current_dir(&here)
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .env("CLAUDE_CONFIG_DIR", &config)
+        .output()
+        .unwrap();
+    let settings: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(config.join("settings.json")).unwrap()).unwrap();
+    let declared = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"].as_str().unwrap();
+
+    // THE HARNESS HANDS THIS LINE TO A SHELL. IT DOES NOT EXEC IT.
+    //
+    // So the question is not "is the path correct" -- it was, as a path
+    // -- but "does a shell still find it afterwards". MEASURED on
+    // Windows, from an install that had just reported success: declared
+    // with backslashes, the line reached bash as
+    // `C:UsersberliAppDataLocaljbxbinjbx.exe: command not found`, on
+    // every prompt of every session, and nothing in the install said so.
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(declared)
+        .env_remove("JBX_WRAPPED")
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .stdin(Stdio::null())
+        .output()
+        .expect("a shell runs");
+    assert!(
+        out.status.success(),
+        "a shell could not run the declared hook:\n  {declared}\n  {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
 #[cfg(unix)]
 fn init_declares_the_link_it_was_called_through() {
     let s = Scratch::new("through-a-link");

@@ -90,11 +90,40 @@ fn declared_binary() -> String {
     let resolved = std::env::current_exe()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "jbx".into());
-    let Some(invoked) = invocation_path() else { return resolved };
+    let Some(invoked) = invocation_path() else { return shell_safe(resolved) };
     match fs::symlink_metadata(&invoked) {
-        Ok(meta) if meta.file_type().is_symlink() => invoked.display().to_string(),
-        _ => resolved,
+        Ok(meta) if meta.file_type().is_symlink() => shell_safe(invoked.display().to_string()),
+        _ => shell_safe(resolved),
     }
+}
+
+/// THE DECLARATION IS READ BY A SHELL, NOT BY WINDOWS.
+///
+/// The harness does not exec a hook's command; it hands the line to
+/// `bash`, where a backslash is an escape character and not a separator.
+/// MEASURED, from an install that had just reported success: a hook
+/// declared as `C:\Users\berli\AppData\Local\jbx\bin\jbx.exe hook`
+/// arrived as
+///
+///   /usr/bin/bash: line 1: C:UsersberliAppDataLocaljbxbinjbx.exe:
+///   command not found
+///
+/// on every prompt, in every session, until the file was edited by hand.
+/// Windows accepts a forward slash everywhere it accepts a backslash, so
+/// the path is spelled the one way both of them read alike. Quoting was
+/// the other candidate and is worse: it would fix `bash` and break `cmd`,
+/// which strips no quotes of its own.
+///
+/// An existing declaration in the old spelling is repaired by the next
+/// `jbx init`, since `repoint` already brings a stale one up to date.
+#[cfg(windows)]
+fn shell_safe(path: String) -> String {
+    path.replace('\\', "/")
+}
+
+#[cfg(not(windows))]
+fn shell_safe(path: String) -> String {
+    path
 }
 
 /// The path this process was invoked by, made absolute WITHOUT resolving
