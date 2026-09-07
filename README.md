@@ -243,6 +243,16 @@ not start. It offers no exception for a single file, and Microsoft
 documents turning it off as a one-way door — it cannot be turned back on
 without reinstalling Windows.
 
+**Why it refuses is not a fault in the binary: these releases are not
+signed.** A signature Windows accepts on its own means a code-signing
+certificate from an authority it already trusts, bought and renewed
+yearly, and nobody has bought one for a program that fits under a
+megabyte and is given away. That is the whole of the reason. Nothing is
+wrong with the download — the checksum published with it matches, and
+you can check it yourself — and nothing about signing it locally makes
+it more trustworthy than it was; it makes it *identifiable*, which is
+what the control is asking for.
+
 What does work is a certificate **this machine** trusts:
 
 ```powershell
