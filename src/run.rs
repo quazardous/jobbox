@@ -143,6 +143,59 @@ fn in_system32(dir: &std::path::Path) -> bool {
 }
 
 /// Detach a child from us, so that it outlives the process that started it.
+/// WINDOWS HANDS A CHILD EVERY INHERITABLE HANDLE, not only the three
+/// it is given — and that put the hang back.
+///
+/// Giving the supervisor `Stdio::null()` says what it may WRITE to; it
+/// says nothing about what it HOLDS. `CreateProcess` duplicates every
+/// inheritable handle in the parent, so the supervisor also received our
+/// own standard output — the caller's pipe — and kept it open for as
+/// long as the job ran.
+///
+/// MEASURED ON A RUNNER, and the two lines are the whole story:
+///
+/// ```text
+/// captured through a pipe : returned after 6s, expected about 1
+/// thrown away to NUL      : returned after 1s, expected about 1
+/// ```
+///
+/// The announcement printed at one second either way. What did not
+/// arrive was the END of the pipe, so anything reading us to completion
+/// — a test's `output()`, and a harness reading a tool's output — waited
+/// out the whole job while being told it was free to go. A wrapper that
+/// SAYS it gave the shell back and did not is worse than one that never
+/// claimed to.
+///
+/// Standard input is deliberately left inheritable: the line keeps the
+/// caller's own, which is a promise made further up.
+///
+/// This is the only `unsafe` in the program, and there is no other way
+/// to say it — no command answers this question, unlike the Win32 call
+/// declined in `store` for one boolean.
+fn stop_lending_our_output() {
+    #[cfg(windows)]
+    {
+        type Handle = *mut core::ffi::c_void;
+        const STD_OUTPUT_HANDLE: u32 = -11i32 as u32;
+        const STD_ERROR_HANDLE: u32 = -12i32 as u32;
+        const HANDLE_FLAG_INHERIT: u32 = 0x0000_0001;
+        extern "system" {
+            fn GetStdHandle(which: u32) -> Handle;
+            fn SetHandleInformation(handle: Handle, mask: u32, flags: u32) -> i32;
+        }
+        for which in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+            // SAFETY: both calls take a handle we did not open and do
+            // not own, and only clear a flag on it. A failure — a
+            // console with no such handle — is nothing to recover from:
+            // there was then no pipe to lend in the first place.
+            unsafe {
+                let handle = GetStdHandle(which);
+                SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0);
+            }
+        }
+    }
+}
+
 fn detach(cmd: &mut Command) {
     #[cfg(unix)]
     {
@@ -424,6 +477,7 @@ fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>) -> i32 {
     // log, which is where it can still be written from after we are
     // gone.
     cmd.stdin(Stdio::inherit()).stdout(Stdio::null()).stderr(Stdio::null());
+    stop_lending_our_output();
     detach(&mut cmd);
     let child = match cmd.spawn() {
         Ok(c) => c,

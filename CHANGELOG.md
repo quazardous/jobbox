@@ -87,6 +87,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **On Windows, a detached job kept the caller waiting anyway.** The
+  launcher announced that it had let go — and the harness reading its
+  output stayed blocked until the job finished, because Windows hands a
+  child every inheritable handle and not only the three it is given, so
+  the supervisor was holding the caller's pipe. Measured on a runner:
+  the same call returned in one second with its output discarded and six
+  with it captured. A wrapper that says it gave the shell back and did
+  not is worse than one that never claimed to.
+- **On Windows, a line's output never arrived.** The log was opened
+  append-only, which there grants a handle Git Bash cannot use: every
+  write from the line failed, the shell exited 1, and the error saying
+  so went to the same dead handle — an empty log and no explanation.
+  Twenty of the suite's tests failed on it.
+- **Nested projects never nested on Windows.** `jbx stats` compared
+  paths with a hand-written `/`, so no row ever contained another and
+  the table read as flat — and entirely plausible.
 - **A listing drew one character past the width it was given.** The
   space after the intent column was printed by the column and counted by
   nobody, so a full-screen terminal wrapped every row of the table. A
