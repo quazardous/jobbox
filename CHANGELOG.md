@@ -18,6 +18,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-09-07
+
+### Added
+
+- **The Windows installer puts jbx on your PATH instead of telling you
+  how.** It writes the user scope, and the shell it is running in, so
+  `jbx init` on the next line works without opening a new window.
+  `-Uninstall` takes the entry back out along with the binary.
+
+### Fixed
+
+- **The PATH advice it used to print would have damaged your PATH.**
+  `setx PATH "$env:PATH;..."` reads the machine and user PATH joined
+  together and writes the result back to the user scope alone, so
+  following it copies every machine entry into your own and leaves it
+  there — and `setx` truncates at 1024 characters besides. Nothing reads
+  `$env:PATH` to decide what to write any more.
+- **The installer stopped to ask permission halfway through.** Windows
+  PowerShell parses a fetched page with the Internet Explorer engine
+  unless told not to, so downloading `SHA256SUMS` raised "the script may
+  run when the page is parsed" — a security prompt, mid-install, whose
+  default answer is No. Both fetches ask for basic parsing now.
+
+### Changed
+
+- **Four test payloads that were in French are in English.** This is a
+  public repository; the apostrophe test keeps its apostrophes, which was
+  the only thing it ever asserted.
+
 ## [0.6.0] - 2026-09-07
 
 ### Added
