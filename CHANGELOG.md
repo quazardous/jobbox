@@ -18,6 +18,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-07
+
+### Added
+
+- **`install.ps1 -TrustLocally`, for a Windows that refuses to run jbx at
+  all.** Smart App Control blocks unsigned executables whatever their
+  origin — a published release as flatly as a local build — and offers no
+  exception for one file. This flag makes a code-signing certificate,
+  asks Windows to trust it for your user, and signs the installed binary
+  with it. Measured on such a machine: before the root is trusted the
+  signature reads `UnknownError`, "a certificate chain ended in a root
+  which is not trusted"; after, `Valid`, and jbx starts. The local trust
+  store counts, which is the opposite of what we had assumed and written
+  down. It is opt-in and stays opt-in: the certificate signs code and
+  nothing else, it is named so you can find it, Windows asks before the
+  root goes in, and `-Uninstall` takes it back out.
+
+### Fixed
+
+- **`install.ps1` could not be run from a checkout on Windows.** The file
+  held a handful of em-dashes, and `powershell` — 5.1, the one every
+  Windows has — reads a `.ps1` as ANSI when it carries no byte-order
+  mark. The mangled bytes broke the parse: ten errors, none of them
+  anywhere near the real cause, on a path the README tells people to use.
+  Only `pwsh` 7 and the `irm | iex` form ever worked. The script is plain
+  ASCII now, which fixes it everywhere rather than for one shell.
+
 ## [0.5.13] - 2026-09-07
 
 ### Fixed

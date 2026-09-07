@@ -233,17 +233,36 @@ somewhere on your `PATH`, or run `.\install.ps1` from a checkout. Then
 `jbx init`, same as anywhere.
 
 **Smart App Control refuses jbx, and downloading a release does not get
-around it.** It blocks unsigned executables whatever their origin.
-Building hits it first — build scripts, the test binaries,
-`cargo-clippy.exe`, eventually `jbx.exe` itself — as `os error 4551`, and
-the published release is refused in exactly the same way. Measured:
-`install.ps1` fetched the v0.5.12 zip, its SHA-256 matched the sum that
-release published, and the binary inside still would not start. There is
-no per-file exception to grant. `Settings > Privacy & security > App &
-browser control` says whether it is on, and Microsoft documents turning
-it off as a one-way door — it cannot be turned back on without
-reinstalling Windows. Until these releases are signed, a machine with it
-on cannot run jbx at all.
+around it — but signing it yourself does.** It blocks unsigned
+executables whatever their origin. Building hits it first — build
+scripts, the test binaries, `cargo-clippy.exe`, eventually `jbx.exe`
+itself — as `os error 4551`, and the published release is refused in
+exactly the same way: `install.ps1` fetched the v0.5.12 zip, its SHA-256
+matched the sum that release published, and the binary inside still would
+not start. It offers no exception for a single file, and Microsoft
+documents turning it off as a one-way door — it cannot be turned back on
+without reinstalling Windows.
+
+What does work is a certificate **this machine** trusts:
+
+```powershell
+.\install.ps1 -TrustLocally
+```
+
+It makes a code-signing certificate, asks Windows to trust it for your
+user, and signs the installed binary with it. Measured on a machine with
+Smart App Control on: before the root is trusted the signature reads
+`UnknownError`, "a certificate chain ended in a root which is not
+trusted"; after, it reads `Valid` and jbx starts. So the local trust
+store counts, which is worth saying plainly because the documentation
+reads as though only Microsoft's opinion did.
+
+It is opt-in and it stays opt-in. A root you trust can vouch for anything
+signed with it, so read the flag before you use it: the certificate
+carries the code-signing use and no other, it is named `jbx local
+install` so you can find it, Windows asks you to confirm before it goes
+in, and `.\install.ps1 -Uninstall` takes it back out. None of that makes
+it free — it makes it yours to decide.
 
 **The shell is the part that matters.** The hook rewrites a command into
 `jbx run -- '<line>'`, quoted for a POSIX shell — which is right, because
