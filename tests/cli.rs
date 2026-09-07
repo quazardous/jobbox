@@ -1122,6 +1122,48 @@ fn without_a_session_it_falls_back_to_where_it_stands() {
 }
 
 #[test]
+fn global_only_leaves_the_project_alone() {
+    let s = Scratch::new("global-only");
+    let config = s.0.join("claude");
+    std::fs::create_dir_all(&config).unwrap();
+    // A PROJECT, by the marker `init` looks for.
+    let here = s.project(None, "");
+    std::fs::create_dir_all(here.join(".git")).unwrap();
+
+    let run = |flags: &[&str]| {
+        Command::new(JBX)
+            .env_remove("JBX_WRAPPED")
+            .arg("init")
+            .args(flags)
+            .current_dir(&here)
+            .env("JBX_DIR", &s.0)
+            .env("JBX_CONFIG", s.0.join("global.yaml"))
+            .env("CLAUDE_CONFIG_DIR", &config)
+            .output()
+            .unwrap()
+    };
+
+    // THE INSTALLER RUNS FROM WHEREVER SOMEBODY WAS STANDING, which may
+    // well be inside a repository — and a file appearing in your project
+    // because you installed a tool is a surprise, however commented it
+    // is. The hooks are still declared: that is the whole point of
+    // running it.
+    run(&["--global-only"]);
+    assert!(!here.join(".jbx.yaml").exists(),
+            "`--global-only` wrote a project file anyway");
+    let settings = config.join("settings.json");
+    assert!(settings.exists(), "`--global-only` declared no hooks at all");
+    let declared: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+    assert!(declared["hooks"]["PreToolUse"].is_array(), "no PreToolUse hook: {declared}");
+
+    // AND WITHOUT THE FLAG IT STILL WRITES ONE, which is the half that
+    // makes the assertion above mean something.
+    run(&[]);
+    assert!(here.join(".jbx.yaml").exists(), "the project file stopped being written");
+}
+
+#[test]
 fn the_declared_hook_survives_the_shell_that_runs_it() {
     let s = Scratch::new("hook-spelling");
     let config = s.0.join("claude");

@@ -112,7 +112,7 @@ fn dispatch(args: Vec<String>) -> i32 {
                 stats::render(v, how.project_path, how.thresholds)
             }),
         }),
-        "init" => with("init", rest, |how| init::init(how.undo)),
+        "init" => with("init", rest, |how| init::init(how.undo, how.global_only)),
         "list" => with("list", rest, |how| listing(false, how)),
         "ps" => with("ps", rest, |how| listing(true, how)),
         "status" => with("status", rest, |how| match how.free.first() {
@@ -177,7 +177,8 @@ fn usage() -> String {
          \x20 jbx how [id]          what you can do with it, right now\n\
          \x20 jbx why               why it works this way\n\
          \x20 jbx describe          every verb and what it does, as JSON\n\
-         \x20 jbx init [--undo]     declare the hook, and displace rtk's\n\
+         \x20 jbx init [--undo] [--global-only]\n\
+         \x20                       declare the hook, and displace rtk's\n\
          \n\
          JBX_AFTER   seconds before detaching (now {:.0})\n\
          JBX_DIR          where logs and records live (now {})\n",
@@ -270,6 +271,7 @@ pub struct Flags {
     full: bool,
     json: bool,
     undo: bool,
+    global_only: bool,
     follow: bool,
     project_path: bool,
     thresholds: bool,
@@ -316,6 +318,7 @@ impl Flags {
                 "--full" => flags.full = true,
                 "--json" => flags.json = true,
                 "--undo" => flags.undo = true,
+                "--global-only" => flags.global_only = true,
                 "--project-path" => flags.project_path = true,
                 "--thresholds" => flags.thresholds = true,
                 "-f" => flags.follow = true,

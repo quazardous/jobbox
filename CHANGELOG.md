@@ -18,6 +18,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-09-07
+
+### Added
+
+- **The install offers to declare the hooks, and asks first.** Installing
+  jbx without them leaves a binary that does nothing — the whole tool is
+  the hook — so both installers end with `Declare the hooks now? [Y/n]`
+  and run it for you. `init` edits a settings file other tools share, so
+  it is a question and not an assumption; with no terminal to ask at
+  (a Dockerfile, CI) it prints the line instead.
+- **`jbx init --global-only`** — the hooks and the global file, and no
+  project file. An installer runs from wherever somebody happened to be
+  standing, which may well be inside a repository, and a `.jbx.yaml`
+  appearing in your project because you installed a tool is a surprise.
+
 ## [0.7.1] - 2026-09-07
 
 ### Fixed

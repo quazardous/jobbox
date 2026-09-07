@@ -11,6 +11,9 @@
 #   --version vX.Y  a particular release rather than the latest
 #   --symlink       with --from-source: point the install at the checkout
 #   --uninstall     remove it; your logs and readings stay
+#
+# It offers to run `jbx init` at the end, and asks first. With no
+# terminal to ask at, it prints the line instead of assuming.
 set -eu
 
 REPO=quazardous/jobbox
@@ -157,13 +160,59 @@ fi
 say "$("$BIN/jbx" --version)"
 
 case ":$PATH:" in
-    *":$BIN:"*)
-        echo
-        say "Next: \`jbx init\` declares its hooks — and takes rtk's over rather"
-        say "than racing it. \`jbx why\` says what it does and why." ;;
+    *":$BIN:"*) ;;
     *)
         echo
         say "$BIN is NOT on your PATH. The hooks jbx declares will still work"
         say "(they carry the full path) but you cannot type \`jbx\`. Add it:"
         say "    export PATH=\"$BIN:\$PATH\"" ;;
 esac
+
+# ── AND THE STEP NOBODY SHOULD HAVE TO BE TOLD TO TAKE ──────────────────
+#
+# Installing jbx and not declaring its hooks leaves a binary that does
+# nothing: the whole tool is the hook. So the install offers to finish,
+# rather than printing a line and trusting it will be read.
+#
+# ASKED, NOT ASSUMED. `init` edits a settings file that belongs to other
+# tools as well, and an installer that edits it unasked is one nobody
+# should run. Declining is one keystroke and leaves the binary installed.
+#
+# READ FROM THE TERMINAL, NOT FROM STANDARD INPUT. Piped from `curl`,
+# standard input IS this script — reading a line from it would eat the
+# rest of the file. With no terminal at all (a Dockerfile, CI), there is
+# nobody to ask, so it says what to run and stops.
+#
+# AND THE TEST IS THE OPEN ITSELF, not `[ -r /dev/tty ]`. MEASURED: with
+# no controlling terminal the permission test passes and the open fails
+# with ENXIO, so the readable check would have sent us down the asking
+# branch to fail there — printing "left alone" at somebody who was never
+# asked anything.
+#
+# IN A SUBSHELL, because `exec` is a special builtin and a redirection it
+# cannot satisfy KILLS a non-interactive shell outright. Measured the
+# same way: the script ended at that line, printing nothing and returning
+# nothing, which is the worst way for an installer to stop. A subshell
+# takes the death instead and hands back a status; `read` is a regular
+# builtin, so its own redirection failing is merely a failed command.
+#
+# `--global-only` because we are standing wherever the user happened to
+# be, which may be inside a repository, and a file appearing in somebody's
+# project because they installed a tool is a surprise.
+echo
+if ( : < /dev/tty ) 2>/dev/null; then
+    printf "  Declare the hooks now? \`jbx init --global-only\` [Y/n] "
+    read -r answer < /dev/tty || answer=n
+    case "$answer" in
+        ""|y|Y|yes|Yes|YES)
+            echo
+            "$BIN/jbx" init --global-only
+            echo
+            say "Done. \`jbx why\` says what it does and why." ;;
+        *)
+            say "Left alone. \`jbx init\` declares them when you want them." ;;
+    esac
+else
+    say "Next: \`jbx init\` declares its hooks — and takes rtk's over rather"
+    say "than racing it. \`jbx why\` says what it does and why."
+fi

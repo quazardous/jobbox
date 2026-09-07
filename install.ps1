@@ -14,6 +14,9 @@
 #   -Symlink          build, and point the install at the checkout
 #   -Version vX.Y.Z   a particular release rather than the latest
 #   -Uninstall        remove it; your logs and readings stay
+#
+# It offers to run `jbx init` at the end, and asks first. With no console
+# to ask at, it prints the line instead of assuming.
 
 param(
     [switch]$FromSource,
@@ -273,11 +276,7 @@ try {
     exit 1
 }
 
-if (($env:PATH -split ';') -contains $Bin) {
-    Write-Host ""
-    Say "Next: ``jbx init`` declares its hooks -- and takes rtk's over rather"
-    Say "than racing it. ``jbx why`` says what it does and why."
-} else {
+if (($env:PATH -split ';') -notcontains $Bin) {
     Write-Host ""
     if (Add-ToUserPath $Bin) {
         Say "added $Bin to your PATH."
@@ -286,7 +285,38 @@ if (($env:PATH -split ';') -contains $Bin) {
         Say "$Bin is on your PATH, but this shell has not picked it up yet."
         Say "Open a new terminal, or restart this one."
     }
-    Write-Host ""
+}
+
+# THE STEP NOBODY SHOULD HAVE TO BE TOLD TO TAKE.
+#
+# Installing jbx without declaring its hooks leaves a binary that does
+# nothing: the whole tool is the hook. So the install offers to finish
+# rather than printing a line and trusting it will be read.
+#
+# ASKED, NOT ASSUMED. `init` edits a settings file other tools share, and
+# an installer that edits it unasked is one nobody should run. With no
+# console to ask at -- a scheduled task, CI -- there is nobody to answer,
+# so it says what to run and stops.
+#
+# `--global-only` because this runs wherever the user happened to be
+# standing, and a file appearing in somebody's project because they
+# installed a tool is a surprise.
+Write-Host ""
+$asked = $false
+if ([Environment]::UserInteractive) {
+    try {
+        $answer = Read-Host "  Declare the hooks now? ``jbx init --global-only`` [Y/n]"
+        $asked = $true
+    } catch { $asked = $false }
+}
+if (-not $asked) {
     Say "Next: ``jbx init`` declares its hooks -- and takes rtk's over rather"
     Say "than racing it. ``jbx why`` says what it does and why."
+} elseif ($answer -eq '' -or $answer -match '^(y|yes)$') {
+    Write-Host ""
+    & $Exe init --global-only
+    Write-Host ""
+    Say "Done. ``jbx why`` says what it does and why."
+} else {
+    Say "Left alone. ``jbx init`` declares them when you want them."
 }

@@ -28,7 +28,8 @@ jbx stats --project-path       … with full paths instead of names
 jbx config                     every setting, and where it came from
 jbx how [id]                   what you can do with it, right now
 jbx why                        why it works this way
-jbx init [--undo]              declare the hooks
+jbx init [--undo] [--global-only]
+                               declare the hooks
 jbx hook                       answers the harness; init declares this one
 ```
 

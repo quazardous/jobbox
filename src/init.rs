@@ -199,7 +199,7 @@ fn declare(settings: &mut Value, event: &str, matcher: &str, binary: &str) {
 }
 
 /// Register our hook and displace rtk's.
-pub fn init(undo: bool) -> i32 {
+pub fn init(undo: bool, global_only: bool) -> i32 {
     let Some(path) = settings_path() else {
         eprintln!("jbx: cannot find the settings file — set CLAUDE_CONFIG_DIR");
         return 2;
@@ -231,8 +231,12 @@ pub fn init(undo: bool) -> i32 {
     // the working directory when it finds no marker, and dropping a
     // `.jbx.yaml` into whatever directory somebody happened to be in is
     // litter, not configuration.
+    // AND NOT AT ALL WHEN THE CALLER SAID SO. An installer runs from
+    // wherever somebody happened to be standing, which may well be
+    // inside a repository — and a file appearing in your project because
+    // you installed a tool is a surprise, however commented it is.
     let root = crate::config::project_root();
-    if root.join(".claude").exists() || root.join(".git").exists() {
+    if !global_only && (root.join(".claude").exists() || root.join(".git").exists()) {
         let local = root.join(".jbx.yaml");
         if !local.exists() {
             let rtk = crate::config::rtk_answers();
