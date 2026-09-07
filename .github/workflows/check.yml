@@ -31,9 +31,9 @@ jobs:
     # real regression goes unnoticed. It passes, so the exception is out
     # and a Windows regression fails this workflow like any other.
     #
-    # `--test-threads=2` below is load-bearing, not a formality: with the
-    # runner's default thread count the suite still loses jobs to its own
-    # parallelism.
+    # `--test-threads=2` below: what is known about it, and what is not,
+    # is written where the flag is used. It is not the settled fact this
+    # comment used to call it.
     steps:
       - uses: actions/checkout@v5
       # A PROBE BEFORE THE SUITE, AND ON EVERY PLATFORM so there is
@@ -163,13 +163,24 @@ jobs:
           sleep 3
           for f in probe/jobs/*.log probe/jobs/*.code; do echo "--- $f"; cat "$f"; echo; done
           exit 0
-      # FEWER AT ONCE ON WINDOWS, and it is a measurement rather than a
-      # precaution. Eleven of the remaining failures say a job that slept
-      # four seconds had already finished — the record's own age says six
-      # — which is a runner too loaded to keep the clock the tests assume,
-      # not a fault in the program. Two threads says whether that is
-      # true: if the eleven pass, the tests need to poll rather than
-      # sleep, and that is a different repair from a bug.
+      # FEWER AT ONCE ON WINDOWS, AND WHAT IS ACTUALLY KNOWN ABOUT IT.
+      #
+      # What is measured: this runner is green at two threads, on every
+      # change, repeatedly. What is NOT measured, here or anywhere: that
+      # it would be red at the default. Nobody has run it that way since
+      # the Windows defects were fixed.
+      #
+      # A comment here used to call the flag load-bearing and say the
+      # suite loses jobs to its own parallelism without it. That was
+      # never measured on this runner, and on another Windows machine it
+      # is measured FALSE: red at two threads as at the default, the
+      # count of failures changing and not their existence — and three of
+      # them survive at ONE thread, where there is no parallelism left to
+      # blame. Those three are the tests' own clock.
+      #
+      # So the flag stays because this job is green with it and nobody
+      # has evidence for removing it, which is a different sentence from
+      # the one that was here. #2096 holds the measurements.
       - run: cargo test --release
         if: runner.os != 'Windows'
       - run: cargo test --release -- --test-threads=2
