@@ -231,6 +231,12 @@ Install `jbx.exe` from the
 somewhere on your `PATH`, or run `.\install.ps1` from a checkout. Then
 `jbx init`, same as anywhere.
 
+**Building from source there hits Smart App Control first.** It blocks
+freshly built unsigned executables — build scripts, the test binaries,
+`cargo-clippy.exe`, eventually `jbx.exe` itself — as `os error 4551`.
+Downloading a published release avoids it; building does not, and no
+amount of retrying helps.
+
 **The shell is the part that matters.** The hook rewrites a command into
 `jbx run -- '<line>'`, quoted for a POSIX shell — which is right, because
 Claude Code on Windows drives Git Bash. So jbx runs the line with `bash`
