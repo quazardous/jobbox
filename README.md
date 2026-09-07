@@ -216,15 +216,16 @@ to call would remove it from the machine outright.
 
 ## On Windows
 
-**Honest first: the suite runs there now, and does not all pass yet.**
-It compiles and lints on every change, the release binaries are built
-there, and every change runs the full test suite on a Windows runner —
-which is how the first real Windows bug was found rather than reasoned
-about: the log was opened append-only, which on Windows grants a handle
-Git Bash cannot use, so every line ran perfectly and lost all of its
-output. Nobody has yet used it in a real session on a real desktop, so
-what follows is still partly what the code does rather than what anybody
-has watched it do. Reports welcome.
+**Honest first: the suite passes there now, and somebody has finally
+run it.** It compiles and lints on every change, the release binaries
+are built there, and every change runs the full test suite on a Windows
+runner — which is how the first real Windows bug was found rather than
+reasoned about: the log was opened append-only, which on Windows grants
+a handle Git Bash cannot use, so every line ran perfectly and lost all
+of its output. The check-list was then walked by hand on a French
+Windows 11 desktop in a real Claude Code session, which is what turned
+up the second one: `jbx queue` announced that it had let go and went on
+holding the caller's pipe. Reports still welcome.
 
 Install `jbx.exe` from the
 [releases](https://github.com/quazardous/jobbox/releases) and put it

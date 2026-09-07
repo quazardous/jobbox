@@ -25,13 +25,15 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    # WINDOWS IS ASKED BUT NOT BELIEVED, YET. The suite fails there
-    # wholesale today and the README says as much: nobody has run this
-    # program on Windows (#2065). A permanently red job is worse than no
-    # job — it is where the next real regression goes unnoticed — so the
-    # answer is recorded without blocking, and the day it passes the
-    # exception comes out.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    # WINDOWS IS ASKED, AND BELIEVED NOW. It was excepted for exactly as
+    # long as the suite failed there wholesale, on the reasoning that a
+    # permanently red job is worse than no job — it is where the next
+    # real regression goes unnoticed. It passes, so the exception is out
+    # and a Windows regression fails this workflow like any other.
+    #
+    # `--test-threads=2` below is load-bearing, not a formality: with the
+    # runner's default thread count the suite still loses jobs to its own
+    # parallelism.
     steps:
       - uses: actions/checkout@v5
       # A PROBE BEFORE THE SUITE, AND ON EVERY PLATFORM so there is
