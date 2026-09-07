@@ -18,6 +18,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.13] - 2026-09-07
+
+### Fixed
+
+- **`install.ps1` never actually checked what it downloaded.** It fetched
+  `SHA256SUMS`, failed to find the line naming the file it had just
+  pulled, and reported "no sum published for this file — NOT verified"
+  while the sum had been published all along. Every Windows install this
+  script has ever done was therefore unverified, in words that read like
+  the release's omission rather than the installer's. GitHub serves a
+  release asset as `application/octet-stream`, which PowerShell hands
+  back as bytes and not as text, so splitting it into lines split the
+  bytes: the first three came out `49 | 101 | 50`, the decimal codes of
+  `1e2`.
+- **`install.ps1` ended in a stack trace on a machine that will not run
+  the binary.** The last thing it does is ask jbx its version, and Smart
+  App Control refuses unsigned executables whatever their origin — a
+  published release included. The install itself had worked; what
+  followed was a PowerShell error about output encoding that named
+  nothing. It now says what is actually in the way.
+
 ## [0.5.12] - 2026-09-07
 
 ### Added

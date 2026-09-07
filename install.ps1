@@ -107,7 +107,21 @@ if ($FromSource -or $Symlink) {
         # A release without sums is said out loud rather than passed over.
         try {
             $sums = Invoke-WebRequest "https://github.com/$Repo/releases/download/$Version/SHA256SUMS"
-            $want = ($sums.Content -split "`n" | Where-Object { $_ -match [regex]::Escape($name) }) -split '\s+' | Select-Object -First 1
+            # GITHUB SERVES A RELEASE ASSET AS `application/octet-stream`,
+            # so PowerShell hands `Content` back as a Byte[] and not as a
+            # string — and `-split` then splits the BYTES. MEASURED: the
+            # first three elements of SHA256SUMS came back `49 | 101 | 50`,
+            # the decimal codes of "1e2". No line ever matched the file
+            # name, so every Windows install this script has ever done
+            # said "no sum published for this file" while the sum WAS
+            # published, and installed the download unverified.
+            $text = if ($sums.Content -is [byte[]]) {
+                [System.Text.Encoding]::UTF8.GetString($sums.Content)
+            } else { [string]$sums.Content }
+            $line = $text -split "`r?`n" |
+                Where-Object { $_ -match [regex]::Escape($name) } |
+                Select-Object -First 1
+            $want = ($line -split "\s+")[0]
             $got  = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
             if ($want -and $got -ne $want.ToLower()) {
                 throw "the download does not match the published sum. Nothing was installed."
@@ -128,7 +142,23 @@ if ($FromSource -or $Symlink) {
     }
 }
 
-Say (& $Exe --version)
+# THE LAST WORD IS THE BINARY'S OWN — AND IT MAY NOT GET TO SPEAK.
+#
+# Smart App Control refuses unsigned executables whatever their origin, a
+# published release included, and the call then throws about
+# StandardOutputEncoding: a message naming nothing, printed just after a
+# line saying the install worked. It did work. Say that, and name the
+# thing that is actually in the way.
+try {
+    Say (& $Exe --version)
+} catch {
+    Say "installed — but it will not start on this machine."
+    Say "On Windows that is usually Smart App Control: it blocks unsigned"
+    Say "binaries however they got here, a published release included."
+    Say "Settings > Privacy & security > App & browser control says"
+    Say "whether it is on."
+    exit 1
+}
 
 if (($env:PATH -split ';') -contains $Bin) {
     Write-Host ""

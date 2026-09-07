@@ -232,11 +232,18 @@ Install `jbx.exe` from the
 somewhere on your `PATH`, or run `.\install.ps1` from a checkout. Then
 `jbx init`, same as anywhere.
 
-**Building from source there hits Smart App Control first.** It blocks
-freshly built unsigned executables — build scripts, the test binaries,
-`cargo-clippy.exe`, eventually `jbx.exe` itself — as `os error 4551`.
-Downloading a published release avoids it; building does not, and no
-amount of retrying helps.
+**Smart App Control refuses jbx, and downloading a release does not get
+around it.** It blocks unsigned executables whatever their origin.
+Building hits it first — build scripts, the test binaries,
+`cargo-clippy.exe`, eventually `jbx.exe` itself — as `os error 4551`, and
+the published release is refused in exactly the same way. Measured:
+`install.ps1` fetched the v0.5.12 zip, its SHA-256 matched the sum that
+release published, and the binary inside still would not start. There is
+no per-file exception to grant. `Settings > Privacy & security > App &
+browser control` says whether it is on, and Microsoft documents turning
+it off as a one-way door — it cannot be turned back on without
+reinstalling Windows. Until these releases are signed, a machine with it
+on cannot run jbx at all.
 
 **The shell is the part that matters.** The hook rewrites a command into
 `jbx run -- '<line>'`, quoted for a POSIX shell — which is right, because
