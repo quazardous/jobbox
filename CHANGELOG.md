@@ -23,7 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`jbx stats` says the same thing at three distances** — last hour,
-  last day, and everything kept. "Am I saving time" and "am I saving
+  last day, and everything kept, with the number of calls AND how many
+  of them detached. The two together are what make the third number
+  read as anything: a hundred and ninety calls saving four minutes
+  looks broken until you see that seven of them ever detached. "Am I saving time" and "am I saving
   time TODAY" are different questions, and one figure covering weeks
   answers the first while looking like an answer to the second.
 - **`jbx stats --since 1h|24h|7d|all`** narrows the table to a window.

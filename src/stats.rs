@@ -758,14 +758,24 @@ pub fn render(v: &Value, full_path: bool, thresholds: bool) {
         outln!();
         for s in v["spans"].as_array().map(Vec::as_slice).unwrap_or_default() {
             let ratio = num(s, "ratio");
+            // DETACHED, BESIDE CALLS, because the two together are the
+            // only way the third number reads as anything. A hundred and
+            // eighty calls saving four minutes looks broken until you
+            // see that five of them ever detached: the rest finished
+            // before the cut and were never candidates to save anything.
             outln!(
-                "{}  {:>6} calls · {} saved {}",
+                "{}  {:>6} calls · {:>4} detached · {:>7} saved {}",
                 crate::paint::dim(match s["span"].as_str().unwrap_or("") {
                     "hour" => "last hour",
                     "day" => "last day ",
                     _ => "all      ",
                 }),
-                s["calls"],
+                // AS NUMBERS, NOT AS VALUES. A `serde_json::Value`
+                // renders itself and ignores the width it is given, so
+                // the columns went ragged while the format string said
+                // otherwise.
+                s["calls"].as_u64().unwrap_or(0),
+                s["detached"].as_u64().unwrap_or(0),
                 human(num(s, "saved")),
                 crate::paint::by_ratio(ratio, &format!("({:.0}%)", ratio * 100.0))
             );
