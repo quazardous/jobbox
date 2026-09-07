@@ -14,6 +14,40 @@ use std::process::{Command, Output, Stdio};
 /// is a different version of the same tool.
 const JBX: &str = env!("CARGO_BIN_EXE_jbx");
 
+/// The binary's path AS IT MUST APPEAR INSIDE A LINE WE HAND TO A
+/// SHELL.
+///
+/// `CARGO_BIN_EXE_jbx` is a native path, so on Windows it arrives with
+/// backslashes — and bash eats those as escapes before the line ever
+/// runs. MEASURED: `bash -c "echo D:\a\jobbox\target\release\jbx.exe"`
+/// prints `D:ajobboxtargetreleasejbx.exe`, so the line meant to start
+/// jbx started nothing at all — and said so to no one. Three tests
+/// never noticed, because what they assert is that nothing CRASHED; the
+/// fourth wanted the job to still be running, and was the only one that
+/// ever failed. Windows accepts a forward slash everywhere it accepts a
+/// backslash, so this is the one spelling both shells read alike.
+fn jbx_in_line() -> String {
+    JBX.replace('\\', "/")
+}
+
+/// ASK, DO NOT SLEEP.
+///
+/// A fixed pause encodes a guess about how fast the machine is, and the
+/// Windows runner is slower than every guess this suite made: eleven
+/// tests failed on that alone. This polls for the thing it is waiting
+/// for and gives up loudly, so a real hang still FAILS rather than
+/// hanging — the deadline is a backstop, not a timing assumption.
+fn until(what: &str, mut ready: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while std::time::Instant::now() < deadline {
+        if ready() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    panic!("waited 20s and {what} never happened");
+}
+
 /// A scratch home for one test. Each has its own, because the tests run
 /// at the same time and a shared store would let one test's job appear
 /// in another's `list`.
@@ -657,7 +691,7 @@ fn a_closed_pipe_is_not_a_crash() {
     let out = Command::new("sh")
         .env_remove("JBX_WRAPPED")
         .arg("-c")
-        .arg(format!("{JBX} config | head -1"))
+        .arg(format!("{} config | head -1", jbx_in_line()))
         .env("JBX_DIR", &s.0)
         .output()
         .unwrap();
@@ -970,7 +1004,7 @@ fn a_reader_that_leaves_early_is_told_its_view_was_partial() {
     let out = Command::new("sh")
         .env_remove("JBX_WRAPPED")
         .arg("-c")
-        .arg(format!("{JBX} run -- 'seq 20000' | head -3"))
+        .arg(format!("{} run -- 'seq 20000' | head -3", jbx_in_line()))
         .env("JBX_DIR", &s.0)
             .env("JBX_CONFIG", s.0.join("global.yaml"))
         .output()
@@ -996,7 +1030,7 @@ fn a_wrapped_line_that_runs_jbx_makes_one_job_not_two() {
     // under an id nobody was told. Four wrong ids in one session.
     let said = text(&s.run(&[
         "run", "--after", "1", "--",
-        &format!("{JBX} run --after 3 -- 'sleep 6; echo REAL'"),
+        &format!("{} run --after 3 -- 'sleep 6; echo REAL'", jbx_in_line()),
     ]));
     let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
 
@@ -1305,7 +1339,10 @@ fn every_declared_verb_refuses_a_flag_it_does_not_take() {
 fn every_verb_that_declares_json_speaks_it() {
     let s = Scratch::new("speaks");
     // A JOB TO ASK ABOUT, so `status` has something real to answer.
-    s.run(&["run", "--after", "1", "--intent", "measure the index", "--", "sleep 3"]);
+    s.run(&["run", "--after", "1", "--intent", "measure the index", "--", "sleep 30"]);
+    until("the named job is listed as running", || {
+        text(&s.run(&["ps"])).contains("measure the index")
+    });
     std::thread::sleep(std::time::Duration::from_millis(1400));
     let id = text(&s.run(&["list", "--json"]));
     let id: serde_json::Value = serde_json::from_str(id.trim()).expect("valid JSON");
@@ -1412,9 +1449,18 @@ fn describe_covers_every_verb_and_invents_none() {
 #[test]
 fn a_listing_can_show_the_whole_line_and_speak_json() {
     let s = Scratch::new("shapes");
-    let line = "cd /tmp && echo a very long line indeed that a column would cut; sleep 4";
+    let line = "cd /tmp && echo a very long line indeed that a column would cut; sleep 30";
     s.run(&["run", "--after", "1", "--", line]);
-    std::thread::sleep(std::time::Duration::from_millis(1400));
+    // THE JOBS OUTLIVE THE ASSERTIONS ON PURPOSE. What is measured here
+    // is how a listing RENDERS what is running, so both jobs have to
+    // still BE running when the last row is read. The four `jbx` calls
+    // in between cost more wall time on the Windows runner than the four
+    // seconds this line used to allow itself, and the listing then had
+    // one row where it wanted two. Thirty is not a guess about speed: it
+    // is longer than every path through this test.
+    until("the long line is listed as running", || {
+        text(&s.run(&["ps", "--full"])).contains("would cut")
+    });
 
     // BOTH COLUMNS WHEN THERE ARE TWO THINGS TO SAY. Nobody named this
     // one, so its intent would be the first four words of the line
@@ -1502,9 +1548,17 @@ fn a_job_is_named_by_whoever_ran_it_when_they_said() {
     // answer to the hook. Four words off the front of the line name
     // nothing when every line starts the same way.
     let said = text(&s.run(&[
-        "run", "--after", "1", "--intent", "replay the DAG simulation", "--", "sleep 3",
+        "run", "--after", "1", "--intent", "replay the DAG simulation", "--", "sleep 30",
     ]));
     let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
+    // SIX LISTINGS READ THE SAME JOB, so it has to outlast all six. At
+    // three seconds it did not on the Windows runner: the first `ps`
+    // answered "nothing running here" and the name looked dropped when
+    // it was only late. The job is stopped at the end rather than
+    // waited on, since nothing here needs its ending.
+    until("the named job is listed as running", || {
+        text(&s.run(&["ps", "--width", "200"])).contains("replay the DAG simulation")
+    });
     let listed = text(&s.run(&["ps", "--width", "200"]));
     assert!(listed.contains("replay the DAG simulation"), "the name was dropped:\n{listed}");
     // AND IT IS CUT TO THE COLUMN, not to a number written years ago.
@@ -1546,5 +1600,5 @@ fn a_job_is_named_by_whoever_ran_it_when_they_said() {
     let rewritten = answer["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap();
     assert!(rewritten.contains("--intent 'run the unit tests'"),
             "the description did not travel: {rewritten}");
-    let _ = s.run(&["wait", &id]);
+    let _ = s.run(&["kill", &id]);
 }
