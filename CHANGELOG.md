@@ -18,6 +18,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-09-07
+
+### Added
+
+- **`jbx stats` says the same thing at three distances** — last hour,
+  last day, and everything kept. "Am I saving time" and "am I saving
+  time TODAY" are different questions, and one figure covering weeks
+  answers the first while looking like an answer to the second.
+- **`jbx stats --since 1h|24h|7d|all`** narrows the table to a window.
+  Every reading has carried the instant it was taken since the first
+  one; nothing had ever read it back.
+- **Colour, where somebody is looking.** The `saved` column and the
+  three summary lines are coloured by what the number is worth, on one
+  scale so the eye learns it once. `auto` means when standard output is
+  a terminal and `NO_COLOR` is unset — so an agent reading a pipe gets
+  exactly what it got before, and `--json` is never painted at all.
+  `color: always | never` settles it, and `never` is there for the
+  console that shows escapes rather than obeying them.
+
 ## [0.8.0] - 2026-09-07
 
 ### Added

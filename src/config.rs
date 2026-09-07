@@ -255,6 +255,28 @@ pub fn mute_after() -> (f64, Source) {
     number("JBX_MUTE_AFTER", "mute_after", 600.0)
 }
 
+/// Whether to colour; `None` means decide from the terminal.
+pub fn color() -> (Option<bool>, Source) {
+    let read = |text: &str| -> Option<Option<bool>> {
+        match text.trim() {
+            "auto" | "" => Some(None),
+            "always" | "true" | "yes" => Some(Some(true)),
+            "never" | "false" | "no" => Some(Some(false)),
+            _ => None,
+        }
+    };
+    if let Some(text) = std::env::var("JBX_COLOR").ok().filter(|v| !v.is_empty()) {
+        if let Some(value) = read(&text) {
+            return (value, Source::Environment);
+        }
+    }
+    let (node, source) = at("color");
+    match text_of(node).and_then(read) {
+        Some(value) => (value, source),
+        None => (None, Source::Default),
+    }
+}
+
 /// How wide a listing may draw itself; `None` means ask the terminal.
 ///
 /// THE DEFAULT CANNOT BE A NUMBER. The reader is a full-screen terminal
@@ -452,6 +474,8 @@ pub const TEMPLATE: &str = "\
 # mute_after: 600      # seconds of silence before a running job is called mute
 # slots: 4             # how many QUEUED jobs run at once; `none` for no cap
 # dir: ~/.cache/jbx    # where logs and records live
+# width: auto          # columns a listing may draw in; `auto` asks the terminal
+# color: auto          # auto | always | never — `auto` means when a terminal reads
 
 integration:
   rtk:

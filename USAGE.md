@@ -24,6 +24,7 @@ jbx clients                    whose endings are still unread
 jbx signals <agent|user>       endings not yet read
 jbx stats [project]            how much time was saved
 jbx stats --thresholds         … and whether 30s is the right cut
+jbx stats --since 1h|24h|all   … over a window rather than everything kept
 jbx stats --project-path       … with full paths instead of names
 jbx config                     every setting, and where it came from
 jbx how [id]                   what you can do with it, right now
@@ -173,6 +174,7 @@ this one run.
 | `JBX_MUTE_AFTER` | `mute_after` | seconds of silence before a job is called mute (`600`) |
 | `JBX_WIDTH` | `width` | columns a listing draws in (`auto` asks the terminal) |
 | `JBX_RTK` | `integration.rtk.compose` | `auto`, `always`, or `never` |
+| `JBX_COLOR` | `color` | `auto`, `always` or `never` (`auto` = when a terminal reads) |
 | `JBX_SHELL` | `shell` | which shell runs a line (`cmd` for Windows' own) |
 | `JBX_CLIENT` | — | pins one fixed mailbox |
 | `JBX_CONFIG` | — | read a different global file |

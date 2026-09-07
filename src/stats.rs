@@ -243,6 +243,10 @@ fn append(line: Value) {
 }
 
 struct Reading {
+    /// WHEN IT WAS TAKEN. Written since the first reading and thrown
+    /// away by every read until now, which is why the table could only
+    /// ever say "since the beginning".
+    at: f64,
     project: String,
     path: String,
     shape: String,
@@ -261,6 +265,7 @@ fn read_all() -> Vec<Reading> {
     text.lines()
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
         .map(|v| Reading {
+            at: v["at"].as_f64().unwrap_or(0.0),
             project: v["project"].as_str().unwrap_or("?").into(),
             path: v["path"].as_str().unwrap_or("").into(),
             shape: v["shape"].as_str().unwrap_or("?").into(),
@@ -493,13 +498,58 @@ fn print_table(headings: &[&str], rows: Vec<Vec<String>>) {
 /// every block this tool can SEE — the `jbx wait` calls — and it cannot
 /// see somebody staring at the screen instead. So the number is an upper
 /// bound that has been made as tight as the evidence allows, and the
-/// footer says so rather than letting the column imply otherwise./// EVERYTHING THE TABLE KNOWS, AS A VALUE.
+/// footer says so rather than letting the column imply otherwise./// HOW FAR BACK TO LOOK, from a word somebody typed.
+///
+/// `all` is not the same as a very large number: readings are pruned at
+/// ninety days, so "everything" means everything still kept, and saying
+/// so beats implying a memory the store does not have.
+pub fn window(text: &str) -> Option<Option<f64>> {
+    let text = text.trim();
+    if text.eq_ignore_ascii_case("all") || text.eq_ignore_ascii_case("forever") {
+        return Some(None);
+    }
+    let (number, unit) = text.split_at(text.find(|c: char| !c.is_ascii_digit() && c != '.')?);
+    let number: f64 = number.parse().ok()?;
+    let secs = match unit {
+        "s" => 1.0,
+        "m" => 60.0,
+        "h" => 3600.0,
+        "d" => 86400.0,
+        _ => return None,
+    };
+    Some(Some(number * secs))
+}
+
+/// EVERYTHING THE TABLE KNOWS, AS A VALUE.
 ///
 /// The rendering below reads this and nothing else, so `--json` and the
 /// table cannot come to say different things — which is exactly what
 /// happened while every verb printed its own answer by hand.
-pub fn measure(only: Option<&str>) -> Result<Value, i32> {
-    let readings = read_all();
+pub fn measure(only: Option<&str>, since: Option<f64>) -> Result<Value, i32> {
+    let everything = read_all();
+    // THE THREE WINDOWS, ALWAYS, whichever one the table is drawn for.
+    // "Am I saving time" and "am I saving time TODAY" are different
+    // questions, and a figure covering ninety days answers the first
+    // while looking like an answer to the second.
+    let now = store::now();
+    let spans: Vec<Value> = [("hour", 3600.0), ("day", 86400.0), ("all", f64::MAX)]
+        .iter()
+        .map(|(name, span)| {
+            let mut t = Tally::default();
+            for r in everything.iter().filter(|r| now - r.at <= *span) {
+                t.add(r);
+            }
+            serde_json::json!({
+                "span": name, "calls": t.calls, "detached": t.detached,
+                "elapsed": t.elapsed, "waited": t.waited,
+                "saved": t.saved(), "ratio": t.ratio(),
+            })
+        })
+        .collect();
+    let readings: Vec<Reading> = match since {
+        None => everything,
+        Some(span) => everything.into_iter().filter(|r| now - r.at <= span).collect(),
+    };
     let mut all = Tally::default();
     for r in &readings {
         all.add(r);
@@ -552,6 +602,8 @@ pub fn measure(only: Option<&str>) -> Result<Value, i32> {
 
     Ok(serde_json::json!({
         "scope": only.unwrap_or("all"),
+        "since": since,
+        "spans": spans,
         "rows": rows,
         "total": {
             "calls": all.calls, "detached": all.detached,
@@ -672,7 +724,10 @@ pub fn render(v: &Value, full_path: bool, thresholds: bool) {
                         r["detached"].to_string(),
                         human(num(r, "elapsed")),
                         human(num(r, "waited")),
-                        format!("{} ({:.0}%)", human(num(r, "saved")), num(r, "ratio") * 100.0),
+                        crate::paint::by_ratio(
+                            num(r, "ratio"),
+                            &format!("{} ({:.0}%)", human(num(r, "saved")), num(r, "ratio") * 100.0),
+                        ),
                     ]
                 })
                 .collect(),
@@ -696,11 +751,36 @@ pub fn render(v: &Value, full_path: bool, thresholds: bool) {
                 human(num(total, "chosen_secs"))
             );
         }
-        outln!("`waited` is what you actually stood still for, and `saved` is the rest");
-        outln!("of `elapsed` — it already subtracts the time you gave back to `jbx wait`.");
-        outln!("It cannot see you waiting some other way: a ceiling, not a receipt.");
-        outln!("Name a project to see its shapes; `--thresholds` asks whether the cut");
-        outln!("is at the right number; `--project-path` for full paths.");
+        // THE SAME QUESTION AT THREE DISTANCES. "Am I saving time" and
+        // "am I saving time TODAY" are different questions, and a figure
+        // covering everything kept answers the first while looking like
+        // an answer to the second.
+        outln!();
+        for s in v["spans"].as_array().map(Vec::as_slice).unwrap_or_default() {
+            let ratio = num(s, "ratio");
+            outln!(
+                "{}  {:>6} calls · {} saved {}",
+                crate::paint::dim(match s["span"].as_str().unwrap_or("") {
+                    "hour" => "last hour",
+                    "day" => "last day ",
+                    _ => "all      ",
+                }),
+                s["calls"],
+                human(num(s, "saved")),
+                crate::paint::by_ratio(ratio, &format!("({:.0}%)", ratio * 100.0))
+            );
+        }
+        outln!();
+        outln!("{}", crate::paint::dim(
+            "`waited` is what you actually stood still for, and `saved` is the rest"));
+        outln!("{}", crate::paint::dim(
+            "of `elapsed` — it already subtracts the time you gave back to `jbx wait`."));
+        outln!("{}", crate::paint::dim(
+            "It cannot see you waiting some other way: a ceiling, not a receipt."));
+        outln!("{}", crate::paint::dim(
+            "`--since 1h` narrows the table; `--thresholds` asks whether the cut is at"));
+        outln!("{}", crate::paint::dim(
+            "the right number; name a project to see its shapes."));
         return;
     }
     print_table(

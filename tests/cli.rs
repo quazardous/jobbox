@@ -1501,6 +1501,44 @@ fn every_verb_that_declares_json_speaks_it() {
 }
 
 #[test]
+fn stats_can_be_asked_for_a_window_and_never_colours_a_pipe() {
+    let s = Scratch::new("windows");
+    s.run(&["run", "--", "echo counted"]);
+
+    // A WINDOW IS A FILTER, and `all` is the one that filters nothing.
+    let calls = |args: &[&str]| -> u64 {
+        let mut all = vec!["stats", "--json"];
+        all.extend_from_slice(args);
+        let out = text(&s.run(&all));
+        let v: serde_json::Value = serde_json::from_str(out.trim()).expect("valid JSON");
+        v["total"]["calls"].as_u64().unwrap_or(0)
+    };
+    assert_eq!(calls(&["--since", "1h"]), calls(&["--since", "all"]),
+               "a reading taken a second ago fell outside the last hour");
+    assert_eq!(calls(&["--since", "1s"]), calls(&["--since", "all"]),
+               "the window is not measured from now");
+
+    // AND A SPAN NOBODY DEFINED IS AN ERROR, not a silent `all`.
+    assert_eq!(s.run(&["stats", "--since", "whenever"]).status.code(), Some(2));
+
+    // NOTHING READING THIS IS A TERMINAL, so nothing here may be
+    // painted: an escape sequence lands in the middle of the token it
+    // was meant to highlight, and the usual reader of this program is an
+    // agent reading a pipe.
+    for args in [&["stats"][..], &["stats", "--json"][..], &["stats", "--thresholds"][..]] {
+        let out = text(&s.run(args));
+        assert!(!out.contains('\u{1b}'), "{args:?} painted a pipe:\n{out}");
+    }
+    // AND EVEN WHEN ASKED FOR, JSON STAYS CLEAN — it is not a rendering.
+    let out = text(&s.run_with(&[("JBX_COLOR", "always")], &["stats", "--json"]));
+    assert!(!out.contains('\u{1b}'), "`--json` was painted:\n{out}");
+    serde_json::from_str::<serde_json::Value>(out.trim()).expect("still valid JSON");
+    // …while the table takes the paint it was told to take.
+    let painted = text(&s.run_with(&[("JBX_COLOR", "always")], &["stats"]));
+    assert!(painted.contains('\u{1b}'), "`color: always` painted nothing:\n{painted}");
+}
+
+#[test]
 fn describe_covers_every_verb_and_invents_none() {
     let s = Scratch::new("describe");
     let doc: serde_json::Value =

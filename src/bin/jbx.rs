@@ -106,6 +106,7 @@ fn dispatch(args: Vec<String>) -> i32 {
         }),
         "stats" => with("stats", rest, |how| match stats::measure(
             how.free.first().map(String::as_str),
+            how.since,
         ) {
             Err(code) => code,
             Ok(v) => Answer(v, 0).show(how, |v| {
@@ -275,6 +276,7 @@ pub struct Flags {
     follow: bool,
     project_path: bool,
     thresholds: bool,
+    since: Option<f64>,
     width: Option<usize>,
     client: Option<String>,
     after: Option<f64>,
@@ -321,6 +323,14 @@ impl Flags {
                 "--global-only" => flags.global_only = true,
                 "--project-path" => flags.project_path = true,
                 "--thresholds" => flags.thresholds = true,
+                "--since" => match value().as_deref().map(jobbox::stats::window) {
+                    Some(Some(span)) => flags.since = span,
+                    _ => {
+                        return Err(usage_error(
+                            "`--since` wants a span like `1h`, `24h`, `7d`, or `all`",
+                        ))
+                    }
+                },
                 "-f" => flags.follow = true,
                 "--client" => flags.client = value(),
                 "--intent" => flags.intent = value(),
@@ -918,6 +928,7 @@ fn config(how: &Flags) -> i32 {
     let (compose, compose_from) = config::compose();
     let (on, on_from) = config::enabled();
     let (width, width_from) = config::width();
+    let (color, color_from) = config::color();
 
     let slots_said = match slots {
         Some(n) if n > 0 => format!("{n} queued jobs at once"),
@@ -950,6 +961,17 @@ fn config(how: &Flags) -> i32 {
                 row("width",
                     width.map(|w| format!("{w} columns")).unwrap_or_else(|| "auto".into()),
                     width.into(), width_from.as_str()),
+                row("color",
+                    match color {
+                        Some(true) => "always".into(),
+                        Some(false) => "never".into(),
+                        None => format!("auto — {} here", if jobbox::paint::wanted() {
+                            "on"
+                        } else {
+                            "off, nothing is reading this as a terminal"
+                        }),
+                    },
+                    color.into(), color_from.as_str()),
                 row("dir", dir.display().to_string(), dir.display().to_string().into(),
                     dir_from.as_str()),
                 row("integration.rtk.compose", compose.as_str().to_string(),

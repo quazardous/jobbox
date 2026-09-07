@@ -70,6 +70,7 @@ pub mod input;
 pub mod run;
 pub mod signals;
 pub mod slots;
+pub mod paint;
 pub mod stats;
 pub mod store;
 
