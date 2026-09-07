@@ -838,7 +838,16 @@ fn every_verb_in_the_readme_exists() {
     // reader tries, and the failure they meet is `unknown verb`. The
     // help text is what the binary really answers to, so the two are
     // compared rather than trusted.
-    let readme = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.md")).unwrap();
+    // BOTH DOCUMENTS, because the verbs moved. The README is the pitch
+    // and USAGE.md is the reference; a verb named in either is named,
+    // and a verb named in neither is the failure this guard exists for.
+    let readme = ["/README.md", "/USAGE.md"]
+        .iter()
+        .map(|f| {
+            std::fs::read_to_string(format!("{}{f}", env!("CARGO_MANIFEST_DIR"))).unwrap()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
     let help = text(&Command::new(JBX)
         .env_remove("JBX_WRAPPED").arg("--help").output().unwrap());
     let mut missing = Vec::new();
