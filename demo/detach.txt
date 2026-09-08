@@ -1,0 +1,23 @@
+# The demo: a long command, taken off the agent's hands.
+# Lines are typed as a person would type them; indented text is the
+# answer, and `think` is how long the acted pause lasts.
+
+why does a long command block an agent?
+    think 2
+    Because it has one thread. While the command runs, it waits —
+    thirty seconds of build is thirty seconds of nothing.
+
+    jbx wraps every command the agent runs and lets go of the ones
+    that turn out to be long. The cut is 30s by default; it is set
+    to 10s here so this recording stays watchable.
+
+/run sleep 45; echo build finished
+
+/ps
+
+what happened to it?
+    think 2
+    It is still running, under an id. The session got its turn back
+    at once — nothing was lost, and `jbx wait` rejoins it.
+
+/exit

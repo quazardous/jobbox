@@ -90,6 +90,8 @@ that by calling rtk itself.
 
 ## What it looks like
 
+![a long command taken off the agent's hands](demo/detach.gif)
+
 Nothing changes — until something is slow:
 
 ```console
@@ -138,6 +140,32 @@ runs without ever letting go, and `jbx gain` counts what that cost.
 - **[CODE-SIGNING-POLICY.md](CODE-SIGNING-POLICY.md)** — who may release
   this, what it never sends anywhere, and how to undo everything it does.
 - **[CHANGELOG.md](CHANGELOG.md)** — what changed, and why it mattered.
+
+## How that demo was made
+
+With **[simai-cli](https://github.com/quazardous/simai-cli)**, a small
+tool written alongside this one: it speaks the hook protocol of all five
+agent CLIs, so a demo can be filmed without installing any of them.
+
+The scenario is **[demo/detach.txt](demo/detach.txt)** — the lines a
+person would type, and the answers written for them. Two commands remake
+the picture:
+
+```console
+simcli --as claude --script demo/detach.txt \
+       --capture demo/detach.cast --size default
+agg --font-family "Liberation Mono" demo/detach.cast demo/detach.gif
+```
+
+**The chrome is acted and the rest is not.** The prompt, the pacing and
+the banner are theatre; the payload, the hook call, the rewritten line,
+the wait and the moment jbx lets go are all real — that is jbx running,
+not a picture of it. The cut is set to 10s so the recording stays
+watchable, the default being 30s, and the scenario says so on screen.
+
+A recording that fakes the part it demonstrates stops matching the tool
+the first time either changes, and nobody notices. This one cannot: the
+only thing invented is the agent, which is not what is being shown.
 
 ## License
 
