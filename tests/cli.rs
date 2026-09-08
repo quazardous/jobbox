@@ -1582,6 +1582,42 @@ fn a_watch_reports_every_ending_and_then_stops() {
 }
 
 #[test]
+fn a_command_the_harness_already_backgrounded_is_never_detached() {
+    let s = Scratch::new("already-bg");
+    let asked = |bg: bool| {
+        let extra = if bg { r#","run_in_background":true"# } else { "" };
+        let answer: serde_json::Value = serde_json::from_str(&s.event(
+            "cc-bg",
+            &format!(
+                r#"{{"hook_event_name":"PreToolUse","tool_name":"Bash",
+                    "tool_input":{{"command":"make lint"{extra}}}}}"#
+            ),
+        ))
+        .expect("valid JSON");
+        answer["hookSpecificOutput"]["updatedInput"]["command"]
+            .as_str()
+            .unwrap_or("")
+            .to_string()
+    };
+
+    // THE HARNESS NOTIFIES WHEN THE COMMAND IT BACKGROUNDED EXITS. A
+    // wrapper that detaches underneath exits at the threshold, so the
+    // notification fires at thirty seconds and says the work is done
+    // when it has barely started — the exact lie this program exists to
+    // prevent, introduced by the program.
+    let backgrounded = asked(true);
+    assert!(backgrounded.contains("--after inf"),
+            "a command already in the background was left detachable: {backgrounded}");
+
+    // AND NOTHING CHANGES FOR AN ORDINARY ONE, which is the half that
+    // makes the assertion above mean anything.
+    let ordinary = asked(false);
+    assert!(!ordinary.contains("--after"),
+            "an ordinary command was pinned to the foreground: {ordinary}");
+    assert!(ordinary.contains("run "), "an ordinary command stopped being wrapped: {ordinary}");
+}
+
+#[test]
 fn describe_covers_every_verb_and_invents_none() {
     let s = Scratch::new("describe");
     let doc: serde_json::Value =

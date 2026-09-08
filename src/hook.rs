@@ -202,10 +202,34 @@ pub fn hook(binary: &str) -> i32 {
         .filter(|d| !d.is_empty())
         .map(|d| format!("--intent {} ", quote(d)))
         .unwrap_or_default();
+    // ALREADY IN THE BACKGROUND — SO WE MUST NOT PUT IT THERE AGAIN.
+    //
+    // The harness runs a command in the background when asked, and then
+    // notifies its caller WHEN THAT COMMAND EXITS. Detaching underneath
+    // it makes the wrapper exit at the threshold, so the notification
+    // fires at thirty seconds and says the work is done when it has
+    // barely started — the exact lie this program exists to prevent,
+    // introduced by the program.
+    //
+    // MEASURED, not assumed: `tool_input` carries `run_in_background`
+    // and carries it only when it is true. Two probes, one of each kind,
+    // and the field is the whole difference between them.
+    //
+    // A threshold of infinity, rather than not wrapping at all: the
+    // output still mirrors, the exit code still survives, the reading is
+    // still taken — and `waited` becomes the whole duration, which is
+    // the truth. jbx saved nothing here; the harness did. It is not
+    // marked as a deliberate foreground either, because nobody chose
+    // one: `jbx fg` counts a decision, and this is not one.
+    let held = if tool_input.get("run_in_background").and_then(Value::as_bool) == Some(true) {
+        "--after inf "
+    } else {
+        ""
+    };
     updated.insert(
         "command".into(),
         Value::String(format!(
-            "{} run {described}-- {}",
+            "{} run {held}{described}-- {}",
             shell_word(binary),
             quote(&through_rtk(line))
         )),

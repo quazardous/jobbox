@@ -18,6 +18,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-09-07
+
+### Fixed
+
+- **A command the harness already put in the background is no longer
+  detached underneath it.** The harness notifies its caller when that
+  command EXITS — and a wrapper that lets go at thirty seconds exits
+  then, so the notification fired early and reported work as finished
+  that had barely started. That is the exact lie jbx exists to prevent,
+  introduced by jbx. Measured rather than assumed: `tool_input` carries
+  `run_in_background`, and carries it only when it is true.
+
+  Such a command is now wrapped with a threshold of infinity rather than
+  left unwrapped: the output still mirrors, the exit code still
+  survives, the reading is still taken — and `waited` becomes the whole
+  duration, which is the truth, since jbx saved nothing there. It is not
+  counted as a deliberate foreground either: `jbx fg` counts a decision,
+  and this is not one.
+
 ## [0.10.0] - 2026-09-07
 
 ### Added
