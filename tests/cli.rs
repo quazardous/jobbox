@@ -1935,6 +1935,47 @@ fn the_old_house_is_carried_over_and_nothing_is_left_behind() {
 }
 
 #[test]
+#[cfg(unix)]
+fn a_quiet_session_is_not_the_same_as_a_dead_one() {
+    // THE HALF THAT BREAKS IN SILENCE. Clearing a mailbox whose reader
+    // is gone is tidying; clearing one whose reader is merely quiet is
+    // taking somebody's mail before they read it — and they never learn
+    // it existed. `stranded()` calls every box that is not ours
+    // stranded, which is fine for showing and wrong for taking, so the
+    // sweep goes by AGE and this is what says so.
+    let s = Scratch::new("sweeping");
+    let dir = s.jobs().join("signals");
+    let ending = |id: &str| format!("{{\"id\":\"{id}\",\"code\":0,\"intent\":\"x\",\"log\":\"/l\",\"client\":\"c\"}}\n");
+
+    // One box left long ago, one from a session that stepped out for tea.
+    for who in ["long-gone", "just-quiet"] {
+        std::fs::create_dir_all(dir.join(who)).unwrap();
+        std::fs::write(dir.join(who).join("agent.jsonl"), ending(&format!("j{who:.7}"))).unwrap();
+    }
+    // The person already holds the abandoned one — every ending is
+    // deposited to both boxes at once, which is why sweeping is dropping
+    // a copy rather than throwing mail away.
+    std::fs::write(dir.join("user.jsonl"), ending("jlong-go")).unwrap();
+
+    // Age is the whole signal, so it is set rather than waited for.
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(9 * 3600);
+    let f = std::fs::File::options().write(true).open(dir.join("long-gone/agent.jsonl")).unwrap();
+    f.set_modified(old).unwrap();
+
+    s.run(&["health"]);
+
+    assert!(!dir.join("long-gone").exists(), "the abandoned box was left to grow");
+    assert!(dir.join("just-quiet").exists(), "a quiet session's mail was taken");
+    let theirs = std::fs::read_to_string(dir.join("just-quiet/agent.jsonl")).unwrap();
+    assert!(theirs.contains("jjust-qu"), "the quiet box was emptied: {theirs}");
+
+    // AND NOTHING WAS DUPLICATED. The abandoned ending was already the
+    // person's; carrying it over again would turn a tidy-up into noise.
+    let mail = std::fs::read_to_string(dir.join("user.jsonl")).unwrap();
+    assert_eq!(mail.matches("jlong-go").count(), 1, "the ending was copied twice:\n{mail}");
+}
+
+#[test]
 fn every_declared_dialect_really_answers() {
     // WHAT THIS CAN PROVE, AND WHAT IT CANNOT.
     //

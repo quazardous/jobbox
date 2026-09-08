@@ -204,6 +204,93 @@ pub fn take(client: &str, audience: &str) -> Vec<Value> {
         .collect()
 }
 
+/// HOW LONG A MAILBOX MAY SIT UNTOUCHED BEFORE IT COUNTS AS ABANDONED.
+///
+/// Deliberately generous. Getting this wrong in one direction costs a
+/// stale box a few more hours of existence; in the other it takes the
+/// mail of a session that is merely quiet. Six hours is longer than any
+/// pause inside a working session and shorter than the gap between days.
+const ABANDONED_AFTER: f64 = 6.0 * 3600.0;
+
+/// CLEAR OUT MAILBOXES WHOSE READER IS GONE.
+///
+/// `jbx health` has always been able to LIST these — "endings addressed
+/// to sessions that are gone" — and listing was all it did, so the list
+/// could only grow. An alarm that always rings is one nobody reads.
+///
+/// NOTHING IS LOST, AND IT IS CHECKED RATHER THAN ASSUMED. Every ending
+/// is deposited to two boxes at once: the session's, and the shared one
+/// the person reads. So a stale session box holds copies — measured
+/// across five real boxes, every single ending was already in the shared
+/// one. This still looks, and carries over anything that is not there,
+/// because "it was true when I looked" is not a reason to delete.
+///
+/// BY AGE, NOT BY "NOT MINE". `stranded()` calls every box that is not
+/// ours stranded, which is fine for showing and wrong for taking: two
+/// sessions open at once, and each would empty the other's mail before
+/// it was read.
+///
+/// CALLED FROM THE VERBS THAT ALREADY LOOK — `health`, `list`, `ps`,
+/// `gain` — and never from `run` or `hook`. Those wrap every command on
+/// the machine; making all of them pay to read a directory for a tidy-up
+/// nobody asked for at that moment is the wrong trade.
+pub fn sweep() -> usize {
+    let me = client();
+    let now = store::now();
+    let Ok(entries) = fs::read_dir(signals_dir()) else { return 0 };
+    let mut swept = 0;
+    for entry in entries.flatten() {
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let who = entry.file_name().to_string_lossy().into_owned();
+        if who == me {
+            continue;
+        }
+        let theirs = entry.path().join("agent.jsonl");
+        let idle = fs::metadata(&theirs)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .map(|d| d.as_secs_f64())
+            .unwrap_or(0.0);
+        let _ = now;
+        if idle < ABANDONED_AFTER {
+            continue;
+        }
+        let raw = fs::read_to_string(&theirs).unwrap_or_default();
+        let waiting: Vec<Value> = raw
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect();
+        // WHAT THE PERSON HAS NOT GOT IS CARRIED OVER FIRST. Only then
+        // does the box go, so an interrupted sweep leaves a duplicate at
+        // worst and never a hole.
+        let shared = mailbox(&who, "user");
+        let already: std::collections::BTreeSet<String> = fs::read_to_string(&shared)
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .filter_map(|v| v["id"].as_str().map(str::to_string))
+            .collect();
+        let orphans: Vec<&Value> = waiting
+            .iter()
+            .filter(|s| !s["id"].as_str().map(|i| already.contains(i)).unwrap_or(false))
+            .collect();
+        if !orphans.is_empty() {
+            if let Ok(mut file) = fs::OpenOptions::new().append(true).create(true).open(&shared) {
+                for s in orphans {
+                    let _ = writeln!(file, "{s}");
+                }
+            }
+        }
+        let _ = fs::remove_dir_all(entry.path());
+        swept += waiting.len();
+    }
+    swept
+}
+
 /// DROP ONE ENDING THAT HAS ALREADY BEEN DELIVERED, and only that one.
 ///
 /// `jbx wait <id>` blocks until a job ends and exits with its code — so

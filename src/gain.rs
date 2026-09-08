@@ -587,6 +587,10 @@ pub fn window(text: &str) -> Option<Option<f64>> {
 /// table cannot come to say different things — which is exactly what
 /// happened while every verb printed its own answer by hand.
 pub fn measure(only: Option<&str>, since: Option<f64>) -> Result<Value, i32> {
+    // SOMEBODY IS LOOKING. See `signals::sweep` for why the tidy-up
+    // rides on the verbs that already read the store, and never on the
+    // wrapper.
+    crate::signals::sweep();
     let everything = read_all();
     // THE THREE WINDOWS, ALWAYS, whichever one the table is drawn for.
     // "Am I saving time" and "am I saving time TODAY" are different

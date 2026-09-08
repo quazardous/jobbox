@@ -485,6 +485,10 @@ fn terminal_columns() -> Option<usize> {
 }
 
 fn listing(only_alive: bool, how: &Flags) -> i32 {
+    // SOMEBODY IS LOOKING, so this is when the drawer gets tidied. See
+    // `signals::sweep` for why here and not in a hook, and why never in
+    // `run`: those wrap every command on the machine.
+    signals::sweep();
     let all = how.all;
     // THIS PROJECT BY DEFAULT. The store is machine-wide, and a list
     // holding four projects' work is a list where you cannot find your
@@ -945,6 +949,9 @@ fn slots_cmd(value: Option<&str>, how: &Flags) -> i32 {
 }
 
 fn health(how: &Flags) -> i32 {
+    // BEFORE COUNTING, TIDY — otherwise this verb reports a backlog it
+    // was about to clear, which is how a list nobody can act on grows.
+    signals::sweep();
     let records = store::all();
     let mut queued = 0;
     let mut running = 0;

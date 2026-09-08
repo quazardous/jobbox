@@ -139,6 +139,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`jbx health` no longer keeps a list it cannot act on.** Mailboxes
+  whose reader is gone are now cleared — by `health`, `list`, `ps` and
+  `gain`, the verbs somebody runs when they are looking anyway, and
+  never by the wrapper, which runs before every command on the machine.
+
+  **By age, not by "not mine".** Two sessions open at once would
+  otherwise take each other's mail before it was read; six hours is
+  longer than any pause inside a session.
+
+  Nothing is lost, and that is checked rather than assumed: every ending
+  is deposited to the session's box and the person's shared one at the
+  same time, so clearing a stale box drops a copy. Anything that is not
+  already in the shared box is carried over first.
+
 - **A hook declared for another client called the wrong dialect.** `jbx
   init --cli gemini` wrote a bare `jbx hook`, which answers as Claude —
   so the hook fired on Gemini's `BeforeTool`, found an event name it did
