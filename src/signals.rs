@@ -220,6 +220,14 @@ pub fn take(client: &str, audience: &str) -> Vec<Value> {
 /// ones that have NOT been delivered, which are exactly the ones that
 /// matter.
 ///
+/// A BOX IS ADDRESSED TO A CLIENT, NOT TO A PAIR OF EYES, and that
+/// leaves one narrow asymmetry — named here rather than found later. If
+/// a person runs `jbx wait` under the same client as an agent, and an
+/// announcing hook was going to tell that agent, the person's wait takes
+/// the message first. Narrow, because the default install declares no
+/// announcing hook and so has nothing to take; and it is the price of
+/// addressing a box to a session.
+///
 /// IT CLAIMS BY RENAMING, like `take`, so an ending deposited mid-edit
 /// is not erased under it. What arrives during the rewrite lands in a
 /// fresh file and is left alone; the survivors are appended after it,
