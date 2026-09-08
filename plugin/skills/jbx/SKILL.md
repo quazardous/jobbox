@@ -9,8 +9,8 @@ disable-model-invocation: true
 Run `jbx help $ARGUMENTS` and show what it prints.
 
 With a job id, that is the page for that job. With nothing, it is every
-verb. Answer any follow-up from `jbx why`, `jbx gain` or `jbx status
-<id>` rather than from memory — the binary installed here is the only
+verb. Answer any follow-up from `jbx how` (the gestures), `jbx why` (the
+reasoning), `jbx gain` or `jbx status <id>` rather than from memory — the binary installed here is the only
 thing that knows its own version.
 
 Do not summarise the discipline from this file. It is written in the
