@@ -3,8 +3,8 @@
 ### Time is money. Your agent spends both, standing still.
 
 A five-minute build runs. The agent waits. You wait. Nothing else
-happens — and you are billed for all of it, twice: your hour, and the
-tokens burning in a session that is doing nothing.
+happens — and you are billed for all of it twice: your hour, and the
+tokens burning in a session doing nothing.
 
 No single wait is worth stopping for. **It is their sum that costs**, and
 the sum is invisible until something counts it.
@@ -16,8 +16,6 @@ acme             12         0      14m    13m52s     8s (1%)
   api            96         7    2h11m   18m03s  1h53m (86%)
   front          34         4      39m    03m17s   36m (92%)
 
-2h29m saved — command time that ran while the caller was free, 81% of 3h04m.
-
 last hour       6 calls ·    1 detached ·   8m12s saved (73%)
 last day       38 calls ·    4 detached ·  40m05s saved (77%)
 all           142 calls ·   11 detached ·   2h29m saved (81%)
@@ -25,56 +23,49 @@ all           142 calls ·   11 detached ·   2h29m saved (81%)
 
 That is one week. Put your own rate on it.
 
-**`detached` is the number that makes the others legible.** Almost every
-call finishes before the cut and was never a candidate to save anything,
-so `calls` alone invites you to divide one by the other and conclude the
-tool is lying. And `saved` is a ceiling rather than a receipt: it is
-command time that ran while you were free, already minus what you handed
-back to `jbx wait`, and it cannot see you waiting some other way.
-
 ---
 
 **JobBox wraps every command your agent runs.** The quick ones come back
-untouched — output as it is written, exit code unchanged, as though
-nothing were there. The slow ones **detach themselves**, say so, and tell
-whoever needs to know when they end.
+untouched — output as written, exit code unchanged, as though nothing
+were there. The slow ones **detach themselves**, say so, and tell whoever
+needs to know when they end.
 
 Nobody judges in advance which is which. That judgement is the thing
 everybody gets wrong, so JobBox does not make it: it runs the line and
 finds out.
 
-The command is `jbx`.
-
 One binary. Rust, `serde_json`, nothing else. Linux, macOS, Windows.
 
-## Quickstart
+## Install
+
+As a Claude Code plugin — the hooks, the binary and a background watch in
+one thing:
+
+```console
+$ claude plugin marketplace add quazardous/jobbox
+$ claude plugin install jbx@jobbox
+```
+
+Or as a command, anywhere:
 
 ```console
 $ curl -fsSL https://raw.githubusercontent.com/quazardous/jobbox/main/install.sh | sh
-  checksum ok
-  installed ~/.local/bin/jbx
-  jbx 0.10.1
-
-  Declare the hooks now? `jbx init --global-only` [Y/n]
 ```
 
-On Windows:
+It checks the download against the sums published with the release, puts
+it on your `PATH`, and **asks** before declaring its hooks — they go in a
+settings file other tools share. On Windows, `irm
+https://raw.githubusercontent.com/quazardous/jobbox/main/install.ps1 |
+iex`, and [WINDOWS.md](WINDOWS.md) has the rest.
 
-```powershell
-irm https://raw.githubusercontent.com/quazardous/jobbox/main/install.ps1 | iex
-```
+**Run `jbx init` as well if you have [rtk](https://github.com/rtk-ai/rtk).**
+A plugin declares hooks; it cannot displace somebody else's, and two
+hooks rewriting one field is a race no harness documents. `init` settles
+that by calling rtk itself.
 
-It downloads the binary for your machine — under a megabyte, nothing
-compiled, nothing outside your home — checks it against the sums
-published with the release, puts it on your `PATH`, and **asks** before
-declaring its hooks: they go in a settings file other tools share, so
-that is a question and not an assumption. With no terminal to ask at, it
-prints the line instead. `--from-source` builds a checkout,
-`--uninstall` removes everything it added, `--version=vX.Y.Z` pins one.
-The [releases](https://github.com/quazardous/jobbox/releases) hold the
-archives if you would rather do it by hand.
+## What it looks like
 
-Open a new session. Nothing changes — until something is slow:
+Nothing changes — until something is slow:
 
 ```console
 $ npm run build
@@ -88,73 +79,33 @@ DO NOT WAIT FOR IT, DO SOMETHING ELSE. With nothing else: Monitor
 
 The build output arrived **as it was written**, not replayed at the end.
 
-**The ending reaches you two ways, and one of them is better.** Left
-alone, it is announced on the next turn — free, and it costs a turn's
-delay. Monitored, it arrives the moment it happens: `jbx wait <id>` ends
-exactly when the job does, so anything watching that command is woken
-then rather than later. `jbx watch` does it for every job at once, one
-line each.
+**The ending reaches you two ways, and one is better.** Left alone, it is
+announced on the next turn — free, and it costs that delay. Monitored, it
+arrives the moment it happens: `jbx wait <id>` ends exactly when the job
+does, so anything watching it is woken then. `jbx watch` does that for
+every job at once, one line each.
 
-That is the whole difference between waiting and being told, and it is
-why the message says *monitor* rather than *wait*. Polling is neither —
-it is waiting with extra steps.
-
-You are told when the session stops as well, and a failure holds it open
-and points at the log.
+That is the difference between waiting and being told. Polling is
+neither — it is waiting with extra steps.
 
 ## The one judgement left to make
 
 The old answer to "when should this go to the background?" was a document
 telling an agent to estimate how long a command would take. Agents get
 that wrong, and so do people. jbx removes the question and leaves a
-smaller one, asked where the agent will read it:
+smaller one:
 
 > Do you need this result **before you can do anything else**?
 
 Almost always, no. When the answer is yes, say so — `jbx fg -- '<line>'`
 runs without ever letting go, and `jbx stats` counts what that cost.
 
-## On Windows
-
-It works there — the suite runs on a Windows runner on every change and
-passes. **One thing is different and it is temporary: these releases are
-not signed yet**, so if Smart App Control is on it refuses the binary,
-a published release as flatly as a local build. `-TrustLocally` signs
-the install with a certificate your own machine trusts, which gets past
-it.
-
-**[WINDOWS.md](WINDOWS.md)** has that flag, which shell runs your
-commands, and the two things that behave differently there.
-
-## As a Claude Code plugin
-
-The hooks, the binary and a background watch, in one thing to install:
-
-```console
-$ claude plugin marketplace add quazardous/jobbox
-$ claude plugin install jbx@jobbox
-```
-
-Installed this way there is nothing to download and nothing to put on
-your `PATH`, and `jbx watch` starts on its own — so job endings arrive as
-notifications without anybody launching anything.
-
-**`jbx init` is still worth running** if you also have
-[rtk](https://github.com/rtk-ai/rtk). A plugin declares hooks; it cannot
-move somebody else's, and two hooks rewriting one field is a race with
-no documented winner. `init` is what settles that.
-
-Installed from the repository the plugin carries no binary — those live
-in the release archives — and falls back to an installed `jbx`, telling
-you plainly when there is none.
-
 ## The rest
 
 - **[USAGE.md](USAGE.md)** — every verb, every setting, how `saved` is
-  counted and why it is a ceiling, how it composes with rtk, and what
-  was deliberately left out.
-- **[WINDOWS.md](WINDOWS.md)** — Smart App Control, which shell runs
-  your commands, and the two things that behave differently there.
+  counted and why it is a ceiling, and what was deliberately left out.
+- **[WINDOWS.md](WINDOWS.md)** — Smart App Control, which shell runs your
+  commands, and the two things that differ there.
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — what belongs in a test, and
   what has already been ruled out.
 - **[CHANGELOG.md](CHANGELOG.md)** — what changed, and why it mattered.
