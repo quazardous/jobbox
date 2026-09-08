@@ -743,10 +743,27 @@ fn wait(id: &str) -> i32 {
             // good intentions as a result.
             store::State::Finished { code } => {
                 gain::record_wait(store::now() - began);
+                // THE ENDING HAS NOW BEEN DELIVERED, so the message
+                // announcing it has no recipient left. Waiting IS the
+                // delivery: this call blocked until the job ended and is
+                // about to exit with its code.
+                //
+                // IT MATTERS MOST WHERE NO HOOK REPORTS ENDINGS. The
+                // announcing hooks used to empty this box every turn; an
+                // install that declares only the wrapping hook has
+                // nothing that does, so an unread ending would sit there
+                // until the session died and then be listed by `jbx
+                // health` as stranded, for ever, one box per session — an
+                // alarm that always rings and is therefore never read.
+                signals::forget(&store::client(), id);
                 return code;
             }
             store::State::Lost => {
                 gain::record_wait(store::now() - began);
+                // A JOB THAT LOST ITS EXIT CODE STILL ENDED, and this
+                // call still carried that news. The box is cleared for
+                // the same reason.
+                signals::forget(&store::client(), id);
                 eprintln!("jbx: {id} ended without leaving an exit code");
                 return 1;
             }

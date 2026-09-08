@@ -490,6 +490,31 @@ fn init_displaces_rtk_and_undo_puts_it_back() {
 
 // ── WHAT IT MEASURES ────────────────────────────────────────────────────
 
+/// WAIT FOR AN ENDING WITHOUT COLLECTING IT.
+///
+/// `jbx wait` would do, and used to be what these tests used — but it
+/// now clears the ending it delivered, which is the whole point of it.
+/// A test that only needs the job to be OVER must not also collect its
+/// mail, or it measures the collection rather than the announcement.
+fn ended(s: &Scratch, id: &str) {
+    until("the ending landed", || {
+        signals_of(s).iter().any(|v| v["id"].as_str() == Some(id))
+    });
+}
+
+/// The agent's unread endings, parsed.
+fn signals_of(s: &Scratch) -> Vec<serde_json::Value> {
+    let dir = s.jobs().join("signals");
+    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let mut out = Vec::new();
+    for e in entries.flatten().filter(|e| e.path().is_dir()) {
+        let raw = std::fs::read_to_string(e.path().join("agent.jsonl")).unwrap_or_default();
+        out.extend(raw.lines().filter(|l| !l.trim().is_empty())
+            .filter_map(|l| serde_json::from_str(l).ok()));
+    }
+    out
+}
+
 fn readings(s: &Scratch) -> Vec<serde_json::Value> {
     std::fs::read_to_string(s.jobs().join("stats.jsonl"))
         .unwrap_or_default()
@@ -599,7 +624,7 @@ fn a_detached_job_is_announced_once_and_only_once() {
     let s = Scratch::new("told");
     let said = text(&s.run_as("me", &["run", "--after", "1", "--", "sleep 2; exit 7"]));
     let id = announced(&said);
-    s.run_as("me", &["wait", &id]);
+    ended(&s, &id);
 
     let first = text(&s.run_as("me", &["signals", "agent"]));
     assert!(first.contains(&id), "the ending never arrived: {first}");
@@ -615,7 +640,7 @@ fn the_two_audiences_do_not_take_each_others_endings() {
     let s = Scratch::new("audiences");
     let said = text(&s.run_as("me", &["run", "--after", "1", "--", "sleep 2"]));
     let id = announced(&said);
-    s.run_as("me", &["wait", &id]);
+    ended(&s, &id);
     s.run_as("me", &["signals", "agent"]);
     // THE PERSON'S COPY SURVIVES THE MODEL READING ITS OWN. One human
     // wants every ending, whichever session started it.
@@ -628,7 +653,7 @@ fn stop_blocks_on_our_own_failure_and_not_on_somebody_elses() {
     let s = Scratch::new("blocking");
     let said = text(&s.run_as("them", &["run", "--after", "1", "--", "sleep 2; exit 3"]));
     let id = announced(&said);
-    s.run_as("them", &["wait", &id]);
+    ended(&s, &id);
 
     // ANNOUNCING IS ONE THING, BLOCKING IS ANOTHER. Blocking holds a
     // session open and sends the model to fix something; doing that for
@@ -640,7 +665,7 @@ fn stop_blocks_on_our_own_failure_and_not_on_somebody_elses() {
 
     let said = text(&s.run_as("them", &["run", "--after", "1", "--", "sleep 2; exit 3"]));
     let id = announced(&said);
-    s.run_as("them", &["wait", &id]);
+    ended(&s, &id);
     let mine = s.event("me", r#"{"hook_event_name":"Stop"}"#);
     assert!(mine.trim().is_empty() || !mine.contains("block"),
             "somebody else's failure stopped us: {mine}");
@@ -665,15 +690,24 @@ fn queue_holds_work_back_when_the_slots_are_full() {
     assert_eq!(queued, 2, "the cap did not hold anything back:\n{shown}");
     assert!(shown.contains("background"), "nothing started at all:\n{shown}");
 
-    for id in &ids {
-        assert_eq!(s.run_with(&cap, &["wait", id]).status.code(), Some(0));
-    }
     // AND A DELIBERATE JOB IS ANNOUNCED WHATEVER ITS DURATION. Somebody
     // chose to hand it over; a two-second one they chose to hand over is
     // still an ending they are waiting for.
+    //
+    // READ BEFORE WAITING, and the order is the assertion: `jbx wait`
+    // now clears the ending it delivers, so collecting the mail first is
+    // the only way to ask whether it was ever posted.
+    for id in &ids {
+        ended(&s, id);
+    }
     let told = text(&s.run_as("me", &["signals", "agent"]));
     for id in &ids {
         assert!(told.contains(id), "{id} was never announced:\n{told}");
+    }
+    // The record outlives the ending, so the exit code is still there to
+    // be had — which is what says the cap ran them rather than lost them.
+    for id in &ids {
+        assert_eq!(s.run_with(&cap, &["wait", id]).status.code(), Some(0));
     }
 }
 
@@ -1703,6 +1737,49 @@ fn only_a_job_that_let_go_counts_as_reached_for() {
     s.run(&["run", "--", "echo done"]);
     let shown = text(&s.run(&["gain"]));
     assert!(shown.contains("reached for"), "the headline says nothing: {shown}");
+}
+
+#[test]
+#[cfg(unix)]
+fn waiting_on_a_job_clears_that_ending_and_no_other() {
+    // AN INSTALL WITH ONLY THE WRAPPING HOOK HAS NOTHING THAT EMPTIES
+    // THIS BOX. The announcing hooks used to do it every turn; without
+    // them an ending would sit unread until the session died, and then
+    // be listed as stranded for ever — one box per session, an alarm
+    // that always rings and is therefore never read.
+    //
+    // `jbx wait` IS the delivery, so it clears what it delivered. The
+    // hard half is that it must clear THAT ending and no other: emptying
+    // the box would discard the endings nobody has collected, which are
+    // precisely the ones worth keeping.
+    let s = Scratch::new("forget");
+    let mut ids = Vec::new();
+    for _ in 0..2 {
+        let out = s.run(&["run", "--after", "0.1", "--", "sleep 0.6"]);
+        ids.push(announced(&text(&out)));
+    }
+    assert_ne!(ids[0], ids[1], "the two jobs got one id");
+
+    // Both endings land; only one is waited on.
+    until("both endings are in the box", || signals_of(&s).len() == 2);
+    s.run(&["wait", &ids[0]]);
+
+    let left = signals_of(&s);
+    assert_eq!(left.len(), 1, "the box holds {left:?}");
+    assert_eq!(left[0]["id"], ids[1].as_str(),
+               "the wrong ending survived: {left:?}");
+
+    // AND THE PERSON'S MAIL IS UNTOUCHED. An agent waiting on a job is
+    // no reason to throw away what a human has not read.
+    let theirs = std::fs::read_to_string(s.jobs().join("signals/user.jsonl")).unwrap_or_default();
+    assert_eq!(theirs.lines().filter(|l| !l.trim().is_empty()).count(), 2,
+               "waiting ate the person's mail: {theirs}");
+
+    // Waiting on the second clears the box entirely, and waiting twice
+    // on the same job is not an error.
+    s.run(&["wait", &ids[1]]);
+    s.run(&["wait", &ids[1]]);
+    assert_eq!(signals_of(&s).len(), 0, "the box still holds {:?}", signals_of(&s));
 }
 
 #[test]

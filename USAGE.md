@@ -85,7 +85,9 @@ jbx watch --json
 ```
 
 `jbx wait` exits when the job does and carries its exit code, so a
-background command ends exactly when there is something to say. `jbx
+background command ends exactly when there is something to say — and it
+**clears that job's ending** on the way out, since waiting is the
+delivery. Only that job's: the endings nobody has collected stay. `jbx
 watch` streams an event per job as it changes and **ends by itself** when
 nothing is left running, which is what keeps a watch from staying armed
 after the thing it waited for.

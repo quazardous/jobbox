@@ -204,6 +204,59 @@ pub fn take(client: &str, audience: &str) -> Vec<Value> {
         .collect()
 }
 
+/// DROP ONE ENDING THAT HAS ALREADY BEEN DELIVERED, and only that one.
+///
+/// `jbx wait <id>` blocks until a job ends and exits with its code — so
+/// by the time it returns, the ending HAS reached whoever asked. The
+/// message announcing it has no recipient left, and leaving it in the
+/// box makes `jbx health` report an ending nobody is waiting for.
+///
+/// THE AGENT'S BOX ONLY. The shared box is the person's mail, read in a
+/// terminal at their own pace; an agent waiting on a job is no reason to
+/// throw away what a human has not seen.
+///
+/// TARGETED, NEVER `take`. Emptying the whole box because one job was
+/// waited on would discard the endings of every other job in it — the
+/// ones that have NOT been delivered, which are exactly the ones that
+/// matter.
+///
+/// IT CLAIMS BY RENAMING, like `take`, so an ending deposited mid-edit
+/// is not erased under it. What arrives during the rewrite lands in a
+/// fresh file and is left alone; the survivors are appended after it,
+/// which reorders nothing that is read in order.
+pub fn forget(client: &str, id: &str) -> bool {
+    let path = mailbox(client, "agent");
+    if !path.exists() {
+        return false;
+    }
+    let claimed = path.with_extension(format!("jsonl.forgetting-{}", std::process::id()));
+    if fs::rename(&path, &claimed).is_err() {
+        return false;
+    }
+    let raw = fs::read_to_string(&claimed).unwrap_or_default();
+    let _ = fs::remove_file(&claimed);
+    let mut dropped = false;
+    let kept: Vec<&str> = raw
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter(|l| {
+            let mine = serde_json::from_str::<Value>(l)
+                .map(|v| v["id"].as_str() == Some(id))
+                .unwrap_or(false);
+            dropped |= mine;
+            !mine
+        })
+        .collect();
+    if !kept.is_empty() {
+        if let Ok(mut file) = fs::OpenOptions::new().append(true).create(true).open(&path) {
+            for line in kept {
+                let _ = writeln!(file, "{line}");
+            }
+        }
+    }
+    dropped
+}
+
 /// What waits in ONE client's own mailboxes.
 ///
 /// THE SHARED BOX IS NOT COUNTED HERE, and leaving it in was a real

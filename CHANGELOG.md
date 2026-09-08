@@ -83,6 +83,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A finished job no longer haunts the mailbox.** `jbx wait <id>` blocks
+  until a job ends and exits with its code, so by the time it returns the
+  ending has been delivered — and the message announcing it now goes with
+  it. Only that one: emptying the box would discard the endings nobody
+  has collected, which are the ones worth keeping. The person's own mail
+  is untouched.
+
+  It matters because `jbx init` declares one hook now. The announcing
+  hooks used to empty that box every turn; without them an unread ending
+  sat there until the session died and was then listed by `jbx health` as
+  stranded, for ever, one box per session — an alarm that always rings
+  and is therefore never read.
+
 - **Colour no longer shifts a column.** The table measured a cell by its
   raw string, escapes included — and those are not a fixed size, so a
   dim row was padded one column further than a green one. It never
