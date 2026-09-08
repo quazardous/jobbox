@@ -133,6 +133,25 @@ impl Scratch {
         String::from_utf8_lossy(&child.wait_with_output().unwrap().stdout).into_owned()
     }
 
+    /// The same, but naming the dialect and keeping the whole result —
+    /// a refusal is an exit code and a line on stderr, neither of which
+    /// `event` can show.
+    fn event_as(&self, dialect: &str, json: &str) -> Output {
+        use std::io::Write;
+        let mut child = Command::new(JBX)
+            .env_remove("JBX_WRAPPED")
+            .args(["hook", dialect])
+            .env("JBX_DIR", &self.0)
+            .env("JBX_CONFIG", self.0.join("global.yaml"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(json.as_bytes()).unwrap();
+        child.wait_with_output().unwrap()
+    }
+
     /// The same, with one extra variable set — a threshold, a cap.
     fn run_with(&self, env: &[(&str, &str)], args: &[&str]) -> Output {
         let mut cmd = Command::new(JBX);
@@ -1610,6 +1629,85 @@ fn colour_costs_a_column_nothing() {
     );
     // AND COLOUR COSTS NOTHING AT ALL against the unpainted rendering.
     assert_eq!(plain, painted, "painted and plain disagree: {plain:?} vs {painted:?}");
+}
+
+#[test]
+fn every_declared_dialect_really_answers() {
+    // WHAT THIS CAN PROVE, AND WHAT IT CANNOT.
+    //
+    // It cannot check jbx against a real Gemini: that needs Gemini. What
+    // it can do is hold the MEASURED contract still — the shapes below
+    // were found by sending payloads at each client's own hook processor
+    // — so that editing the table without re-measuring fails here rather
+    // than in somebody's session.
+    //
+    // AND THE EXPECTATIONS ARE WRITTEN OUT, NOT READ FROM THE TABLE. A
+    // first version of this test took the tool name and the output path
+    // from `jbx describe` and then checked the answer at that same path,
+    // which is a sentence agreeing with itself: pointing the dialect at
+    // the wrong tool passed cleanly. Measured, by breaking it on purpose.
+    const MEASURED: [(&str, &str, &str, [&str; 2], bool); 2] = [
+        ("claude", "Bash", "PreToolUse", ["hookSpecificOutput", "updatedInput"], true),
+        ("gemini", "run_shell_command", "BeforeTool", ["hookSpecificOutput", "tool_input"], false),
+    ];
+
+    let s = Scratch::new("dialects");
+    let doc: serde_json::Value =
+        serde_json::from_str(&text(&s.run(&["describe"]))).expect("describe is JSON");
+    let published = doc["x-jbx-dialects"].as_array().expect("dialects are published");
+    assert_eq!(published.len(), MEASURED.len(),
+               "the table has {} dialects and this test knows {}: re-measure, then update both",
+               published.len(), MEASURED.len());
+
+    for (name, tool, event, at, replaces) in MEASURED {
+        let d = published.iter().find(|d| d["name"] == name)
+            .unwrap_or_else(|| panic!("{name} is not published: {published:?}"));
+        assert_eq!(d["tool"], tool, "{name}'s tool name moved");
+        assert_eq!(d["before_tool"], event, "{name}'s event name moved");
+        assert_eq!(d["at"], serde_json::json!(at), "{name}'s output path moved");
+        assert_eq!(d["replaces_input"], replaces, "{name}'s merge behaviour moved");
+
+        // AND IT REALLY ANSWERS. A hook handed a payload it does not
+        // recognise says nothing and exits 0 — the same as a healthy
+        // hook seeing a tool it does not watch — so silence cannot be
+        // read as "no rewrite needed", and a dialect shipped unwired
+        // looks exactly like one that works.
+        let payload = format!(
+            r#"{{"hook_event_name":"{event}","tool_name":"{tool}","tool_input":{{"command":"echo hi","timeout":600000}}}}"#
+        );
+        let out = text(&s.event_as(name, &payload));
+        let answer: serde_json::Value = serde_json::from_str(out.trim())
+            .unwrap_or_else(|e| panic!("{name} answered {out:?}: {e}"));
+        let here = &answer[at[0]][at[1]];
+        let line = here["command"].as_str()
+            .unwrap_or_else(|| panic!("{name}: nothing at {at:?} in {answer}"));
+        assert!(line.contains("run") && line.contains("echo hi"),
+                "{name} did not wrap the line: {line}");
+
+        // A CLIENT THAT REPLACES ITS INPUT GETS EVERY FIELD BACK.
+        // `timeout` is the caller saying how long they were prepared to
+        // wait; dropping it answers a different question than the one
+        // asked.
+        if replaces {
+            assert_eq!(here["timeout"], 600000,
+                       "{name} replaces its input but lost `timeout`: {answer}");
+        }
+
+        // NOTHING IS GRANTED ON THE CALLER'S BEHALF, in any dialect.
+        // This hook wraps every command, so one decision here decides
+        // for all of them.
+        for key in ["decision", "permissionDecision"] {
+            assert!(answer.get(key).is_none(), "{name} took a decision: {answer}");
+            assert!(answer[at[0]].get(key).is_none(), "{name} took a decision: {answer}");
+        }
+    }
+
+    // AND A NAME NOBODY WIRED IS REFUSED, not quietly treated as Claude.
+    let unknown = s.event_as("windsurf", "{}");
+    assert_eq!(unknown.status.code(), Some(2), "an unknown dialect was accepted");
+    let said = String::from_utf8_lossy(&unknown.stderr).to_string();
+    assert!(said.contains("claude") && said.contains("gemini"),
+            "the refusal does not say what IS known: {said}");
 }
 
 #[test]

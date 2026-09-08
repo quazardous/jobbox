@@ -36,7 +36,7 @@ jbx init [--undo] [--global-only]
                                declare the wrapping hook
 jbx init --announce            … and the ones that report an ending unasked
 jbx init --core                … only the wrapping one, taking the rest back
-jbx hook                       answers the harness; init declares this one
+jbx hook [client]              answers an agent CLI; init declares this one
 ```
 
 `run` is what the hook calls. You rarely type it.
@@ -179,6 +179,38 @@ them apart.
 It never stores a command line as typed: `TOKEN=… ./deploy` is recorded
 as `./deploy`. A truncated secret is still a leaked prefix, so
 assignments are dropped whole.
+
+## More than one agent CLI
+
+`jbx hook` answers **Claude Code** by default and **Gemini CLI** as
+`jbx hook gemini`. Both are declared the same way — one entry in that
+client's settings, pointing at this binary.
+
+They disagree on nearly every word. Gemini calls the shell tool
+`run_shell_command` where Claude calls it `Bash`, names the event
+`BeforeTool` rather than `PreToolUse`, and **merges** the object we send
+into the model's arguments where Claude **replaces** it outright. That
+last one matters: under Claude a field left out is a field deleted, so
+everything is echoed back, `timeout` included.
+
+Those shapes were **measured**, by sending payloads at each client and
+reading the answer — which is how two of them turned out to key on a
+tool name other than `Bash` after first looking simply broken. They are
+published by `jbx describe` under `x-jbx-dialects`, and a test holds
+them still, so changing one without re-measuring fails a build rather
+than a session.
+
+**Only one hook is needed**, and that is why this list can grow cheaply.
+jbx once declared four events: one to wrap a line, three to carry its
+ending back. But `jbx wait <id>` is an ordinary command that exits when
+the job does — run in the background by whatever runs your commands, it
+delivers the ending through no hook at all, and the detachment message
+says so at the moment it matters. What the other three bought was the
+**unasked** announcement, and that is what `jbx init --announce` is for.
+
+An unknown name is refused rather than treated as Claude: a hook
+speaking the wrong dialect answers nothing and looks perfectly healthy,
+which is the one failure worth being loud about.
 
 ## It composes with rtk, rather than racing it
 

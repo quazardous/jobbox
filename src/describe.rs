@@ -127,7 +127,7 @@ pub const VERBS: &[Verb] = &[
                  ("--core", "declare only the hook that wraps, and take back the rest"),
                  ("--announce", "also declare the hooks that report an ending unasked"),
                  ("--global-only", "the hooks and the global file; no project file")] },
-    Verb { name: "hook", summary: "answer the harness; `init` declares this one",
+    Verb { name: "hook", summary: "answer an agent CLI; `init` declares this one",
         tags: &["rewrite"], effect: "rewrites the command the harness is about to run",
         flags: NOTHING },
     Verb { name: "list", summary: "what is detached, and how it went",
@@ -204,6 +204,21 @@ pub fn describe() -> i32 {
             "license": { "name": "MIT", "identifier": "MIT" },
         },
         "commands": commands,
+        // THE CLIENTS THIS BINARY CAN ANSWER, from the same table the
+        // hook reads. Published so a test can send each one its own
+        // payload and check it is really answered — a dialect that ships
+        // unwired looks exactly like a dialect that works, because a
+        // hook speaking the wrong shape is silent, not wrong.
+        "x-jbx-dialects": crate::dialect::DIALECTS
+            .iter()
+            .map(|d| serde_json::json!({
+                "name": d.name,
+                "tool": d.tool,
+                "before_tool": d.before_tool,
+                "at": d.at,
+                "replaces_input": d.replaces,
+            }))
+            .collect::<Vec<_>>(),
         // THE VOCABULARY TRAVELS WITH THE DOCUMENT. A tag a reader has
         // never seen is a tag it would have to guess at, and guessing is
         // what this exists to remove.

@@ -20,6 +20,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.13.0] - 2026-09-08
 
+### Added
+
+- **`jbx hook gemini`** — Gemini CLI is wrapped too, and adding the next
+  client is a row in a table rather than a branch in the code. The
+  clients disagree on almost every word: Gemini calls the shell tool
+  `run_shell_command`, names the event `BeforeTool`, and *merges* what a
+  hook sends into the model's arguments where Claude *replaces* them
+  outright. Those shapes were measured against each client rather than
+  read off a page, are published by `jbx describe`, and a test holds
+  them still so changing one without re-measuring fails a build instead
+  of a session. A name nobody wired is refused rather than quietly
+  treated as Claude — a hook speaking the wrong dialect answers nothing
+  and looks perfectly healthy.
+
 ### Changed
 
 - **`jbx stats` is now `jbx gain`, and the old name is gone.** One verb,

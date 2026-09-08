@@ -79,7 +79,21 @@ fn dispatch(args: Vec<String>) -> i32 {
             let binary = std::env::current_exe()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|_| "jbx".into());
-            hook::hook(&binary)
+            // NAMED, OR CLAUDE. The name is what a settings file spells
+            // out, so an unknown one is REFUSED LOUDLY rather than
+            // treated as Claude: a hook that quietly speaks the wrong
+            // dialect answers nothing and looks perfectly healthy, which
+            // is the failure this whole table exists to avoid.
+            let want = rest.first().map(String::as_str).unwrap_or("claude");
+            match jobbox::dialect::of(want) {
+                Some(d) => hook::hook(&binary, d),
+                None => {
+                    let known: Vec<&str> =
+                        jobbox::dialect::DIALECTS.iter().map(|d| d.name).collect();
+                    eprintln!("jbx: no dialect for {want:?} — known: {}", known.join(", "));
+                    2
+                }
+            }
         }
         // THE INTENT COMES FIRST AND THE LINE AFTER `--`, so a name
         // with spaces is impossible to confuse with the command.
@@ -173,7 +187,7 @@ fn usage() -> String {
          \x20 jbx fg <id>           bring a detached job back to the foreground\n\
          \x20 jbx queue <intent> -- '<line>'\n\
          \x20                       hand it over before it starts, and name it\n\
-         \x20 jbx hook              the PreToolUse hook, called by a harness\n\
+         \x20 jbx hook [client]     answer an agent CLI — claude, gemini\n\
          \n\
          \x20 jbx ps [--all] [--full] [--json] [--width <n>]\n\
          \x20                       what is happening right now, here\n\

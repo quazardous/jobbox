@@ -125,7 +125,7 @@ pub fn is_us(line: &str, binary: &str) -> bool {
 /// all when there is nothing to say. A hook that speaks on every call is
 /// a hook that gets deleted, and one that errors takes the command down
 /// with it.
-pub fn hook(binary: &str) -> i32 {
+pub fn hook(binary: &str, dialect: &crate::dialect::Dialect) -> i32 {
     let mut raw = String::new();
     if std::io::stdin().read_to_string(&mut raw).is_err() {
         return 0;
@@ -150,8 +150,12 @@ pub fn hook(binary: &str) -> i32 {
     // person has to spell right in a settings file. The harness already
     // says which event it is; asking the reader to say it again is one
     // more place for the two to disagree.
+    // THE EVENT NAME IS THE CLIENT'S, NOT OURS. Claude calls it
+    // `PreToolUse` and Gemini `BeforeTool`; the announcing events below
+    // are Claude's alone, and a client without them simply never sends
+    // one — `jbx wait` carries its endings instead.
     match event["hook_event_name"].as_str() {
-        Some("PreToolUse") => {}
+        Some(e) if e == dialect.before_tool => {}
         Some("Stop") => return crate::signals::announce_stop(),
         // THE SESSION'S FIRST HOOK CARRIES THE RULE; every later one
         // carries only what has finished. Saying the rule again each turn
@@ -163,7 +167,10 @@ pub fn hook(binary: &str) -> i32 {
         Some("UserPromptSubmit") => return crate::signals::announce_text(),
         _ => return 0,
     }
-    if event["tool_name"].as_str() != Some("Bash") {
+    // AND THE TOOL NAME IS THE CLIENT'S TOO. `Bash`, `run_shell_command`
+    // — a mismatch here is silence, not an error, so it is worth saying
+    // that this line is where a "the hook never fired" report begins.
+    if event["tool_name"].as_str() != Some(dialect.tool) {
         return 0;
     }
     let Some(tool_input) = event["tool_input"].as_object() else { return 0 };
@@ -234,6 +241,11 @@ pub fn hook(binary: &str) -> i32 {
             quote(&through_rtk(line))
         )),
     );
+    // WHY THE ANSWER IS BUILT FROM A TABLE, and not written out here:
+    // see `dialect.rs`. Every client wants the same rewrite in a
+    // different envelope, and a branch per client is one more place
+    // to forget one.
+    //
     // `permissionDecision` IS DELIBERATELY ABSENT, AND NO LONGER FOR THE
     // REASON THIS COMMENT USED TO GIVE. It said "allow" alongside an
     // `updatedInput` makes the harness drop the rewrite in silence
@@ -252,13 +264,7 @@ pub fn hook(binary: &str) -> i32 {
     // installing jbx ADDS prompts for anyone who had allow-rules. That
     // is a fair price for not spending their permissions for them, and
     // it is written down rather than discovered. See BookShepherd #2126.
-    let answer = serde_json::json!({
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecisionReason": "jbx: wrapped so a long line can be detached",
-            "updatedInput": Value::Object(updated),
-        }
-    });
+    let answer = dialect.answer(updated);
     outln!("{answer}");
     0
 }

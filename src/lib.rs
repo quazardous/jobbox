@@ -71,6 +71,7 @@ pub mod run;
 pub mod signals;
 pub mod slots;
 pub mod paint;
+pub mod dialect;
 pub mod gain;
 pub mod watch;
 pub mod store;
