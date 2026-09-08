@@ -147,6 +147,33 @@ for it becomes visible instead of invisible.
 Changed your mind halfway? `jbx fg <id>` picks a detached job back up:
 everything it has printed, then what it prints next, then its exit code.
 
+## Why the cut is at thirty seconds
+
+It was picked out of the air, and then measured. Replayed over 5,165 real
+readings — median 0.1s, p90 18s, p99 2m08s:
+
+| cut | detached | of those, done within 10s | you waited | would have saved |
+|---|---|---|---|---|
+| 10s | 919 | 466 — **51%** | 3h47m | 8h07m (68%) |
+| 15s | 614 | 259 — **42%** | 4h49m | 7h05m (60%) |
+| **30s** | 272 | 79 — **29%** | 6h33m | **5h22m (45%)** |
+| 60s | 118 | 15 — 13% | 8h00m | 3h54m (33%) |
+
+**Thirty seconds is the first round number above the p90**, and that is
+the principle rather than the number: the cut belongs where nine lines in
+ten have already finished, so detaching stays the exception. At fifteen
+it sits *below* the p90 and detaching becomes ordinary.
+
+Lowering it is not free. Fifteen seconds hands back 1h43m more — a third
+again — while pushing pointless detachments from 29% to 42%: a job that
+lets go, announces itself, takes an id, and finishes moments later. Each
+of those costs an announcement, tokens, and often a wait armed for
+nothing.
+
+`jbx gain --thresholds` replays this against your own readings, and
+`jbx after <n>` sets the cut for one project — which is where the answer
+belongs, since it depends on what a wasted detachment costs you.
+
 ## Two doors, and they are not the same door
 
 **`run` wraps a command that was going to run either way.** It holds
