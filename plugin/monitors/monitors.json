@@ -1,0 +1,7 @@
+[
+  {
+    "name": "endings",
+    "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/jbx watch --all",
+    "description": "jobs finishing in the background"
+  }
+]

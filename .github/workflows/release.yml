@@ -99,6 +99,39 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: the plugin, with the binaries a git checkout cannot carry
+        run: |
+          set -eu
+          # THE PLUGIN IS IN THE REPOSITORY; THE BINARIES ARE NOT.
+          #
+          # Installed from git, `bin/jbx` falls back to an already
+          # installed jbx and says so when there is none. Installed from
+          # THIS archive, it finds the binary for the machine under
+          # `bin/platform/` and nothing else is needed — no download, no
+          # PATH, no code-signing policy to argue with.
+          #
+          # Built here rather than committed, because a binary in a
+          # repository is a binary in its history for ever, five times
+          # per release.
+          out="jbx-${TAG}-plugin"
+          cp -r plugin "$out"
+          mkdir -p "$out/bin/platform"
+          for archive in dist/*.tar.gz; do
+            [ -e "$archive" ] || continue
+            name=$(basename "$archive" .tar.gz)          # jbx-vX.Y.Z-<platform>
+            tar xzf "$archive" -C "$out/bin/platform" --strip-components=1 "$name/jbx"
+            mv "$out/bin/platform/jbx" "$out/bin/platform/jbx-${name#jbx-${TAG}-}"
+          done
+          for archive in dist/*.zip; do
+            [ -e "$archive" ] || continue
+            name=$(basename "$archive" .zip)
+            unzip -q -j "$archive" "$name/jbx.exe" -d "$out/bin/platform"
+            mv "$out/bin/platform/jbx.exe" "$out/bin/platform/jbx-${name#jbx-${TAG}-}.exe"
+          done
+          chmod +x "$out/bin/jbx" "$out/bin/platform/"*
+          ls -l "$out/bin/platform"
+          zip -qr "dist/$out.zip" "$out"
+
       - name: sums, so an installer can check what it downloaded
         run: |
           set -eu

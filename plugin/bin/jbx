@@ -1,0 +1,55 @@
+#!/bin/sh
+# ONE NAME ON THE PATH, AND IT CHOOSES WHAT TO RUN.
+#
+# `bin/` HAS NO PLATFORM CONVENTION: every executable in it is added to
+# the Bash tool's PATH exactly as named. Five binaries would be five
+# commands, and the wrong four would be found first. So there is one
+# name here, and it decides.
+#
+# TWO WAYS THIS PLUGIN ARRIVES, and both have to work:
+#
+#   from a release archive — `bin/platform/` holds the binaries, and the
+#   right one is run;
+#   from a git checkout — there are none, because binaries do not belong
+#   in a repository, so an already-installed jbx is used instead.
+#
+# AND IT MUST NOT FIND ITSELF. This directory is ON the PATH, so a plain
+# `command -v jbx` resolves back here and the shell spins. The search
+# happens with this directory removed.
+set -eu
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+case "$(uname -s)" in
+    Linux)   machine="linux-$(uname -m)" ;;
+    Darwin)  machine="macos-$(uname -m)" ;;
+    MINGW*|MSYS*|CYGWIN*) machine="windows-x86_64" ;;
+    *)       machine="$(uname -s)-$(uname -m)" ;;
+esac
+# MUSL FIRST ON LINUX. Two archives are published for it, and the
+# statically linked one runs wherever the other might not — the
+# distribution that built it does not have to match yours.
+for candidate in \
+    "$here/platform/jbx-$machine-musl" \
+    "$here/platform/jbx-$machine" \
+    "$here/platform/jbx-$machine.exe"
+do
+    [ -x "$candidate" ] && exec "$candidate" "$@"
+done
+
+# NOTHING SHIPPED FOR THIS MACHINE — so look for an installed one, with
+# our own directory taken out of the search.
+elsewhere=$(printf '%s' "${PATH:-}" | tr ':' '\n' | grep -vxF "$here" | tr '\n' ':')
+found=$(PATH="$elsewhere" command -v jbx 2>/dev/null || true)
+[ -n "$found" ] && exec "$found" "$@"
+
+# SAID ON STDERR AND WITH A CODE, because a hook that prints nothing and
+# succeeds is a hook that has quietly stopped wrapping anything.
+cat >&2 <<'MSG'
+jbx: this plugin carries no binary for this machine, and none is installed.
+
+  curl -fsSL https://raw.githubusercontent.com/quazardous/jobbox/main/install.sh | sh
+
+Or install the plugin from a release archive rather than from the
+repository: the archives carry the binaries, a git checkout does not.
+MSG
+exit 127

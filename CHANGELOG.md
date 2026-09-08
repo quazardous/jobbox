@@ -18,6 +18,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-09-08
+
+### Added
+
+- **jbx installs as a Claude Code plugin.** `claude plugin marketplace
+  add quazardous/jobbox` then `claude plugin install jobbox@jobbox`: the
+  hooks, the binary and a background watch in one thing, with nothing to
+  download and nothing to put on a `PATH`. The plugin declares `jbx
+  watch` as a monitor, so endings arrive as notifications without
+  anybody starting it.
+
+  `bin/` has no platform convention — every executable in it lands on
+  the `PATH` as named — so one `bin/jbx` chooses: the binary for this
+  machine from the release archive, else an already installed jbx, else
+  a message saying so and a non-zero exit. musl first on Linux, since
+  the statically linked build runs where the other might not.
+
+  **`jbx init` still matters** where rtk is installed: a plugin declares
+  hooks and cannot displace somebody else's, and two hooks rewriting one
+  field is a race no harness documents.
+
+  **It does not help with Smart App Control.** The binary a plugin
+  carries is the same unsigned binary, and that policy refuses unsigned
+  executables whatever their origin — a plugin included. The signing
+  question is unchanged.
+
 ## [0.10.2] - 2026-09-08
 
 ### Changed

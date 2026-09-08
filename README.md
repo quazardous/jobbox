@@ -126,6 +126,28 @@ it.
 **[WINDOWS.md](WINDOWS.md)** has that flag, which shell runs your
 commands, and the two things that behave differently there.
 
+## As a Claude Code plugin
+
+The hooks, the binary and a background watch, in one thing to install:
+
+```console
+$ claude plugin marketplace add quazardous/jobbox
+$ claude plugin install jobbox@jobbox
+```
+
+Installed this way there is nothing to download and nothing to put on
+your `PATH`, and `jbx watch` starts on its own — so job endings arrive as
+notifications without anybody launching anything.
+
+**`jbx init` is still worth running** if you also have
+[rtk](https://github.com/rtk-ai/rtk). A plugin declares hooks; it cannot
+move somebody else's, and two hooks rewriting one field is a race with
+no documented winner. `init` is what settles that.
+
+Installed from the repository the plugin carries no binary — those live
+in the release archives — and falls back to an installed `jbx`, telling
+you plainly when there is none.
+
 ## The rest
 
 - **[USAGE.md](USAGE.md)** — every verb, every setting, how `saved` is

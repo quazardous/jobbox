@@ -1618,6 +1618,62 @@ fn a_command_the_harness_already_backgrounded_is_never_detached() {
 }
 
 #[test]
+fn the_plugin_declares_what_init_declares_and_says_the_same_version() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let read = |p: &str| std::fs::read_to_string(root.join(p)).unwrap_or_else(|e| panic!("{p}: {e}"));
+
+    // ONE VERSION, THREE FILES. A plugin manifest that lags the crate
+    // ships a version number that is a claim about code it does not
+    // contain — and nobody would notice, because nothing else reads it.
+    let manifest: serde_json::Value =
+        serde_json::from_str(&read("plugin/.claude-plugin/plugin.json")).expect("valid JSON");
+    let crate_version = env!("CARGO_PKG_VERSION");
+    assert_eq!(manifest["version"], crate_version,
+               "the plugin manifest is at {} while the crate is at {crate_version}",
+               manifest["version"]);
+
+    // AND THE SAME EVENTS AS `jbx init`. Two ways in that declare
+    // different hooks are two behaviours wearing one name; whichever a
+    // reader installs, they get the one they did not read about.
+    let hooks: serde_json::Value =
+        serde_json::from_str(&read("plugin/hooks/hooks.json")).expect("valid JSON");
+    let declared: std::collections::BTreeSet<String> =
+        hooks["hooks"].as_object().expect("an object").keys().cloned().collect();
+    let init = read("src/init.rs");
+    let wanted: std::collections::BTreeSet<String> = ["PreToolUse", "Stop", "UserPromptSubmit", "SessionStart"]
+        .iter()
+        .filter(|e| init.contains(*e))
+        .map(|e| e.to_string())
+        .collect();
+    assert_eq!(declared, wanted,
+               "the plugin declares {declared:?} where `jbx init` declares {wanted:?}");
+
+    // AND EVERY HOOK GOES THROUGH THE PLUGIN'S OWN BINARY, quoted the
+    // way the docs require — an unquoted `${CLAUDE_PLUGIN_ROOT}` breaks
+    // on the first install path with a space in it, which is every
+    // Windows one.
+    for (event, entries) in hooks["hooks"].as_object().unwrap() {
+        for entry in entries.as_array().unwrap() {
+            for h in entry["hooks"].as_array().unwrap() {
+                let cmd = h["command"].as_str().unwrap_or("");
+                assert!(cmd.starts_with("\"${CLAUDE_PLUGIN_ROOT}\"/bin/jbx "),
+                        "{event} does not call the plugin's own binary, quoted: {cmd}");
+            }
+        }
+    }
+
+    // THE MONITOR IS THE ONE VERB WRITTEN FOR IT. `jbx watch` ends by
+    // itself when nothing is running, which is what a monitor needs and
+    // what `tail -f` can never do.
+    let monitors: serde_json::Value =
+        serde_json::from_str(&read("plugin/monitors/monitors.json")).expect("valid JSON");
+    let command = monitors[0]["command"].as_str().unwrap_or("");
+    assert!(command.contains("/bin/jbx watch"), "the monitor does not run `jbx watch`: {command}");
+    assert!(monitors[0]["name"].is_string() && monitors[0]["description"].is_string(),
+            "a monitor wants a name and a description");
+}
+
+#[test]
 fn describe_covers_every_verb_and_invents_none() {
     let s = Scratch::new("describe");
     let doc: serde_json::Value =

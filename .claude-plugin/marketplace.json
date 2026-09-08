@@ -1,0 +1,17 @@
+{
+  "name": "jobbox",
+  "owner": { "name": "quazardous", "url": "https://github.com/quazardous" },
+  "description": "JobBox — wrap every command line; detach the ones that turn out to be long.",
+  "plugins": [
+    {
+      "name": "jobbox",
+      "source": "./plugin",
+      "description": "Wrap every command your agent runs. The slow ones detach themselves and say so.",
+      "homepage": "https://github.com/quazardous/jobbox",
+      "repository": "https://github.com/quazardous/jobbox",
+      "license": "MIT",
+      "keywords": ["background", "jobs", "hooks", "time"],
+      "category": "productivity"
+    }
+  ]
+}

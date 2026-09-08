@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/jbx hook" }]
+      }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/jbx hook" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/jbx hook" }] }
+    ],
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/bin/jbx hook" }] }
+    ]
+  }
+}
