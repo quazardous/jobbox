@@ -1670,12 +1670,19 @@ fn the_plugin_declares_what_init_declares_and_says_the_same_version() {
     // asking it to judge which commands are long is the thing this
     // project refused and built a program instead of. The discipline
     // reaches the model through the hook, which is the tool speaking.
-    let skill = read("plugin/skills/jbx/SKILL.md");
-    assert!(skill.contains("disable-model-invocation: true"),
-            "the plugin's skill is model-invocable:\n{skill}");
-    // AND IT DEFERS RATHER THAN REPEATS. A second copy of the discipline
-    // is a second copy to keep in step, and the copy is what drifts.
-    assert!(skill.contains("jbx help"), "the skill does not defer to the binary:\n{skill}");
+    // EVERY ONE OF THEM, and `slots` and `after` for a second reason:
+    // a model that may set its own threshold can set it to five minutes
+    // and stop detaching anything, which is the tool switching itself
+    // off to avoid the discipline.
+    for name in ["jbx", "slots", "after"] {
+        let skill = read(&format!("plugin/skills/{name}/SKILL.md"));
+        assert!(skill.contains("disable-model-invocation: true"),
+                "the `{name}` skill is model-invocable:\n{skill}");
+        // AND THEY DEFER RATHER THAN REPEAT. A second copy of anything
+        // is a second copy to keep in step, and the copy is what drifts.
+        assert!(skill.contains(&format!("jbx {}", if name == "jbx" { "help" } else { name })),
+                "the `{name}` skill does not defer to the binary:\n{skill}");
+    }
 
     let monitors: serde_json::Value =
         serde_json::from_str(&read("plugin/monitors/monitors.json")).expect("valid JSON");
@@ -1683,6 +1690,56 @@ fn the_plugin_declares_what_init_declares_and_says_the_same_version() {
     assert!(command.contains("/bin/jbx watch"), "the monitor does not run `jbx watch`: {command}");
     assert!(monitors[0]["name"].is_string() && monitors[0]["description"].is_string(),
             "a monitor wants a name and a description");
+}
+
+#[test]
+fn every_verb_the_dispatcher_answers_is_a_declared_one() {
+    // A VERB THAT WORKS AND IS NOT DECLARED IS INVISIBLE TO EVERY GUARD.
+    //
+    // `jbx after` shipped that way for an hour: the dispatcher answered
+    // it, the flag parser looked it up in the document, found nothing,
+    // and therefore refused EVERY flag — `--json` included — while the
+    // README guard and the `--json` invariant both stayed quiet, because
+    // both start from the document and the document had never heard of
+    // it. Guards that read one list cannot see what is missing from it.
+    //
+    // So this reads the other side: the match arms themselves.
+    let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/bin/jbx.rs"))
+        .expect("the dispatcher");
+    let dispatch = &source[source.find("fn dispatch(").expect("dispatch")..];
+    let dispatch = &dispatch[..dispatch.find("\nfn ").unwrap_or(dispatch.len())];
+
+    let doc: serde_json::Value = serde_json::from_str(
+        text(&Scratch::new("declared").run(&["describe"])).trim(),
+    )
+    .expect("valid JSON");
+    let declared: std::collections::BTreeSet<String> = doc["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap().to_string())
+        .collect();
+
+    let mut undeclared = Vec::new();
+    for line in dispatch.lines() {
+        let line = line.trim_start();
+        // `"verb" => …` and `"a" | "b" => …`, which is how the help and
+        // version aliases are written.
+        let Some(rest) = line.strip_prefix('"') else { continue };
+        let Some((verb, _)) = rest.split_once('"') else { continue };
+        // NOT EVERY ARM IS A VERB. `supervise` is one half of this
+        // binary talking to the other and is deliberately undeclared —
+        // a verb a person can be tempted to type is a verb that will be
+        // typed. The flag aliases are not verbs at all.
+        if verb.is_empty() || verb.starts_with('-') || verb == "supervise" || verb == "help" {
+            continue;
+        }
+        if !declared.contains(verb) {
+            undeclared.push(verb.to_string());
+        }
+    }
+    assert!(undeclared.is_empty(),
+            "the dispatcher answers verbs the document never declares: {undeclared:?}");
 }
 
 #[test]

@@ -245,6 +245,52 @@ fn text_of(node: &Yaml) -> Option<&str> {
     }
 }
 
+/// WRITE ONE SETTING INTO A FILE THAT SOMEBODY ELSE WROTE.
+///
+/// LINE BY LINE, NOT THROUGH A YAML EMITTER. The files this edits are
+/// written fully commented on purpose — their job is to make the
+/// settings findable by reading — and re-emitting the document would
+/// throw every one of those comments away to change one number.
+///
+/// Three shapes, in order: the key already set, the key commented out
+/// (the template's own state), or absent. The commented case keeps
+/// whatever explanation trailed it, because that explanation is why the
+/// file is worth opening.
+///
+/// AND IT ASSERTS BEFORE IT REPLACES. A substitution that matches
+/// nothing says nothing; this returns which of the three happened, so
+/// the caller can tell the user what was actually done.
+pub fn set_in(file: &std::path::Path, key: &str, value: &str) -> std::io::Result<()> {
+    let existing = std::fs::read_to_string(file).unwrap_or_default();
+    let mut done = false;
+    let mut lines: Vec<String> = Vec::new();
+    for line in existing.lines() {
+        let bare = line.trim_start();
+        let commented = bare.strip_prefix('#').map(str::trim_start).unwrap_or(bare);
+        if !done && commented.starts_with(&format!("{key}:")) {
+            // KEEP THE TRAILING EXPLANATION. It is the whole reason a
+            // commented template is worth more than an empty one.
+            let tail = match commented.split_once('#') {
+                Some((_, note)) => format!("   #{note}"),
+                None => String::new(),
+            };
+            lines.push(format!("{key}: {value}{tail}"));
+            done = true;
+            continue;
+        }
+        lines.push(line.to_string());
+    }
+    if !done {
+        lines.push(format!("{key}: {value}"));
+    }
+    if let Some(parent) = file.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut text = lines.join("\n");
+    text.push('\n');
+    std::fs::write(file, text)
+}
+
 /// Seconds a line may hold the caller before it is detached.
 pub fn after() -> (f64, Source) {
     number("JBX_AFTER", "after", 30.0)

@@ -38,10 +38,6 @@ fn slots_dir() -> PathBuf {
     store::dir().join("slots")
 }
 
-fn cap_file() -> PathBuf {
-    slots_dir().join("cap")
-}
-
 /// HOW WIDE THE QUEUE OPENS.
 ///
 /// Half the cores, which is the default the queue this replaces used and
@@ -49,22 +45,17 @@ fn cap_file() -> PathBuf {
 /// throttles it for little, but the caller here is usually an agent, and
 /// an unbounded queue driven by one does not survive a loop that files
 /// fifty jobs. `JBX_SLOTS=none` is one word away.
+/// THE CAP COMES FROM THE CONFIGURATION AND FROM NOWHERE ELSE.
+///
+/// `jbx slots <n>` used to write its own file, which sat between the
+/// environment and the config and was invisible to both. So `jbx slots`
+/// answered 3 while `jbx config` — whose entire job is to say every
+/// value AND WHERE IT CAME FROM — answered 6, `default`. Measured, not
+/// deduced. A state carrying the same name as a setting IS that setting,
+/// copied, and the copy is what drifts.
+///
+/// The verb writes the setting now, so there is one place to read.
 pub fn cap() -> Option<usize> {
-    // `jbx slots <n>` WRITES A FILE, AND THAT FILE SITS BETWEEN THE
-    // ENVIRONMENT AND THE CONFIGURATION: it is a deliberate gesture made
-    // for this machine, so it beats what the config file decided once —
-    // and loses to a variable typed for one run.
-    if let Ok(text) = std::env::var("JBX_SLOTS") {
-        if !text.is_empty() {
-            return crate::config::slots(default_cap()).0;
-        }
-    }
-    if let Ok(text) = fs::read_to_string(cap_file()) {
-        return match text.trim() {
-            "none" | "0" => None,
-            other => other.parse().ok().or(Some(default_cap())),
-        };
-    }
     crate::config::slots(default_cap()).0
 }
 
@@ -74,10 +65,7 @@ pub fn default_cap() -> usize {
         .unwrap_or(2)
 }
 
-pub fn set_cap(value: &str) -> std::io::Result<()> {
-    fs::create_dir_all(slots_dir())?;
-    fs::write(cap_file(), value)
-}
+
 
 /// A slot held for as long as this value lives.
 pub struct Held(Option<PathBuf>);

@@ -104,6 +104,7 @@ fn dispatch(args: Vec<String>) -> i32 {
             _ => usage_error("queue needs an intent and a line: `jbx queue build -- make`"),
         },
         "slots" => with("slots", rest, |f| slots_cmd(f.free.first().map(String::as_str), f)),
+        "after" => with("after", rest, |f| after_cmd(f.free.first().map(String::as_str), f)),
 
         "describe" => with("describe", rest, |_| jobbox::describe::describe()),
         "why" => with("why", rest, why),
@@ -182,6 +183,7 @@ fn usage() -> String {
          \x20 jbx wait <id>         block until it ends, exit with its code\n\
          \x20 jbx kill <id>         stop it, and everything it started\n\
          \x20 jbx slots [n|none]    how many queued jobs may run at once\n\
+         \x20 jbx after [seconds]   how long a line may hold before detaching\n\
          \x20 jbx signals <who>     endings not yet read: agent or user\n\
          \x20 jbx stats [project]   what takes time, per project\n\
          \x20 jbx health            what runs, what is mute, what is stranded\n\
@@ -806,16 +808,64 @@ fn stop(pid: u32, signal: &str) {
 /// It governs `queue` alone. A wrapped line is already running by the
 /// time this tool sees it, so capping those would cap nothing — the
 /// message says so rather than letting a number imply otherwise.
+/// WHERE A SETTING GOES WHEN SOMEBODY SETS ONE.
+///
+/// THE PROJECT'S FILE WHEN THERE IS A PROJECT. Slots and the threshold
+/// are the two things worth changing per repository — a deployment tree
+/// wants a different cut from a crate that builds in four seconds — and
+/// the project file is where the model already says such a thing lives.
+///
+/// ONLY WHERE A PROJECT ACTUALLY BEGINS, though. `project_root` falls
+/// back to the working directory when it finds no marker, and a
+/// `.jbx.yaml` dropped into whatever directory somebody was standing in
+/// is litter, not configuration — the same rule `init` follows. Failing
+/// a project, the global file, and the answer says which was written.
+fn set_setting(key: &str, value: &str) -> i32 {
+    let root = jobbox::config::project_root();
+    let project = root.join(".claude").exists() || root.join(".git").exists();
+    let file = if project { root.join(".jbx.yaml") } else { jobbox::config::path() };
+    match jobbox::config::set_in(&file, key, value) {
+        Ok(()) => {
+            jobbox::outln!("  {key}: {value}");
+            jobbox::outln!("  written to {}", file.display());
+            if !project {
+                jobbox::outln!("  (no project here, so this is the global file)");
+            }
+            0
+        }
+        Err(e) => {
+            eprintln!("jbx: cannot write {}: {e}", file.display());
+            1
+        }
+    }
+}
+
+/// `jbx after [seconds]` — READ IT, OR SET IT FOR THIS PROJECT.
+fn after_cmd(value: Option<&str>, how: &Flags) -> i32 {
+    if let Some(value) = value {
+        match value.trim().parse::<f64>() {
+            Ok(n) if n >= 0.0 => return set_setting("after", &format!("{n:.0}")),
+            _ => {
+                eprintln!("jbx: after takes a number of seconds");
+                return 2;
+            }
+        }
+    }
+    let (secs, from) = jobbox::config::after();
+    Answer(serde_json::json!({ "after": secs, "from": from.as_str() }), 0).show(how, |v| {
+        jobbox::outln!("  {:.0}s before a long line detaches itself", v["after"].as_f64().unwrap_or(0.0));
+        jobbox::outln!("  from {}", text(v, "from"));
+        jobbox::outln!("  `jbx after <seconds>` sets it for this project.");
+    })
+}
+
 fn slots_cmd(value: Option<&str>, how: &Flags) -> i32 {
     if let Some(value) = value {
         if value != "none" && value.parse::<usize>().is_err() {
             eprintln!("jbx: slots takes a number, or `none`");
             return 2;
         }
-        if let Err(e) = slots::set_cap(value) {
-            eprintln!("jbx: cannot write the cap: {e}");
-            return 1;
-        }
+        return set_setting("slots", if value == "none" { "0" } else { value });
     }
     let (busy, cap) = slots::busy();
     Answer(serde_json::json!({ "busy": busy, "cap": cap }), 0).show(how, |v| {

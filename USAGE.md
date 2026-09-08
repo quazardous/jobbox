@@ -20,6 +20,7 @@ jbx wait <id>                  block until it ends, exit with its code
 jbx watch [--all] [--json]     one line per job event, until nothing runs
 jbx kill <id>                  stop it, and everything it started
 jbx slots [n|none]             how many queued jobs may run at once
+jbx after [seconds]            how long a line may hold before detaching
 jbx health                     what runs, what is mute, what is stranded
 jbx clients                    whose endings are still unread
 jbx signals <agent|user>       endings not yet read

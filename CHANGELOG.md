@@ -18,6 +18,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-09-08
+
+### Added
+
+- **`jbx after [seconds]`** — read the threshold and where it came from,
+  or set it for this project. `jbx stats --thresholds` is the evidence
+  for choosing one.
+- **`/jbx:slots` and `/jbx:after`** in the plugin, beside `/jbx:jbx`.
+  User-invoked only, like the façade: a model that may set its own
+  threshold can set it to five minutes and stop detaching anything,
+  which is the tool switching itself off to avoid its own discipline.
+
+### Changed
+
+- **`jbx slots <n>` writes the project's settings instead of a file of
+  its own**, and `jbx after` does the same. Both land in `.jbx.yaml`
+  where a project begins, in the global file otherwise, and say which
+  they wrote. The line is edited rather than the document re-emitted, so
+  the comments that make those files worth opening survive.
+- **The plugin is named `jbx`**, so its skills are `/jbx:…`. The
+  marketplace records the rename.
+
+### Fixed
+
+- **`jbx config` no longer lies about `slots`.** The cap had a third
+  home — a file `jbx slots` wrote, invisible to the configuration — so
+  after `jbx slots 3` the verb answered 3 while `jbx config`, whose
+  entire job is to say every value AND where it came from, answered 6,
+  `default`. Measured. A state carrying the same name as a setting is
+  that setting copied, and the copy is what drifts; there is one place
+  now.
+
 ## [0.11.1] - 2026-09-08
 
 ### Added

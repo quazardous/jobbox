@@ -132,7 +132,7 @@ The hooks, the binary and a background watch, in one thing to install:
 
 ```console
 $ claude plugin marketplace add quazardous/jobbox
-$ claude plugin install jobbox@jobbox
+$ claude plugin install jbx@jobbox
 ```
 
 Installed this way there is nothing to download and nothing to put on
