@@ -17,12 +17,20 @@ acme             12         0      14m    13m52s     8s (1%)
   front          34         4      39m    03m17s   36m (92%)
 
 2h29m saved — command time that ran while the caller was free, 81% of 3h04m.
-`waited` is what you actually stood still for, and `saved` is the rest
-of `elapsed` — it already subtracts the time you gave back to `jbx wait`.
-It cannot see you waiting some other way: a ceiling, not a receipt.
+
+last hour       6 calls ·    1 detached ·   8m12s saved (73%)
+last day       38 calls ·    4 detached ·  40m05s saved (77%)
+all           142 calls ·   11 detached ·   2h29m saved (81%)
 ```
 
 That is one week. Put your own rate on it.
+
+**`detached` is the number that makes the others legible.** Almost every
+call finishes before the cut and was never a candidate to save anything,
+so `calls` alone invites you to divide one by the other and conclude the
+tool is lying. And `saved` is a ceiling rather than a receipt: it is
+command time that ran while you were free, already minus what you handed
+back to `jbx wait`, and it cannot see you waiting some other way.
 
 ---
 
@@ -43,7 +51,11 @@ One binary. Rust, `serde_json`, nothing else. Linux, macOS, Windows.
 
 ```console
 $ curl -fsSL https://raw.githubusercontent.com/quazardous/jobbox/main/install.sh | sh
-$ jbx init                        # declares its hooks, merges safely
+  checksum ok
+  installed ~/.local/bin/jbx
+  jbx 0.10.1
+
+  Declare the hooks now? `jbx init --global-only` [Y/n]
 ```
 
 On Windows:
@@ -53,10 +65,13 @@ irm https://raw.githubusercontent.com/quazardous/jobbox/main/install.ps1 | iex
 ```
 
 It downloads the binary for your machine — under a megabyte, nothing
-compiled, nothing outside your home — and checks it against the sums
-published with the release. `--from-source` builds a checkout instead,
-`--uninstall` removes it, `--version=vX.Y.Z` pins one. The
-[releases](https://github.com/quazardous/jobbox/releases) hold the
+compiled, nothing outside your home — checks it against the sums
+published with the release, puts it on your `PATH`, and **asks** before
+declaring its hooks: they go in a settings file other tools share, so
+that is a question and not an assumption. With no terminal to ask at, it
+prints the line instead. `--from-source` builds a checkout,
+`--uninstall` removes everything it added, `--version=vX.Y.Z` pins one.
+The [releases](https://github.com/quazardous/jobbox/releases) hold the
 archives if you would rather do it by hand.
 
 Open a new session. Nothing changes — until something is slow:
@@ -75,6 +90,11 @@ The build output arrived **as it was written**, not replayed at the end.
 When it finishes, the model is told on its next turn and you are told
 when the session stops — a failure holds the session open and points at
 the log.
+
+**And if there is nothing else to do, do not poll.** `jbx wait <id>`
+ends exactly when the job does, so run it in the background and let its
+ending wake you; `jbx watch` streams one line per job as they end, for
+anything watching several. Polling is waiting with extra steps.
 
 ## The one judgement left to make
 

@@ -13,13 +13,20 @@ the [README](README.md) and is the same everywhere.
 
 ```powershell
 irm https://raw.githubusercontent.com/quazardous/jobbox/main/install.ps1 | iex
-jbx init
 ```
 
 It downloads the binary for your machine, checks it against the sum
-published with the release, puts it in `%LOCALAPPDATA%\jbx\bin`, and adds
-that directory to your `PATH` — this window included, so `jbx init` on
-the next line works without opening a new terminal.
+published with the release, puts it in `%LOCALAPPDATA%\jbx\bin`, adds
+that directory to your `PATH` — this window included — and then **asks**:
+
+```
+  Declare the hooks now? `jbx init --global-only` [Y/n]
+```
+
+It asks rather than assuming, because `jbx init` edits a settings file
+other tools share. Declining leaves the binary installed and `jbx init`
+is there whenever you want it. With no console to ask at, it prints the
+line instead.
 
 To pass an option through the pipe, PowerShell wants the scriptblock
 form:
