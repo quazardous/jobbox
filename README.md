@@ -44,6 +44,23 @@ finds out.
 
 One binary. Rust, `serde_json`, nothing else. Linux, macOS, Windows.
 
+## Five agent CLIs
+
+```console
+$ jbx hook --list
+claude   Bash                 PreToolUse   ~/.claude/settings.json
+gemini   run_shell_command    BeforeTool   ~/.gemini/settings.json
+droid    Execute              PreToolUse   declare by hand
+cursor   Shell                preToolUse   declare by hand  (no unasked endings)
+copilot  bash                 preToolUse   declare by hand
+```
+
+They agree on almost nothing — not the name of the shell tool, not the
+event, not the shape of the answer, not the file it is declared in.
+`jbx init` handles the first two; the rest take one block of JSON, and
+**[CLI-AI.md](CLI-AI.md) has the exact block for each**, along with the
+two it deliberately does not support and why.
+
 ## Install
 
 As a Claude Code plugin — the hooks, the binary and a background watch in
@@ -112,6 +129,8 @@ runs without ever letting go, and `jbx gain` counts what that cost.
 
 - **[USAGE.md](USAGE.md)** — every verb, every setting, how `saved` is
   counted and why it is a ceiling, and what was deliberately left out.
+- **[CLI-AI.md](CLI-AI.md)** — every agent CLI jbx answers, what to paste
+  where, and the two it leaves alone.
 - **[WINDOWS.md](WINDOWS.md)** — Smart App Control, which shell runs your
   commands, and the two things that differ there.
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — what belongs in a test, and

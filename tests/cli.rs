@@ -934,7 +934,10 @@ fn every_verb_in_the_readme_exists() {
     // BOTH DOCUMENTS, because the verbs moved. The README is the pitch
     // and USAGE.md is the reference; a verb named in either is named,
     // and a verb named in neither is the failure this guard exists for.
-    let readme = ["/README.md", "/USAGE.md"]
+    // AND `CLI-AI.md`, which names verbs in fenced blocks like the other
+    // two. A document left out of this list drifts silently, and this one
+    // is the page somebody follows while wiring a client by hand.
+    let readme = ["/README.md", "/USAGE.md", "/CLI-AI.md"]
         .iter()
         .map(|f| {
             std::fs::read_to_string(format!("{}{f}", env!("CARGO_MANIFEST_DIR"))).unwrap()
