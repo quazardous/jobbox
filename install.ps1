@@ -97,10 +97,23 @@ $CertSubject = 'CN=jbx local install'
 function Remove-LocalTrust {
     param([switch]$Quiet)
     $gone = 0
+    # -DeleteKey, AND IT IS NOT DECORATION. `Remove-Item` in the Cert:
+    # drive deletes the certificate and LEAVES THE PRIVATE KEY ON DISK
+    # unless told otherwise -- so every version before this one uninstalled
+    # the visible half and kept the dangerous half. The key only ever lives
+    # in My; Root and TrustedPublisher hold public copies.
+    #
+    # `-Force` used to be here and did nothing: that drive supports only
+    # DeleteKey, Path, WhatIf and Confirm, and IGNORES every other
+    # parameter in silence.
     foreach ($store in @('Cert:\CurrentUser\My', 'Cert:\CurrentUser\Root', 'Cert:\CurrentUser\TrustedPublisher')) {
+        $key = $store -eq 'Cert:\CurrentUser\My'
         Get-ChildItem $store -ErrorAction SilentlyContinue |
             Where-Object { $_.Subject -eq $CertSubject } |
-            ForEach-Object { Remove-Item $_.PSPath -Force -ErrorAction SilentlyContinue; $gone++ }
+            ForEach-Object {
+                Remove-Item $_.PSPath -DeleteKey:$key -ErrorAction SilentlyContinue
+                $gone++
+            }
     }
     if ($gone -and -not $Quiet) { Say "removed the local signing certificate." }
 }
@@ -131,7 +144,29 @@ function Add-LocalTrust {
         Say "If you declined the confirmation, run it again and accept it."
         return $false
     }
+    # THE KEY HAS DONE ITS ONE JOB, SO IT STOPS EXISTING.
+    #
+    # Left in CurrentUser\My it is a standing capability: anything running
+    # as you could sign anything, and this machine would believe it -- which
+    # is the exact power Smart App Control exists to withhold. Signing needs
+    # the key once. VERIFYING NEVER DOES: Authenticode carries the public
+    # certificate inside the file, and the chain is walked against Root,
+    # where the public copy stays.
+    #
+    # AND THAT CLAIM IS MEASURED RATHER THAN ASSERTED -- the signature is
+    # re-checked after the key is gone. If the reasoning above were wrong,
+    # this says so here instead of shipping something nobody can verify.
+    Get-ChildItem Cert:\CurrentUser\My -ErrorAction SilentlyContinue |
+        Where-Object { $_.Subject -eq $CertSubject } |
+        ForEach-Object { Remove-Item $_.PSPath -DeleteKey -ErrorAction SilentlyContinue }
+    $after = (Get-AuthenticodeSignature $Exe).Status
+    if ($after -ne 'Valid') {
+        Say "the signature stopped verifying once the signing key was destroyed ($after)."
+        Say "Run ``.\install.ps1 -TrustLocally`` again -- it starts from a fresh certificate."
+        return $false
+    }
     Say "signed, and the certificate is trusted."
+    Say "the signing key was destroyed: it signed once, and cannot sign again."
     return $true
 }
 

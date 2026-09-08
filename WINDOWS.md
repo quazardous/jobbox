@@ -99,21 +99,34 @@ beside it matches, and you can check it yourself.
 
 But a root certificate you trust can vouch for anything signed with it,
 so an installer that adds one without being told to is the exact thing
-this control exists to stop. Four things keep it honest:
+this control exists to stop. Five things keep it honest:
 
+- **the signing key is destroyed the moment it has signed.** It exists
+  for one file and one call, and the installer checks the signature
+  again after destroying it — verification needs the public certificate
+  inside the binary, never the key. Left behind, that key would let
+  anything running as you sign anything and be believed, which is the
+  very power this control withholds;
 - the certificate carries the code-signing use and no other;
 - it is named `jbx local install`, so you can find it in
   `certmgr.msc`;
 - Windows asks you to confirm before it goes into your trust store —
   that prompt is the point, not an obstacle;
-- `.\install.ps1 -Uninstall` takes it back out.
+- `.\install.ps1 -Uninstall` takes the certificate back out — and, since
+  this version, any key an older install left behind with it.
 
 None of that makes it free. It makes it yours to decide, which is why it
 is a flag and not something the script does on your behalf when a launch
 fails.
 
-**When there is a real certificate this page gets shorter**, and
-`-TrustLocally` stops being needed.
+**A real certificate will not shorten this page as fast as it sounds.**
+Signing gives a trust chain, not an accepted binary: Smart App Control
+also weighs reputation, and reputation is built from download history a
+niche tool does not have. The old shortcut is gone too — EV certificates
+stopped conferring reputation on sight in 2024, and the managed service
+Microsoft points developers to does not issue EV at all. So a bought
+signature is the beginning of a slow climb, not a switch, and
+`-TrustLocally` stays useful for longer than we would like.
 
 [sac]: https://support.microsoft.com/en-us/topic/what-is-smart-app-control-285ea03d-fa88-4d56-882e-6698afdb7003
 
