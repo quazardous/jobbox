@@ -24,10 +24,10 @@ jbx after [seconds]            how long a line may hold before detaching
 jbx health                     what runs, what is mute, what is stranded
 jbx clients                    whose endings are still unread
 jbx signals <agent|user>       endings not yet read
-jbx stats [project]            how much time was saved
-jbx stats --thresholds         … and whether 30s is the right cut
-jbx stats --since 1h|24h|all   … over a window rather than everything kept
-jbx stats --project-path       … with full paths instead of names
+jbx gain [project]             what the wrapping bought, and what it cost
+jbx gain --thresholds          … and whether 30s is the right cut
+jbx gain --since 1h|24h|all    … over a window rather than everything kept
+jbx gain --project-path        … with full paths instead of names
 jbx config                     every setting, and where it came from
 jbx help [id]                  the way in: every verb, or one job
 jbx how                        the gestures: what to do, and when
@@ -137,7 +137,7 @@ session:
 
 Almost always, no: let it run, and jbx hands the shell back if it drags.
 When the answer is yes, say so — `jbx fg -- '<line>'` runs without ever
-letting go, and `jbx stats` counts what that cost. A habit of reaching
+letting go, and `jbx gain` counts what that cost. A habit of reaching
 for it becomes visible instead of invisible.
 
 Changed your mind halfway? `jbx fg <id>` picks a detached job back up:

@@ -142,7 +142,7 @@ pub const VERBS: &[Verb] = &[
     Verb { name: "tail", summary: "what a job printed", tags: &["read"],
         effect: "reads; `-f` blocks until the job ends",
         flags: &[("-f", "keep printing until the job ends")] },
-    Verb { name: "stats", summary: "how much time was saved", tags: &["read"],
+    Verb { name: "gain", summary: "what the wrapping bought, and what it cost", tags: &["read"],
         effect: "reads",
         flags: &[("--json", "answer as JSON rather than as a table"),
                  ("--project-path", "full paths instead of names"),

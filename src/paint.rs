@@ -57,3 +57,23 @@ pub fn by_ratio(ratio: f64, text: &str) -> String {
 pub fn alarm(text: &str) -> String {
     wrap("31", text)
 }
+
+/// A BAR, BECAUSE A COLUMN OF NUMBERS HIDES ITS OWN SHAPE.
+///
+/// Nine rows where one matters read faster as lengths than as digits —
+/// the eye compares bars without being asked to. `part` is a fraction of
+/// the whole, not a value, so every bar on a page shares one scale and
+/// the longest one is the one to look at.
+///
+/// IT IS COLOURED BY WHAT IT MEANS, on the same scale as the number
+/// beside it, so the two never disagree. Without colour it still reads:
+/// filled and unfilled blocks differ in shape, not only in hue, which is
+/// what makes it survive a pipe, a monochrome terminal, and a reader who
+/// does not see red and green apart.
+pub fn meter(part: f64, width: usize) -> String {
+    let filled = (part.clamp(0.0, 1.0) * width as f64).round() as usize;
+    by_ratio(
+        part,
+        &format!("{}{}", "█".repeat(filled), "░".repeat(width.saturating_sub(filled))),
+    )
+}

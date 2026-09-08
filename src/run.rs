@@ -318,7 +318,7 @@ pub fn supervise(id: &str, after: f64, queued: bool, fg: bool, line: &str) -> i3
         }
     };
     let took = store::now() - began;
-    crate::stats::record(&crate::stats::fingerprint(line), took, after, fg, code);
+    crate::gain::record(&crate::gain::fingerprint(line), took, after, fg, code);
     // ONLY A DETACHED JOB IS ANNOUNCED, and `took > after` is exactly
     // that — no coordination with the front needed, which is the point:
     // asking it would mean a handshake with a process that has already
@@ -451,7 +451,7 @@ fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>) -> i32 {
         return 2;
     }
     store::forget_older_than(24.0);
-    crate::stats::forget_older_than(90.0);
+    crate::gain::forget_older_than(90.0);
 
     let id = store::mint();
     let log = store::log_path(&id);
@@ -510,7 +510,7 @@ fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>) -> i32 {
         started: store::now(),
         client: store::client(),
         cwd: std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default(),
-        project: crate::stats::project().1,
+        project: crate::gain::project().1,
     };
     // WRITTEN NOW AND NOT AT DETACHMENT, so that a front process killed
     // by a harness timeout still leaves something findable behind. It is
@@ -819,7 +819,7 @@ pub fn queue(intent: &str, line: &str) -> i32 {
         started: store::now(),
         client: store::client(),
         cwd: std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default(),
-        project: crate::stats::project().1,
+        project: crate::gain::project().1,
     };
     let _ = store::write_record(&record);
     // THE ID FIRST AND ALONE ON ITS LINE: it is what every other verb
@@ -852,7 +852,7 @@ pub fn queue(intent: &str, line: &str) -> i32 {
 /// THE DELIBERATE FOREGROUND. Everything else here exists to stop a
 /// caller standing still; this is how a caller says "I have thought
 /// about it, and I need the answer before I can go on". Saying it out
-/// loud is the point: `jbx stats` counts what it cost, so a habit of
+/// loud is the point: `jbx gain` counts what it cost, so a habit of
 /// reaching for it shows up as time that was never saved.
 pub fn foreground(line: &str, intent: Option<&str>) -> i32 {
     run_inner(f64::INFINITY, line, true, intent)
@@ -906,7 +906,7 @@ pub fn attach(id: &str) -> i32 {
             }
         }
     };
-    crate::stats::record_wait(store::now() - began);
+    crate::gain::record_wait(store::now() - began);
     code
 }
 

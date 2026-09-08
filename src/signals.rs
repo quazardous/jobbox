@@ -23,7 +23,7 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
-use crate::{stats, store};
+use crate::{gain, store};
 
 /// Who is told: the model, and the person.
 pub const AUDIENCES: [&str; 2] = ["agent", "user"];
@@ -136,7 +136,7 @@ pub fn client() -> String {
     // NO SESSION: a plain shell. Two terminals in one project then share
     // a mailbox, which is right — the person wants every ending, and the
     // shared box already works that way.
-    let (project, _) = stats::project();
+    let (project, _) = gain::project();
     let project: String = project
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || "._-".contains(*c))
@@ -364,7 +364,7 @@ pub fn discipline() -> i32 {
     outln!("      Polling is waiting with extra steps; with nothing else to do, run");
     outln!("      `jbx wait <id>` as a BACKGROUND command and its ending wakes you.");
     outln!("      Genuinely cannot go on without a result? Say so: `jbx fg -- '<line>'`");
-    outln!("      never lets go, and `jbx stats` counts what that cost.");
+    outln!("      never lets go, and `jbx gain` counts what that cost.");
     0
 }
 

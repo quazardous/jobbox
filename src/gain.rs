@@ -184,6 +184,10 @@ pub fn project() -> (String, String) {
 }
 
 fn table_path() -> PathBuf {
+    // THE FILE KEEPS ITS OLD NAME ON PURPOSE. The verb became `gain`;
+    // renaming the ledger with it would orphan every reading already
+    // taken, and a measurement tool that loses its measurements to a
+    // rename is worse than one with a slightly stale filename.
     store::dir().join("stats.jsonl")
 }
 
@@ -457,13 +461,41 @@ fn human(secs: f64) -> String {
     }
 }
 
+/// WHAT A CELL OCCUPIES ON SCREEN, which is not what it contains.
+///
+/// A coloured cell carries escape sequences that take no width — and
+/// they are not even a fixed size: `\x1b[2m` is four characters where
+/// `\x1b[32m` is five. Measuring the raw string pads a dim row one
+/// column further than a green one.
+///
+/// THAT WAS INVISIBLE WHILE THE COLOURED COLUMN CAME LAST, because a
+/// stagger needs something after it to push. Adding a bar beside `saved`
+/// is what made it show, one column of drift between rows that differed
+/// only in how well they had done.
+fn visible(text: &str) -> usize {
+    let mut width = 0;
+    let mut escaping = false;
+    for c in text.chars() {
+        if escaping {
+            escaping = c != 'm';
+        } else if c == '\x1b' {
+            escaping = true;
+        } else {
+            width += 1;
+        }
+    }
+    width
+}
+
 fn row(cells: &[String], widths: &[usize]) -> String {
     let mut out = String::new();
     for (i, cell) in cells.iter().enumerate() {
         if i + 1 == cells.len() {
             let _ = write!(out, "{cell}");
         } else {
-            let _ = write!(out, "{:<width$}  ", cell, width = widths[i]);
+            // PADDED BY HAND, because `{:<width$}` counts the escapes too.
+            let pad = widths[i].saturating_sub(visible(cell));
+            let _ = write!(out, "{cell}{}  ", " ".repeat(pad));
         }
     }
     // NO TRAILING SPACE. A column that is empty on most rows — the mark
@@ -473,10 +505,10 @@ fn row(cells: &[String], widths: &[usize]) -> String {
 }
 
 fn print_table(headings: &[&str], rows: Vec<Vec<String>>) {
-    let mut widths: Vec<usize> = headings.iter().map(|h| h.chars().count()).collect();
+    let mut widths: Vec<usize> = headings.iter().map(|h| visible(h)).collect();
     for r in &rows {
         for (i, c) in r.iter().enumerate() {
-            widths[i] = widths[i].max(c.chars().count());
+            widths[i] = widths[i].max(visible(c));
         }
     }
     outln!("{}", row(&headings.iter().map(|h| h.to_string()).collect::<Vec<_>>(), &widths));
@@ -485,7 +517,7 @@ fn print_table(headings: &[&str], rows: Vec<Vec<String>>) {
     }
 }
 
-/// `jbx stats` — HOW MUCH TIME WAS COMPRESSED, per project.
+/// `jbx gain` — WHAT THE WRAPPING BOUGHT, per project.
 ///
 /// The one number this tool is for. `elapsed` is what the lines really
 /// took; `waited` is what the caller stood through. The difference is
@@ -693,6 +725,40 @@ fn replay(readings: &[Reading]) -> Value {
         .into()
 }
 
+/// THE ANSWER BEFORE THE EVIDENCE.
+///
+/// The table says what happened per project; this says whether the tool
+/// is worth having, in the six numbers somebody actually came for. It
+/// used to be a sentence UNDER the table, which meant the headline was
+/// read last, after nine rows of detail nobody asked for first.
+///
+/// DETACHED SITS SECOND ON PURPOSE. `saved` is unreadable without it: a
+/// wrapper that detached nothing saved nothing, and that is a fact about
+/// the commands, not a fault in the tool. Seeing the two together is
+/// what stops a low percentage from looking like a broken program.
+fn headline(total: &Value, v: &Value) {
+    let calls = total["calls"].as_u64().unwrap_or(0);
+    let detached = total["detached"].as_u64().unwrap_or(0);
+    let ratio = num(total, "ratio");
+    let cut = if calls > 0 { detached as f64 / calls as f64 } else { 0.0 };
+    let scope = match v["since"].as_f64() {
+        Some(_) => "in this window",
+        None => "since the beginning",
+    };
+    outln!("{}", crate::paint::dim(&format!("jbx gain — {scope}")));
+    outln!();
+    outln!("  commands wrapped   {calls:>9}");
+    outln!("  of those, detached {detached:>9}  {}",
+        crate::paint::dim(&format!("({:.1}% of them)", cut * 100.0)));
+    outln!("  they took          {:>9}", human(num(total, "elapsed")));
+    outln!("  you stood still    {:>9}", human(num(total, "waited")));
+    outln!("  given back         {:>9}  {}  {}",
+        human(num(total, "saved")),
+        crate::paint::meter(ratio, 24),
+        crate::paint::by_ratio(ratio, &format!("{:.1}%", ratio * 100.0)));
+    outln!();
+}
+
 /// THE TABLE, READ OFF THE VALUE ABOVE.
 pub fn render(v: &Value, full_path: bool, thresholds: bool) {
     if thresholds {
@@ -705,8 +771,13 @@ pub fn render(v: &Value, full_path: bool, thresholds: bool) {
     }
     let total = &v["total"];
     if v["scope"] == "all" {
+        headline(total, v);
+        // THE TALLEST BAR IS THE SCALE. Against the grand total most
+        // rows would be a sliver, and a column of slivers ranks nothing;
+        // against the biggest row, the shape of the distribution shows.
+        let tallest = rows.iter().map(|r| num(r, "saved")).fold(0.0_f64, f64::max);
         print_table(
-            &["project", "calls", "detached", "elapsed", "waited", "saved"],
+            &["project", "calls", "detached", "elapsed", "waited", "saved", "impact"],
             rows.iter()
                 .map(|r| {
                     let shown = if full_path {
@@ -727,6 +798,10 @@ pub fn render(v: &Value, full_path: bool, thresholds: bool) {
                         crate::paint::by_ratio(
                             num(r, "ratio"),
                             &format!("{} ({:.0}%)", human(num(r, "saved")), num(r, "ratio") * 100.0),
+                        ),
+                        crate::paint::meter(
+                            if tallest > 0.0 { num(r, "saved") / tallest } else { 0.0 },
+                            10,
                         ),
                     ]
                 })
@@ -793,16 +868,19 @@ pub fn render(v: &Value, full_path: bool, thresholds: bool) {
             "the right number; name a project to see its shapes."));
         return;
     }
+    let tallest = rows.iter().map(|r| num(r, "saved")).fold(0.0_f64, f64::max);
     print_table(
-        &["shape", "calls", "detached", "worst", "saved"],
+        &["shape", "calls", "detached", "worst", "saved", "impact"],
         rows.iter()
             .map(|r| {
+                let share = if tallest > 0.0 { num(r, "saved") / tallest } else { 0.0 };
                 vec![
                     r["shape"].as_str().unwrap_or("").to_string(),
                     r["calls"].to_string(),
                     r["detached"].to_string(),
                     human(num(r, "worst")),
                     human(num(r, "saved")),
+                    crate::paint::meter(share, 10),
                 ]
             })
             .collect(),
@@ -853,7 +931,7 @@ fn show_thresholds(v: &Value) {
             .collect(),
     );
     outln!();
-    outln!("EVERY NUMBER HERE IS A CONDITIONAL. `jbx stats` says what was saved;");
+    outln!("EVERY NUMBER HERE IS A CONDITIONAL. `jbx gain` says what was saved;");
     outln!("this says what each cut WOULD have saved, replayed on the same lines —");
     outln!("every reading holds the duration the line really took, so it is a");
     outln!("counterfactual and not a prediction. It will not match the table next");

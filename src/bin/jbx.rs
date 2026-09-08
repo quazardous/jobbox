@@ -12,7 +12,7 @@
 
 use std::io::Write;
 
-use jobbox::{default_after, hook, init, run, signals, slots, stats, store, tail};
+use jobbox::{default_after, gain, hook, init, run, signals, slots, store, tail};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -116,13 +116,13 @@ fn dispatch(args: Vec<String>) -> i32 {
             Some(audience) => signals::signals(audience, how.json, how.client.as_deref()),
             None => usage_error("signals needs an audience: agent or user"),
         }),
-        "stats" => with("stats", rest, |how| match stats::measure(
+        "gain" => with("gain", rest, |how| match gain::measure(
             how.free.first().map(String::as_str),
             how.since,
         ) {
             Err(code) => code,
             Ok(v) => Answer(v, 0).show(how, |v| {
-                stats::render(v, how.project_path, how.thresholds)
+                gain::render(v, how.project_path, how.thresholds)
             }),
         }),
         "init" => with("init", rest, |how| init::init(how.undo, how.global_only)),
@@ -186,7 +186,7 @@ fn usage() -> String {
          \x20 jbx slots [n|none]    how many queued jobs may run at once\n\
          \x20 jbx after [seconds]   how long a line may hold before detaching\n\
          \x20 jbx signals <who>     endings not yet read: agent or user\n\
-         \x20 jbx stats [project]   what takes time, per project\n\
+         \x20 jbx gain [project]   what the wrapping bought, and cost\n\
          \x20 jbx health            what runs, what is mute, what is stranded\n\
          \x20 jbx clients           whose endings are still unread\n\
          \x20 jbx config            every setting, and where it came from\n\
@@ -342,7 +342,7 @@ impl Flags {
                 "--global-only" => flags.global_only = true,
                 "--project-path" => flags.project_path = true,
                 "--thresholds" => flags.thresholds = true,
-                "--since" => match value().as_deref().map(jobbox::stats::window) {
+                "--since" => match value().as_deref().map(jobbox::gain::window) {
                     Some(Some(span)) => flags.since = span,
                     _ => {
                         return Err(usage_error(
@@ -443,7 +443,7 @@ fn listing(only_alive: bool, how: &Flags) -> i32 {
     // own. The scope is the PROJECT and not the session: two Claude
     // Codes open on one directory are working on the same thing, and
     // scoping by session would blind each to half of it.
-    let me = jobbox::stats::project().1;
+    let me = jobbox::gain::project().1;
     let alive = |r: &store::Record| {
         matches!(store::state_of(r), store::State::Queued | store::State::Running { .. })
     };
@@ -715,11 +715,11 @@ fn wait(id: &str) -> i32 {
             // and a tool that forgot to subtract it would report its own
             // good intentions as a result.
             store::State::Finished { code } => {
-                stats::record_wait(store::now() - began);
+                gain::record_wait(store::now() - began);
                 return code;
             }
             store::State::Lost => {
-                stats::record_wait(store::now() - began);
+                gain::record_wait(store::now() - began);
                 eprintln!("jbx: {id} ended without leaving an exit code");
                 return 1;
             }
@@ -1001,7 +1001,7 @@ fn config(how: &Flags) -> i32 {
         Some(n) if n > 0 => format!("{n} queued jobs at once"),
         _ => "no cap".to_string(),
     };
-    let (project, path) = jobbox::stats::project();
+    let (project, path) = jobbox::gain::project();
     let shell = match jobbox::run::shell_program() {
         jobbox::run::Shell::Posix(p) => format!("{p} -c"),
         jobbox::run::Shell::Cmd => "cmd /C".into(),
@@ -1162,7 +1162,7 @@ WHEN YOU REALLY CANNOT GO ON WITHOUT THE RESULT
       jbx fg -- '<line>'       never lets go
       jbx fg <id>              bring a detached job back to the front
 
-  It is counted, so the habit stays visible. `jbx stats` says what it cost.
+  It is counted, so the habit stays visible. `jbx gain` says what it cost.
 
 WHEN THE WORK HAS NOT STARTED YET
   A line already running cannot be held back. Work you are ABOUT to file
@@ -1175,7 +1175,7 @@ READING WHAT HAPPENED
       jbx ps                   what is running, here
       jbx status <id>          state, exit code, where its log is
       jbx tail <id> [-f]       what it printed
-      jbx stats                what takes time — a ceiling, not a receipt
+      jbx gain                what takes time — a ceiling, not a receipt
 
   `jbx help` is the map. `jbx why` is the reasoning behind all of this.";
     Answer(serde_json::json!({ "text": text }), 0)
@@ -1220,7 +1220,7 @@ WHY THERE ARE TWO DOORS
   start fifty at once. It is also the only place a name is required.
 
 WHAT THE NUMBER MEANS
-  `jbx stats` says how much time was SAVED — and it means time that ran
+  `jbx gain` says how much time was SAVED — and it means time that ran
   while you were free, not time that vanished. It already subtracts what
   you handed back to `jbx wait`, which is the honest half most tools skip.
 
@@ -1324,7 +1324,7 @@ Answer(
 /// `cd <root> &&`, `timeout <n>`, `rtk proxy` — because that is forty
 /// characters of identical preamble standing where the difference
 /// between two jobs should be. THE FINGERPRINT KEEPS THEM: what is
-/// dropped here is reading room, and stats must still group on what ran.
+/// dropped here is reading room, and `gain` must still group on what ran.
 /// HOW LONG AGO IT STARTED, which is the one instant every record
 /// holds. A finished job otherwise carried no time at all: `finished
 /// exit 0` reads the same for something that ended a minute ago and
@@ -1359,7 +1359,7 @@ fn shown_line(r: &store::Record, how: &Flags, width: usize) -> String {
     if how.full {
         return r.command.replace('\n', " ");
     }
-    cut(&jobbox::stats::without_preamble(&r.command).replace('\n', " "), width)
+    cut(&jobbox::gain::without_preamble(&r.command).replace('\n', " "), width)
 }
 
 /// Shorten to a column, and SAY SO with an ellipsis rather than stopping

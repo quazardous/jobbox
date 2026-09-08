@@ -9,5 +9,5 @@ Run `jbx after $ARGUMENTS` and show what it prints.
 With nothing, it reports the threshold and where that value came from.
 With a number of seconds, it writes it into this project's `.jbx.yaml`.
 
-`jbx stats --thresholds` is the evidence for choosing one: it replays
+`jbx gain --thresholds` is the evidence for choosing one: it replays
 what every other cut would have cost on the lines already measured.

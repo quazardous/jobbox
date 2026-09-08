@@ -9,7 +9,7 @@ disable-model-invocation: true
 Run `jbx help $ARGUMENTS` and show what it prints.
 
 With a job id, that is the page for that job. With nothing, it is every
-verb. Answer any follow-up from `jbx why`, `jbx stats` or `jbx status
+verb. Answer any follow-up from `jbx why`, `jbx gain` or `jbx status
 <id>` rather than from memory — the binary installed here is the only
 thing that knows its own version.
 

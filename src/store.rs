@@ -144,8 +144,8 @@ fn was_derived(command: &str, stored: &str) -> bool {
     let command = flat(command);
     [
         command.as_str(),
-        crate::stats::without_leading_cd(&command),
-        crate::stats::without_preamble(&command),
+        crate::gain::without_leading_cd(&command),
+        crate::gain::without_preamble(&command),
     ]
     .iter()
     .any(|shape| shape.starts_with(&head))
@@ -162,7 +162,7 @@ pub fn intent_of(line: &str) -> String {
     // proxy` besides, so the first four words named the envelope —
     // `cd /home/…/bms && t…`, then `timeout 300 rtk proxy`. Neither says
     // what is running.
-    let line = crate::stats::without_preamble(line);
+    let line = crate::gain::without_preamble(line);
     let short: String = line.split_whitespace().take(4).collect::<Vec<_>>().join(" ");
     if short.chars().count() > 58 {
         short.chars().take(57).collect::<String>() + "…"

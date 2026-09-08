@@ -37,7 +37,7 @@ fn moment(state: &State) -> String {
 }
 
 pub fn watch(all: bool, as_json: bool) -> i32 {
-    let me = crate::stats::project().1;
+    let me = crate::gain::project().1;
     let mut seen: BTreeMap<String, String> = BTreeMap::new();
     let mut first = true;
     loop {

@@ -10,11 +10,19 @@ No single wait is worth stopping for. **It is their sum that costs**, and
 the sum is invisible until something counts it.
 
 ```console
-$ jbx stats
-project      calls  detached  elapsed  waited  saved
-acme             12         0      14m    13m52s     8s (1%)
-  api            96         7    2h11m   18m03s  1h53m (86%)
-  front          34         4      39m    03m17s   36m (92%)
+$ jbx gain
+jbx gain — since the beginning
+
+  commands wrapped         142
+  of those, detached        11  (7.7% of them)
+  they took              3h04m
+  you stood still       35m12s
+  given back             2h29m  ███████████████████░░░░░  81.0%
+
+project  calls  detached  elapsed  waited  saved         impact
+acme     142    11        3h04m    35m12s  2h29m (81%)   ██████████
+  api    96     7         2h11m    18m03s  1h53m (86%)   ████████░░
+  front  34     4         39m      3m17s   36m (92%)     ██░░░░░░░░
 
 last hour       6 calls ·    1 detached ·   8m12s saved (73%)
 last day       38 calls ·    4 detached ·  40m05s saved (77%)
@@ -98,7 +106,7 @@ smaller one:
 > Do you need this result **before you can do anything else**?
 
 Almost always, no. When the answer is yes, say so — `jbx fg -- '<line>'`
-runs without ever letting go, and `jbx stats` counts what that cost.
+runs without ever letting go, and `jbx gain` counts what that cost.
 
 ## The rest
 

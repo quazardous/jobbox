@@ -481,7 +481,7 @@ fn readings(s: &Scratch) -> Vec<serde_json::Value> {
 
 #[test]
 fn every_line_leaves_a_reading_even_the_short_ones() {
-    let s = Scratch::new("stats");
+    let s = Scratch::new("gain");
     s.run(&["run", "--", "echo one"]);
     s.run(&["run", "--", "echo two"]);
     // A SHORT LINE LEAVES NO JOB BEHIND but it did take time, and time
@@ -538,7 +538,7 @@ fn waiting_on_a_job_is_not_counted_as_time_saved() {
         .sum();
     assert!(blocks > 1.0, "the block was not written down: {blocks}");
 
-    let shown = text(&s.run(&["stats"]));
+    let shown = text(&s.run(&["gain"]));
     // Elapsed is ~6s; one line gave back ~2s, the other gave back ~2s and
     // then took it straight back. So the headline must be nearer 2s than
     // 4s — the exact figure moves with the machine, the halving does not.
@@ -558,7 +558,7 @@ fn waiting_on_a_job_is_not_counted_as_time_saved() {
 fn stats_group_by_project() {
     let s = Scratch::new("byproject");
     s.run(&["run", "--", "echo x"]);
-    let shown = text(&s.run(&["stats"]));
+    let shown = text(&s.run(&["gain"]));
     assert!(shown.contains("project"), "no heading: {shown}");
     assert!(shown.contains("saved"), "the number the tool exists for is missing");
 }
@@ -984,7 +984,7 @@ fn two_projects_sharing_a_name_are_not_one_project() {
     run_from(&s, &s.0.join("alpha/api"), "echo a");
     run_from(&s, &s.0.join("beta/api"), "echo b");
 
-    let shown = text(&s.run(&["stats"]));
+    let shown = text(&s.run(&["gain"]));
     let rows: Vec<&str> = shown.lines().filter(|l| l.contains("api")).collect();
     // SUMMING THEM MADE ONE ROW whose every number was the total of two
     // unrelated things. Two directories called `api` are two projects.
@@ -1001,7 +1001,7 @@ fn a_project_inside_a_project_is_shown_inside_it() {
     run_from(&s, &outer, "echo outer");
     run_from(&s, &outer.join("tool"), "echo inner");
 
-    let shown = text(&s.run(&["stats"]));
+    let shown = text(&s.run(&["gain"]));
     let outer_line = shown.lines().position(|l| l.contains("outer")).unwrap();
     let inner_line = shown.lines().position(|l| l.trim_start().starts_with("tool")).unwrap();
     // A REPOSITORY INSIDE A REPOSITORY IS THE ORDINARY CASE — a tool
@@ -1018,7 +1018,7 @@ fn a_project_inside_a_project_is_shown_inside_it() {
 fn project_path_shows_the_road_when_asked() {
     let s = Scratch::new("paths");
     run_from(&s, &s.0.join("here"), "echo x");
-    let shown = text(&s.run(&["stats", "--project-path"]));
+    let shown = text(&s.run(&["gain", "--project-path"]));
     assert!(shown.contains(&s.0.join("here").display().to_string()),
             "the full path was not shown:\n{shown}");
 }
@@ -1517,7 +1517,7 @@ fn stats_can_be_asked_for_a_window_and_never_colours_a_pipe() {
 
     // A WINDOW IS A FILTER, and `all` is the one that filters nothing.
     let calls = |args: &[&str]| -> u64 {
-        let mut all = vec!["stats", "--json"];
+        let mut all = vec!["gain", "--json"];
         all.extend_from_slice(args);
         let out = text(&s.run(&all));
         let v: serde_json::Value = serde_json::from_str(out.trim()).expect("valid JSON");
@@ -1529,23 +1529,87 @@ fn stats_can_be_asked_for_a_window_and_never_colours_a_pipe() {
                "the window is not measured from now");
 
     // AND A SPAN NOBODY DEFINED IS AN ERROR, not a silent `all`.
-    assert_eq!(s.run(&["stats", "--since", "whenever"]).status.code(), Some(2));
+    assert_eq!(s.run(&["gain", "--since", "whenever"]).status.code(), Some(2));
 
     // NOTHING READING THIS IS A TERMINAL, so nothing here may be
     // painted: an escape sequence lands in the middle of the token it
     // was meant to highlight, and the usual reader of this program is an
     // agent reading a pipe.
-    for args in [&["stats"][..], &["stats", "--json"][..], &["stats", "--thresholds"][..]] {
+    for args in [&["gain"][..], &["gain", "--json"][..], &["gain", "--thresholds"][..]] {
         let out = text(&s.run(args));
         assert!(!out.contains('\u{1b}'), "{args:?} painted a pipe:\n{out}");
     }
     // AND EVEN WHEN ASKED FOR, JSON STAYS CLEAN — it is not a rendering.
-    let out = text(&s.run_with(&[("JBX_COLOR", "always")], &["stats", "--json"]));
+    let out = text(&s.run_with(&[("JBX_COLOR", "always")], &["gain", "--json"]));
     assert!(!out.contains('\u{1b}'), "`--json` was painted:\n{out}");
     serde_json::from_str::<serde_json::Value>(out.trim()).expect("still valid JSON");
     // …while the table takes the paint it was told to take.
-    let painted = text(&s.run_with(&[("JBX_COLOR", "always")], &["stats"]));
+    let painted = text(&s.run_with(&[("JBX_COLOR", "always")], &["gain"]));
     assert!(painted.contains('\u{1b}'), "`color: always` painted nothing:\n{painted}");
+}
+
+#[test]
+#[cfg(unix)]
+fn colour_costs_a_column_nothing() {
+    // A COLOURED CELL IS WIDER THAN IT LOOKS, and not by a constant:
+    // `\x1b[2m` is four characters where `\x1b[32m` is five. A table that
+    // pads on the raw string puts a dim row one column further right
+    // than a green one.
+    //
+    // That stayed invisible for as long as the coloured column was the
+    // LAST one — a stagger needs something after it to push. `impact` is
+    // that something, so this guard needs TWO PROJECTS THAT DID
+    // DIFFERENTLY: one that detached and saved, painted green, and one
+    // that never did, painted dim.
+    let s = Scratch::new("colour-width");
+    let root = s.jobs().parent().unwrap().to_path_buf();
+    let make = |name: &str| {
+        let d = root.join(name);
+        std::fs::create_dir_all(d.join(".claude")).unwrap();
+        d
+    };
+    let saver = make("saver");
+    let plodder = make("plodder");
+
+    let out = s.run_in(&saver, "after: 0.05\n", &["run", "--", "sleep 1"]);
+    let id = announced(&text(&out));
+    s.run(&["wait", &id]);
+    s.run_in(&plodder, "after: 99\n", &["run", "--", "echo nothing gained"]);
+
+    let bars = |env: &[(&str, &str)]| -> Vec<usize> {
+        let out = text(&s.run_with(env, &["gain"]));
+        out.lines()
+            .filter_map(|line| {
+                // The escapes come out; what is left is what a reader sees.
+                let mut bare = String::new();
+                let mut escaping = false;
+                for c in line.chars() {
+                    if escaping {
+                        escaping = c != 'm';
+                    } else if c == '\u{1b}' {
+                        escaping = true;
+                    } else {
+                        bare.push(c);
+                    }
+                }
+                // A TABLE ROW, NOT THE HEADLINE'S OWN METER: rows begin
+                // with a project name, the headline's lines are indented.
+                let at = bare.find(['\u{2588}', '\u{2591}'])?;
+                (!bare.starts_with(' ')).then(|| bare[..at].chars().count())
+            })
+            .collect()
+    };
+    let painted = bars(&[("JBX_COLOR", "always")]);
+    let plain = bars(&[("JBX_COLOR", "never")]);
+    assert!(painted.len() >= 2, "needed two rows to compare, got {painted:?}");
+    // WITHIN ONE RENDERING FIRST — this is the half that failed before
+    // the table learned to measure visible width rather than bytes.
+    assert!(
+        painted.iter().all(|c| *c == painted[0]),
+        "colour moved the bars apart: {painted:?}"
+    );
+    // AND COLOUR COSTS NOTHING AT ALL against the unpainted rendering.
+    assert_eq!(plain, painted, "painted and plain disagree: {plain:?} vs {painted:?}");
 }
 
 #[test]
