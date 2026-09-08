@@ -52,6 +52,38 @@ pub struct Dialect {
     /// has a place for one. A NOTE, NOT A DECISION: it says why the line
     /// changed, and grants nothing.
     pub note_key: Option<&'static str>,
+
+    // ── WHERE THE HOOK IS DECLARED ───────────────────────────────────
+    /// The directory under the user's home where this client keeps its
+    /// settings: `.claude`, `.gemini`. The file inside is `settings.json`
+    /// for both, and the entry has the SAME SHAPE for both — a matcher
+    /// with a list of `{type, command}`. Read in each client's own
+    /// reference rather than assumed from one of them.
+    pub home_dir: &'static str,
+    /// An environment variable that moves that directory, where the
+    /// client offers one. Empty when it does not — Gemini's reference
+    /// documents project, user and system files and no override.
+    pub config_env: &'static str,
+
+    // ── THE EVENTS THAT SPEAK WITHOUT BEING ASKED ────────────────────
+    //
+    // None is needed to detach a line; `jbx wait` carries an ending
+    // through no hook at all. They are what `jbx init --announce` adds,
+    // and a client with no equivalent gets `None` — so the flag says it
+    // has nothing to declare rather than declaring names that client has
+    // never heard of.
+    /// The turn is ending. Claude `Stop`, Gemini `AfterAgent`.
+    pub turn_end: Option<&'static str>,
+    /// A turn is beginning. Claude `UserPromptSubmit`, Gemini `BeforeAgent`.
+    pub turn_start: Option<&'static str>,
+    /// The session is beginning — where the discipline is said once.
+    pub session_start: Option<&'static str>,
+    /// THE WORD THAT HOLDS A SESSION OPEN, and it is not the same word.
+    /// Claude wants `decision: "block"`; Gemini's `AfterAgent` wants
+    /// `"deny"`, with the `reason` sent back to the agent as a fresh
+    /// prompt. Same effect, different spelling — and the wrong one is an
+    /// unknown value, not an error anybody would ever see.
+    pub hold: &'static str,
 }
 
 /// EVERY CLIENT MEASURED SO FAR. Two are wired; the rest are recorded
@@ -69,6 +101,12 @@ pub const DIALECTS: &[Dialect] = &[
         replaces: true,
         before_tool: "PreToolUse",
         note_key: Some("permissionDecisionReason"),
+        home_dir: ".claude",
+        config_env: "CLAUDE_CONFIG_DIR",
+        turn_end: Some("Stop"),
+        turn_start: Some("UserPromptSubmit"),
+        session_start: Some("SessionStart"),
+        hold: "block",
     },
     Dialect {
         name: "gemini",
@@ -85,6 +123,12 @@ pub const DIALECTS: &[Dialect] = &[
         // a line of ours on their screen for every command they run is
         // noise they did not ask for. Left empty.
         note_key: None,
+        home_dir: ".gemini",
+        config_env: "",
+        turn_end: Some("AfterAgent"),
+        turn_start: Some("BeforeAgent"),
+        session_start: Some("SessionStart"),
+        hold: "deny",
     },
 ];
 

@@ -17,20 +17,32 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
-/// The settings file the harness reads for every session.
+/// The settings file one client reads for every session.
 ///
 /// The USER-LEVEL one, deliberately: it is where rtk registers, so it is
 /// where the collision is. A project-level file cannot unregister a hook
 /// declared for the whole account.
-pub fn settings_path() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR") {
-        return Some(PathBuf::from(dir).join("settings.json"));
+///
+/// THE DIRECTORY IS THE CLIENT'S, the file name is not: `.claude` and
+/// `.gemini` both hold a `settings.json`, and both take an entry of the
+/// same shape — a matcher with a list of `{type, command}`. That was
+/// read in each client's own reference rather than assumed from one.
+pub fn settings_path_for(d: &crate::dialect::Dialect) -> Option<PathBuf> {
+    if !d.config_env.is_empty() {
+        if let Some(dir) = std::env::var_os(d.config_env) {
+            return Some(PathBuf::from(dir).join("settings.json"));
+        }
     }
     #[cfg(windows)]
     let home = std::env::var_os("USERPROFILE");
     #[cfg(not(windows))]
     let home = std::env::var_os("HOME");
-    Some(PathBuf::from(home?).join(".claude").join("settings.json"))
+    Some(PathBuf::from(home?).join(d.home_dir).join("settings.json"))
+}
+
+/// The same, for Claude — the caller that has no dialect to hand.
+pub fn settings_path() -> Option<PathBuf> {
+    settings_path_for(crate::dialect::of("claude")?)
 }
 
 fn saved_path() -> PathBuf {
@@ -236,8 +248,14 @@ fn withdraw(settings: &mut Value, event: &str, binary: &str) -> bool {
 /// `announce` adds the three hooks that speak WITHOUT BEING ASKED;
 /// `core` takes them back off. Neither is needed to detach a line — see
 /// the note beside the declaration below.
-pub fn init(undo: bool, global_only: bool, core: bool, announce: bool) -> i32 {
-    let Some(path) = settings_path() else {
+pub fn init(
+    undo: bool,
+    global_only: bool,
+    core: bool,
+    announce: bool,
+    d: &crate::dialect::Dialect,
+) -> i32 {
+    let Some(path) = settings_path_for(d) else {
         eprintln!("jbx: cannot find the settings file — set CLAUDE_CONFIG_DIR");
         return 2;
     };
@@ -329,7 +347,7 @@ pub fn init(undo: bool, global_only: bool, core: bool, announce: bool) -> i32 {
     // like "nothing to do" and was not.
     let moved = repoint(&mut settings, &binary);
     if !already {
-        declare(&mut settings, "PreToolUse", "Bash", &binary);
+        declare(&mut settings, d.before_tool, d.tool, &binary);
     }
     // THE OTHER THREE ARE NO LONGER PART OF THE DEAL, and measuring is
     // what moved them.
@@ -348,16 +366,26 @@ pub fn init(undo: bool, global_only: bool, core: bool, announce: bool) -> i32 {
     // rather than a default now, because three hooks in somebody else's
     // settings file is a large footprint for a case the message already
     // tells them how to cover.
-    const UNASKED: [(&str, &str); 3] =
-        [("Stop", "*"), ("UserPromptSubmit", "*"), ("SessionStart", "*")];
+    // FROM THE DIALECT, AND SOME CLIENTS HAVE NONE. Claude calls them
+    // Stop / UserPromptSubmit / SessionStart, Gemini AfterAgent /
+    // BeforeAgent / SessionStart. Declaring one client's names in
+    // another's settings would be a hook that never fires and looks
+    // installed.
+    let unasked: Vec<&str> = [d.turn_end, d.turn_start, d.session_start]
+        .into_iter()
+        .flatten()
+        .collect();
     let mut added = Vec::new();
     let mut taken = Vec::new();
     if announce {
-        for (event, matcher) in UNASKED {
+        for event in &unasked {
             if !declared(&settings, event, &binary) {
-                declare(&mut settings, event, matcher, &binary);
-                added.push(event);
+                declare(&mut settings, event, "*", &binary);
+                added.push(*event);
             }
+        }
+        if unasked.is_empty() {
+            outln!("  ({} reports no event for an unasked ending — nothing to add)", d.name);
         }
     } else if core {
         // `--core` REPAIRS, it does not merely abstain. Somebody asking
@@ -365,9 +393,9 @@ pub fn init(undo: bool, global_only: bool, core: bool, announce: bool) -> i32 {
         // one means "take the rest back out", and a flag that left them
         // in would be a flag that did nothing on the only machines where
         // it was worth typing.
-        for (event, _) in UNASKED {
+        for event in &unasked {
             if withdraw(&mut settings, event, &binary) {
-                taken.push(event);
+                taken.push(*event);
             }
         }
     }

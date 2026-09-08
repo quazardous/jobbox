@@ -229,6 +229,12 @@ delivers the ending through no hook at all, and the detachment message
 says so at the moment it matters. What the other three bought was the
 **unasked** announcement, and that is what `jbx init --announce` is for.
 
+`jbx hook --list` names them, with the tool each watches for and the
+file it declares in. `jbx init --cli gemini` writes the entry there —
+and `--undo`, `--core` and `--announce` all follow the same address.
+`--announce` uses each client's own event names, and tells you when a
+client has no equivalent rather than declaring names it never sends.
+
 An unknown name is refused rather than treated as Claude: a hook
 speaking the wrong dialect answers nothing and looks perfectly healthy,
 which is the one failure worth being loud about.

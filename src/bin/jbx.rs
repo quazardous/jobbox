@@ -84,15 +84,21 @@ fn dispatch(args: Vec<String>) -> i32 {
             // treated as Claude: a hook that quietly speaks the wrong
             // dialect answers nothing and looks perfectly healthy, which
             // is the failure this whole table exists to avoid.
-            let want = rest.first().map(String::as_str).unwrap_or("claude");
-            match jobbox::dialect::of(want) {
+            // `--list` BELONGS ON THE VERB THAT CONSUMES THE TABLE, not
+            // on a verb of its own: the question "which names does --cli
+            // take" is asked from here, and `jbx clients` already means
+            // something else entirely — whose endings are still unread.
+            //
+            // ITS BODY LIVES OUTSIDE THIS MATCH, and that is not taste: a
+            // guard reads these arms to check that every verb answered is
+            // a declared one, and it took the string literals of an
+            // inlined body for verbs. A thin arm is what makes it legible.
+            if rest.iter().any(|a| a == "--list") {
+                return with("hook", rest, list_dialects);
+            }
+            match dialect_named(rest.first().map(String::as_str)) {
                 Some(d) => hook::hook(&binary, d),
-                None => {
-                    let known: Vec<&str> =
-                        jobbox::dialect::DIALECTS.iter().map(|d| d.name).collect();
-                    eprintln!("jbx: no dialect for {want:?} — known: {}", known.join(", "));
-                    2
-                }
+                None => 2,
             }
         }
         // THE INTENT COMES FIRST AND THE LINE AFTER `--`, so a name
@@ -142,7 +148,10 @@ fn dispatch(args: Vec<String>) -> i32 {
                 gain::render(v, how.project_path, how.thresholds)
             }),
         }),
-        "init" => with("init", rest, |how| init::init(how.undo, how.global_only, how.core, how.announce)),
+        "init" => with("init", rest, |how| match dialect_named(how.cli.as_deref()) {
+            Some(d) => init::init(how.undo, how.global_only, how.core, how.announce, d),
+            None => 2,
+        }),
         "watch" => with("watch", rest, |how| jobbox::watch::watch(how.all, how.json)),
         "list" => with("list", rest, |how| listing(false, how)),
         "ps" => with("ps", rest, |how| listing(true, how)),
@@ -317,6 +326,8 @@ pub struct Flags {
     global_only: bool,
     core: bool,
     announce: bool,
+    list: bool,
+    cli: Option<String>,
     follow: bool,
     project_path: bool,
     thresholds: bool,
@@ -367,6 +378,16 @@ impl Flags {
                 "--global-only" => flags.global_only = true,
                 "--core" => flags.core = true,
                 "--announce" => flags.announce = true,
+                "--list" => flags.list = true,
+                "--cli" => match value() {
+                    Some(name) => flags.cli = Some(name),
+                    None => {
+                        eprintln!("jbx: --cli names a client: {}",
+                            jobbox::dialect::DIALECTS.iter().map(|d| d.name)
+                                .collect::<Vec<_>>().join(", "));
+                        return Err(2);
+                    }
+                },
                 "--project-path" => flags.project_path = true,
                 "--thresholds" => flags.thresholds = true,
                 "--since" => match value().as_deref().map(jobbox::gain::window) {
@@ -1155,6 +1176,51 @@ fn which_rtk() -> bool {
 ///
 /// Silent when the id is unknown: this is bookkeeping beside the verb,
 /// and a failed lookup is the verb's business to report, not ours.
+/// A CLIENT BY NAME, OR CLAUDE — and an unknown name is refused loudly.
+///
+/// A settings file spells the name out, so a typo must not be read as
+/// "the default": a hook speaking the wrong dialect answers nothing and
+/// looks perfectly healthy, which is the failure this table exists for.
+/// EVERY CLIENT THIS BINARY CAN ANSWER, read off the same table the hook
+/// consumes — so a name printed here is a name that works.
+fn list_dialects(how: &Flags) -> i32 {
+    let rows: Vec<serde_json::Value> = jobbox::dialect::DIALECTS
+        .iter()
+        .map(|d| {
+            serde_json::json!({
+                "name": d.name,
+                "tool": d.tool,
+                "before_tool": d.before_tool,
+                "settings": d.home_dir,
+                "reports_unasked": d.turn_end.is_some(),
+            })
+        })
+        .collect();
+    Answer(serde_json::Value::Array(rows), 0).show(how, |v| {
+        for d in v.as_array().into_iter().flatten() {
+            let quiet = d["reports_unasked"] != true;
+            jobbox::outln!(
+                "{:<8} {:<20} {:<12} ~/{}/settings.json{}",
+                d["name"].as_str().unwrap_or(""),
+                d["tool"].as_str().unwrap_or(""),
+                d["before_tool"].as_str().unwrap_or(""),
+                d["settings"].as_str().unwrap_or(""),
+                if quiet { "  (no unasked endings)" } else { "" },
+            );
+        }
+    })
+}
+
+fn dialect_named(want: Option<&str>) -> Option<&'static jobbox::dialect::Dialect> {
+    let want = want.unwrap_or("claude");
+    let found = jobbox::dialect::of(want);
+    if found.is_none() {
+        let known: Vec<&str> = jobbox::dialect::DIALECTS.iter().map(|d| d.name).collect();
+        eprintln!("jbx: no dialect for {want:?} — known: {}", known.join(", "));
+    }
+    found
+}
+
 fn note_grip(id: &str, verb: &str) {
     // `detached` IS THREE-VALUED, and the third value matters: a
     // record written before the field existed says None, never false.

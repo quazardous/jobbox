@@ -452,7 +452,12 @@ pub fn announce_text() -> i32 {
 
 /// The `Stop` shape: JSON, because that is the only hook whose output
 /// reaches the model rather than a debug log.
-pub fn announce_stop() -> i32 {
+/// `hold` IS THE CLIENT'S OWN WORD FOR "do not finish yet", and the
+/// clients do not share it: Claude wants `decision: "block"`, Gemini's
+/// `AfterAgent` wants `"deny"` with the `reason` sent back as a fresh
+/// prompt. Same effect, different spelling — and the wrong one is an
+/// unknown value, which is not an error anybody would ever see.
+pub fn announce_stop(hold: &str) -> i32 {
     let me = client();
     let pending = take(&me, "agent");
     if pending.is_empty() {
@@ -501,7 +506,7 @@ pub fn announce_stop() -> i32 {
             .map(|s| s["log"].as_str().unwrap_or("—"))
             .collect::<Vec<_>>()
             .join(" ");
-        out["decision"] = Value::String("block".into());
+        out["decision"] = Value::String(hold.into());
         out["reason"] = Value::String(format!(
             "jbx: {summary}. Failed job logs: {logs}. Read them, say what broke, \
              and fix it if it is within reach."

@@ -156,15 +156,17 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect) -> i32 {
     // one — `jbx wait` carries its endings instead.
     match event["hook_event_name"].as_str() {
         Some(e) if e == dialect.before_tool => {}
-        Some("Stop") => return crate::signals::announce_stop(),
+        Some(e) if Some(e) == dialect.turn_end => {
+            return crate::signals::announce_stop(dialect.hold)
+        }
         // THE SESSION'S FIRST HOOK CARRIES THE RULE; every later one
         // carries only what has finished. Saying the rule again each turn
         // would make it wallpaper.
-        Some("SessionStart") => {
+        Some(e) if Some(e) == dialect.session_start => {
             crate::signals::discipline();
             return crate::signals::announce_text();
         }
-        Some("UserPromptSubmit") => return crate::signals::announce_text(),
+        Some(e) if Some(e) == dialect.turn_start => return crate::signals::announce_text(),
         _ => return 0,
     }
     // AND THE TOOL NAME IS THE CLIENT'S TOO. `Bash`, `run_shell_command`

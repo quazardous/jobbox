@@ -1783,6 +1783,60 @@ fn waiting_on_a_job_clears_that_ending_and_no_other() {
 }
 
 #[test]
+fn init_declares_in_the_named_client_and_nowhere_else() {
+    // THE WHOLE POINT IS THE ADDRESS. Writing Gemini's hook into
+    // Claude's settings would leave both clients wrong and neither
+    // complaining: Claude would call jbx on an event it never sends, and
+    // Gemini would call nothing at all.
+    let s = Scratch::new("init-cli");
+    let home = s.jobs().parent().unwrap().join("home");
+    std::fs::create_dir_all(home.join(".claude")).unwrap();
+    std::fs::create_dir_all(home.join(".gemini")).unwrap();
+    let at = |dir: &str| home.join(dir).join("settings.json");
+    let events = |dir: &str| -> std::collections::BTreeSet<String> {
+        std::fs::read_to_string(at(dir))
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .and_then(|v| v["hooks"].as_object().map(|o| o.keys().cloned().collect()))
+            .unwrap_or_default()
+    };
+    let env = [("HOME", home.to_str().unwrap())];
+
+    s.run_with(&env, &["init", "--global-only", "--cli", "gemini"]);
+    assert_eq!(events(".gemini"), ["BeforeTool".to_string()].into_iter().collect(),
+               "gemini got {:?}", events(".gemini"));
+    assert!(events(".claude").is_empty(), "claude was touched: {:?}", events(".claude"));
+
+    // AND `--announce` SPEAKS THAT CLIENT'S NAMES. Declaring Claude's
+    // `Stop` in Gemini's settings would be a hook that never fires and
+    // looks installed.
+    s.run_with(&env, &["init", "--global-only", "--cli", "gemini", "--announce"]);
+    assert_eq!(
+        events(".gemini"),
+        ["BeforeTool", "AfterAgent", "BeforeAgent", "SessionStart"]
+            .map(String::from).into_iter().collect::<std::collections::BTreeSet<_>>(),
+        "gemini got {:?}", events(".gemini")
+    );
+
+    // `--core` takes them back, in the same client.
+    s.run_with(&env, &["init", "--global-only", "--cli", "gemini", "--core"]);
+    assert_eq!(events(".gemini"), ["BeforeTool".to_string()].into_iter().collect());
+
+    // AND THE OTHER CLIENT IS STILL UNTOUCHED after all of that.
+    assert!(events(".claude").is_empty(), "claude was touched: {:?}", events(".claude"));
+
+    // A NAME NOBODY WIRED IS REFUSED, and says what is known — the
+    // listing exists so that answer is findable before the mistake.
+    let bad = s.run_with(&env, &["init", "--global-only", "--cli", "windsurf"]);
+    assert_eq!(bad.status.code(), Some(2), "an unknown client was accepted");
+    let told = text(&s.run(&["hook", "--list"]));
+    assert!(told.contains("claude") && told.contains("gemini"),
+            "the listing does not name what works: {told}");
+    assert!(told.contains(".gemini/settings.json"),
+            "the listing does not say where it declares: {told}");
+}
+
+#[test]
 fn every_declared_dialect_really_answers() {
     // WHAT THIS CAN PROVE, AND WHAT IT CANNOT.
     //

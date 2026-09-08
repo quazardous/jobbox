@@ -38,6 +38,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not counted: answering "yes" for something nobody observed is how a
   narrow number starts flattering.
 
+- **`jbx init --cli <id>`** declares the hook in the named client's own
+  settings — `~/.gemini/settings.json` for Gemini, `~/.claude` for
+  Claude — and `--undo`, `--core` and `--announce` follow it there. The
+  entry has the same shape in both, which was read in each client's
+  reference rather than assumed from one.
+
+  `--announce` speaks each client's own names: `Stop` /
+  `UserPromptSubmit` / `SessionStart` for Claude, `AfterAgent` /
+  `BeforeAgent` / `SessionStart` for Gemini. A client with no equivalent
+  is told it has nothing to declare instead of being given names it has
+  never heard of. Holding a session open differs too — Claude wants
+  `block` where Gemini wants `deny`, and the wrong word is an unknown
+  value rather than an error anybody would see.
+
+- **`jbx hook --list`** names every client this binary can answer, with
+  the tool it watches for and where it declares. On the verb that
+  consumes the table, because that is where the question is asked — and
+  because `jbx clients` already means something else entirely.
+
 - **`jbx hook gemini`** — Gemini CLI is wrapped too, and adding the next
   client is a row in a table rather than a branch in the code. The
   clients disagree on almost every word: Gemini calls the shell tool
