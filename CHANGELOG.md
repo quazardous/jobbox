@@ -18,6 +18,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`jbx stats` is now `jbx gain`, and the old name is gone.** One verb,
+  not two doors onto the same number. There is no alias: `jbx stats`
+  answers `unknown verb`.
+- **`jbx gain` leads with the answer.** A headline block — commands
+  wrapped, how many detached, what they took, what you stood through,
+  what came back — sits above the table with a meter beside it, because
+  the question you had when you typed the command was whether this is
+  worth having, and that was previously answered under nine rows of
+  detail. `detached` is second on purpose: a wrapper that detached
+  nothing gave nothing back, and without that number a low percentage
+  reads as a broken program rather than as a fact about your commands.
+- **Each row carries an impact bar**, scaled against the tallest row
+  rather than the total, so the shape of the distribution is visible
+  instead of nine slivers.
+- The readings file keeps its old name. Renaming it with the verb would
+  have orphaned every measurement already taken.
+
+### Fixed
+
+- **Colour no longer shifts a column.** The table measured a cell by its
+  raw string, escapes included — and those are not a fixed size, so a
+  dim row was padded one column further than a green one. It never
+  showed while the coloured column was the last one, because a stagger
+  needs something after it to push; the impact bar is that something.
+  Widths are now measured as a reader sees them.
+
 ## [0.12.0] - 2026-09-08
 
 ### Added
