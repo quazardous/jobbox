@@ -335,6 +335,13 @@ pub fn discipline() -> i32 {
     outln!("      can do anything else. If you do, say so: `jbx fg -- '<line>'` runs it");
     outln!("      without ever letting go, and `jbx fg <id>` picks a detached one back");
     outln!("      up. `jbx stats` counts what standing still cost.");
+    // WHAT TO DO WITH NOTHING TO DO, said once and early. Being told an
+    // ending arrives "on a later turn" leaves an agent with nothing
+    // queued no later turn to be told on, and the two moves left to it
+    // — idling and polling — are the waiting this exists to remove.
+    outln!("      With nothing else to do, never poll: run `jbx wait <id>` as a");
+    outln!("      BACKGROUND command and its ending wakes you. `jbx watch` streams one");
+    outln!("      line per job ending, for a monitor.");
     0
 }
 

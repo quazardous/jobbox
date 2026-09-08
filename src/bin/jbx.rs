@@ -30,10 +30,22 @@ fn dispatch(args: Vec<String>) -> i32 {
             jobbox::outln!("jbx {VERSION}");
             0
         }
-        "" | "-h" | "--help" | "help" => {
-            print!("{}", usage());
-            0
-        }
+        // ONE DOOR. `--help`, `help`, and `help <id>` are the same
+        // verb: a reader who wants to know anything types one word, and
+        // the pages behind it are named there rather than remembered.
+        "" | "-h" | "--help" | "help" => with("help", rest, |how| {
+            match how.free.first().filter(|a| looks_like_an_id(a)) {
+                Some(id) => help_for(id, how),
+                // PROSE IS STILL A VALUE, and the rule that every verb
+                // declaring `--json` answers JSON has no exception to
+                // remember — which is exactly what the test that caught
+                // this exists for. `jbx describe` is the structured
+                // form of the verb list; this is the page a person
+                // reads, wrapped so a machine is never lied to.
+                None => Answer(serde_json::json!({ "text": usage() }), 0)
+                    .show(how, |v| print!("{}", v["text"].as_str().unwrap_or(""))),
+            }
+        }),
         "run" => match Flags::of("run", rest) {
             Ok(how) => run::run(
                 how.after.unwrap_or_else(default_after),
@@ -92,9 +104,7 @@ fn dispatch(args: Vec<String>) -> i32 {
             _ => usage_error("queue needs an intent and a line: `jbx queue build -- make`"),
         },
         "slots" => with("slots", rest, |f| slots_cmd(f.free.first().map(String::as_str), f)),
-        "how" => with("how", rest, |f| {
-            how(f.free.first().filter(|a| looks_like_an_id(a)).map(String::as_str), f)
-        }),
+
         "describe" => with("describe", rest, |_| jobbox::describe::describe()),
         "why" => with("why", rest, why),
         "health" => with("health", rest, health),
@@ -114,6 +124,7 @@ fn dispatch(args: Vec<String>) -> i32 {
             }),
         }),
         "init" => with("init", rest, |how| init::init(how.undo, how.global_only)),
+        "watch" => with("watch", rest, |how| jobbox::watch::watch(how.all, how.json)),
         "list" => with("list", rest, |how| listing(false, how)),
         "ps" => with("ps", rest, |how| listing(true, how)),
         "status" => with("status", rest, |how| match how.free.first() {
@@ -165,6 +176,7 @@ fn usage() -> String {
          \x20 jbx ps [--all] [--full] [--json] [--width <n>]\n\
          \x20                       what is happening right now, here\n\
          \x20 jbx list              … and what has finished, for a day\n\
+         \x20 jbx watch             one line per job event, until nothing runs\n\
          \x20 jbx status <id>       state, exit code, where its log is\n\
          \x20 jbx tail <id> [-f]    what it printed\n\
          \x20 jbx wait <id>         block until it ends, exit with its code\n\
@@ -175,14 +187,17 @@ fn usage() -> String {
          \x20 jbx health            what runs, what is mute, what is stranded\n\
          \x20 jbx clients           whose endings are still unread\n\
          \x20 jbx config            every setting, and where it came from\n\
-         \x20 jbx how [id]          what you can do with it, right now\n\
+         \x20 jbx help [id]         this, or what to do with one job\n\
          \x20 jbx why               why it works this way\n\
          \x20 jbx describe          every verb and what it does, as JSON\n\
          \x20 jbx init [--undo] [--global-only]\n\
          \x20                       declare the hook, and displace rtk's\n\
          \n\
          JBX_AFTER   seconds before detaching (now {:.0})\n\
-         JBX_DIR          where logs and records live (now {})\n",
+         JBX_DIR          where logs and records live (now {})\n\
+         \n\
+         A job that just detached: `jbx help <id>`. Why waiting costs what it\n\
+         costs, and what to do instead: `jbx why`.\n",
         default_after(),
         default_after(),
         jobbox::store::dir().display()
@@ -1098,7 +1113,16 @@ WHAT IT NEVER DOES
   never breaks a command to save a token. Where there is a terminal, it hands
   the line straight to a shell and stops existing.
 
-  `jbx how` is the other half of this: what to type, rather than why.";
+WHY WAITING IS THE THING TO AVOID
+  Because the result comes to you. Standing over a detached job buys nothing
+  that the announcement does not already give you, and it costs the whole
+  duration twice: your attention, and the tokens of a session doing nothing.
+
+  With nothing else to do, do not poll either — polling is waiting with extra
+  steps. Put `jbx wait <id>` in the BACKGROUND, or under a monitor: it ends
+  when the job does, so its ending wakes you instead of you watching for it.
+
+  `jbx help` is the other half of this: what to type, rather than why.";
     // PROSE IS STILL A VALUE. One field rather than none, so that the
     // rule "every verb answers something a machine can read" has no
     // exceptions to remember.
@@ -1106,78 +1130,56 @@ WHAT IT NEVER DOES
         .show(how, |v| jobbox::outln!("{}", v["text"].as_str().unwrap_or("")))
 }
 
-/// `jbx how [id]` — WHAT TO DO, RIGHT NOW.
+/// `jbx help <id>` — WHAT TO DO WITH THIS JOB, RIGHT NOW.
 ///
 /// The other half of `why`. The detachment message used to carry this
 /// list, which made it four lines longer than the thing it was trying to
 /// say — and the thing it was trying to say is "do not wait". Given an
 /// id it answers about that job, so the lines can be copied as they are.
-fn how(id: Option<&str>, flags: &Flags) -> i32 {
-    if let Some(id) = id {
-        // A MACHINE WANTS THE COMMANDS, A PERSON WANTS THE SENTENCE.
-        // Both are built from this one list, so neither can go stale
-        // while the other is updated.
-        let offers: Vec<(String, &str)> = vec![
-            (format!("jbx status {id}"), "where it is, and its exit code once it lands"),
-            (format!("jbx tail {id}"), "what it has printed so far"),
-            (format!("jbx tail {id} -f"), "… and keep watching"),
-            (format!("jbx fg {id}"), "bring it back to the foreground and watch it"),
-            (format!("jbx wait {id}"), "block until it ends — ONLY if you cannot go on"),
-            (format!("jbx kill {id}"), "stop it, and everything it started"),
-        ];
-        return Answer(
-            serde_json::json!({
-                "id": id,
-                "commands": offers.iter().map(|(c, w)| serde_json::json!({
-                    "command": c, "what": w,
-                })).collect::<Vec<_>>(),
-                "advice": "You will be told when it ends, on a later turn. \
-                           Go and do something else; come back to it then.",
-            }),
-            0,
-        )
-        .show(flags, |v| {
-            jobbox::outln!("jbx: what you can do with {id}, which is running in the background.\n");
-            for c in v["commands"].as_array().map(Vec::as_slice).unwrap_or_default() {
-                jobbox::outln!("  {:<18} {}", text(c, "command"), text(c, "what"));
-            }
-            jobbox::outln!("\nBUT THE USUAL ANSWER IS NONE OF THESE. You will be told when it ends,");
-            jobbox::outln!("on a later turn. Go and do something else; come back to it then.");
-        });
-    }
-    let text = "\
-jbx — what to type
-
-NOTHING, USUALLY
-  jbx wraps every command your agent runs. Quick ones come back untouched.
-  Slow ones let go of themselves and you are told when they end, so the
-  ordinary answer to \"what do I do now\" is: something else.
-
-WHEN ONE HAS BEEN DETACHED
-  jbx how <id>              this list, for that job
-  jbx status <id>           where it is, and its exit code once it lands
-  jbx tail <id> [-f]        what it printed
-  jbx fg <id>               bring it back and watch it
-  jbx wait <id>             block until it ends — only if you cannot go on
-  jbx kill <id>             stop it, and everything it started
-  jbx list                  everything detached, and how it went
-
-WHEN YOU KNOW IN ADVANCE
-  jbx fg -- '<line>'        run it and never let go: you need the answer now
-  jbx queue <name> -- '…'   hand work over BEFORE it starts, under a cap
-  jbx slots [n|none]        how many queued jobs run at once
-
-TO SEE WHERE THE TIME WENT
-  jbx stats [project]       how much of it went by while you were free
-  jbx health                what runs, what is mute, what nobody will read
-
-TO SET IT UP
-  jbx init [--undo]         declare the hooks; writes a commented config
-  jbx config                every setting, and where it came from
-
-  `jbx why` is the other half of this: why it works this way.";
-    Answer(serde_json::json!({ "text": text }), 0)
-        .show(flags, |v| jobbox::outln!("{}", v["text"].as_str().unwrap_or("")))
+fn help_for(id: &str, flags: &Flags) -> i32 {
+    // AND IT HAS TO EXIST. "What you can do with j1234567, which is
+    // running in the background" was printed for any eight characters
+    // shaped like an id — a sentence stating as fact something nobody
+    // had looked up.
+    let Some(record) = store::read_record(id) else {
+        eprintln!("jbx: {id} is unknown — `jbx list` says what there is.");
+        return 1;
+    };
+    let state = describe(&store::state_of(&record));
+    // A MACHINE WANTS THE COMMANDS, A PERSON WANTS THE SENTENCE.
+    // Both are built from this one list, so neither can go stale
+    // while the other is updated.
+    let offers: Vec<(String, &str)> = vec![
+        (format!("jbx status {id}"), "where it is, and its exit code once it lands"),
+        (format!("jbx tail {id}"), "what it has printed so far"),
+        (format!("jbx tail {id} -f"), "… and keep watching"),
+        (format!("jbx fg {id}"), "bring it back to the foreground and watch it"),
+        (format!("jbx wait {id}"),
+         "in the BACKGROUND: it ends when the job does, and that wakes you"),
+        (format!("jbx kill {id}"), "stop it, and everything it started"),
+    ];
+Answer(
+        serde_json::json!({
+            "id": id,
+            "state": state,
+            "commands": offers.iter().map(|(c, w)| serde_json::json!({
+                "command": c, "what": w,
+            })).collect::<Vec<_>>(),
+            "advice": "You will be told when it ends, on a later turn. \
+                       Go and do something else; come back to it then.",
+        }),
+        0,
+    )
+    .show(flags, |v| {
+        jobbox::outln!("jbx: {id} — {}.\n", text(v, "state"));
+        for c in v["commands"].as_array().map(Vec::as_slice).unwrap_or_default() {
+            jobbox::outln!("  {:<22} {}", text(c, "command"), text(c, "what"));
+        }
+        jobbox::outln!("\nTHE USUAL ANSWER IS NONE OF THESE. You will be told when it ends, on a");
+        jobbox::outln!("later turn — go and do something else. With nothing else to do, put");
+        jobbox::outln!("`jbx wait` in the BACKGROUND rather than polling: it ends when the job");
+        jobbox::outln!("does, so the ending wakes you.");
+})
 }
 
 /// The line itself, beside the intent rather than instead of it.

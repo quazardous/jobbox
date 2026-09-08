@@ -64,13 +64,11 @@ Open a new session. Nothing changes — until something is slow:
 ```console
 $ npm run build
 > building…
-jbx: this passed 30s, so it is now in the BACKGROUND — detached as j7f3a91c.
-Nothing was lost. It is still running, and still printing to its log.
+jbx: this passed 30s, so it is in the BACKGROUND as j7f3a91c — nothing lost.
+DO NOT WAIT FOR IT, DO SOMETHING ELSE. With nothing else: Monitor
+`jbx wait j7f3a91c`, which ends when the job does.
 
-DO NOT SIT AND WAIT FOR IT. You will be told when it ends, on a later turn —
-waiting here is the exact cost jbx exists to remove. Go and do something else.
-
-  jbx how j7f3a91c   what you can do with it   ·   jbx why   why it works this way
+  jbx help j7f3a91c
 ```
 
 The build output arrived **as it was written**, not replayed at the end.

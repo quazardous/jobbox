@@ -48,6 +48,22 @@ fn until(what: &str, mut ready: impl FnMut() -> bool) {
     panic!("waited 20s and {what} never happened");
 }
 
+/// THE ID OUT OF AN ANNOUNCEMENT, WITHOUT KNOWING ITS WORDING.
+///
+/// Ten tests used to split on the literal `"detached as "`, so shortening
+/// that message — thirteen lines of argument down to three — broke them
+/// all at once, on an `unwrap` of `None` that named a line number and
+/// nothing else. An id has a shape and the sentence around it does not:
+/// `j` and seven hex digits, which no English word is.
+fn announced(said: &str) -> String {
+    said.split(|c: char| !c.is_ascii_alphanumeric())
+        .find(|w| {
+            w.len() == 8 && w.starts_with('j') && w[1..].chars().all(|c| c.is_ascii_hexdigit())
+        })
+        .unwrap_or_else(|| panic!("no job id was announced in:\n{said}"))
+        .to_string()
+}
+
 /// A scratch home for one test. Each has its own, because the tests run
 /// at the same time and a shared store would let one test's job appear
 /// in another's `list`.
@@ -218,16 +234,10 @@ fn a_long_line_is_detached_and_named() {
     let s = Scratch::new("detach");
     let out = s.run(&["run", "--after", "1", "--", "sleep 4; exit 3"]);
     let said = text(&out);
-    assert!(said.contains("detached as j"), "not announced: {said}");
+    assert!(said.contains("BACKGROUND as j"), "not announced: {said}");
     assert_eq!(out.status.code(), Some(0), "detaching is not a failure");
 
-    let id = said
-        .split("detached as ")
-        .nth(1)
-        .and_then(|r| r.split('.').next())
-        .unwrap()
-        .trim()
-        .to_string();
+    let id = announced(&said);
 
     // THE CODE IS DEFERRED, NOT LOST — and `wait` is what turns the
     // deferral back into a number.
@@ -245,14 +255,14 @@ fn output_arrives_before_the_line_ends() {
     let out = s.run(&["run", "--after", "1", "--", "echo early; sleep 4"]);
     let said = text(&out);
     assert!(said.starts_with("early\n"), "output was held back: {said:?}");
-    assert!(said.contains("detached as j"));
+    assert!(said.contains("BACKGROUND as j"));
 }
 
 #[test]
 fn a_detached_line_keeps_its_log() {
     let s = Scratch::new("log");
     let said = text(&s.run(&["run", "--after", "1", "--", "echo one; sleep 2; echo two"]));
-    let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
+    let id = announced(&said);
     s.run(&["wait", &id]);
     let log = text(&s.run(&["tail", &id]));
     assert!(log.contains("one") && log.contains("two"), "log lost half of it: {log:?}");
@@ -518,7 +528,7 @@ fn waiting_on_a_job_is_not_counted_as_time_saved() {
     // its own good intentions.
     s.run(&["run", "--after", "1", "--", "sleep 3"]);
     let said = text(&s.run(&["run", "--after", "1", "--", "sleep 3"]));
-    let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
+    let id = announced(&said);
     s.run(&["wait", &id]);
 
     let blocks: f64 = readings(&s)
@@ -569,7 +579,7 @@ fn a_short_line_announces_nothing() {
 fn a_detached_job_is_announced_once_and_only_once() {
     let s = Scratch::new("told");
     let said = text(&s.run_as("me", &["run", "--after", "1", "--", "sleep 2; exit 7"]));
-    let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
+    let id = announced(&said);
     s.run_as("me", &["wait", &id]);
 
     let first = text(&s.run_as("me", &["signals", "agent"]));
@@ -585,7 +595,7 @@ fn a_detached_job_is_announced_once_and_only_once() {
 fn the_two_audiences_do_not_take_each_others_endings() {
     let s = Scratch::new("audiences");
     let said = text(&s.run_as("me", &["run", "--after", "1", "--", "sleep 2"]));
-    let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
+    let id = announced(&said);
     s.run_as("me", &["wait", &id]);
     s.run_as("me", &["signals", "agent"]);
     // THE PERSON'S COPY SURVIVES THE MODEL READING ITS OWN. One human
@@ -598,7 +608,7 @@ fn the_two_audiences_do_not_take_each_others_endings() {
 fn stop_blocks_on_our_own_failure_and_not_on_somebody_elses() {
     let s = Scratch::new("blocking");
     let said = text(&s.run_as("them", &["run", "--after", "1", "--", "sleep 2; exit 3"]));
-    let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
+    let id = announced(&said);
     s.run_as("them", &["wait", &id]);
 
     // ANNOUNCING IS ONE THING, BLOCKING IS ANOTHER. Blocking holds a
@@ -610,7 +620,7 @@ fn stop_blocks_on_our_own_failure_and_not_on_somebody_elses() {
     assert_eq!(parsed["decision"], "block", "our own failure did not hold us: {theirs}");
 
     let said = text(&s.run_as("them", &["run", "--after", "1", "--", "sleep 2; exit 3"]));
-    let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
+    let id = announced(&said);
     s.run_as("them", &["wait", &id]);
     let mine = s.event("me", r#"{"hook_event_name":"Stop"}"#);
     assert!(mine.trim().is_empty() || !mine.contains("block"),
@@ -663,7 +673,7 @@ fn health_names_a_job_that_runs_without_saying_anything() {
     let s = Scratch::new("mute");
     let quiet = [("JBX_MUTE_AFTER", "1")];
     let said = text(&s.run_with(&quiet, &["run", "--after", "1", "--", "sleep 6"]));
-    let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
+    let id = announced(&said);
     std::thread::sleep(std::time::Duration::from_secs(2));
 
     let out = s.run_with(&quiet, &["health"]);
@@ -798,7 +808,7 @@ fn fg_never_lets_go_however_long_it_takes() {
 fn fg_brings_a_detached_job_back() {
     let s = Scratch::new("attach");
     let said = text(&s.run(&["run", "--after", "1", "--", "echo early; sleep 2; exit 6"]));
-    let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
+    let id = announced(&said);
 
     let out = s.run(&["fg", &id]);
     let shown = text(&out);
@@ -916,7 +926,7 @@ fn a_pipeline_stage_is_not_reported_as_stuck() {
     // Being stopped in `read(0)` says the process is reading its input,
     // and a pipeline stage waiting on a slow producer is exactly that.
     let said = text(&s.run(&["run", "--after", "1", "--", "sleep 3 | cat; echo done"]));
-    assert!(said.contains("detached as j"), "not detached at all: {said}");
+    assert!(said.contains("BACKGROUND as j"), "not detached at all: {said}");
     assert!(
         !said.contains("reading its standard input"),
         "an ordinary pipeline was called stuck:\n{said}"
@@ -926,7 +936,7 @@ fn a_pipeline_stage_is_not_reported_as_stuck() {
     // about a deployment that had.
     assert!(!said.contains("will not finish"), "it still predicts:\n{said}");
 
-    let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
+    let id = announced(&said);
     assert_eq!(s.run(&["wait", &id]).status.code(), Some(0), "and it did finish");
 }
 
@@ -1057,7 +1067,7 @@ fn a_wrapped_line_that_runs_jbx_makes_one_job_not_two() {
         "run", "--after", "1", "--",
         &format!("{} run --after 3 -- 'sleep 6; echo REAL'", jbx_in_line()),
     ]));
-    let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
+    let id = announced(&said);
 
     let listed = text(&s.run(&["list"]));
     let jobs = listed.lines().skip(1).filter(|l| l.trim_start().starts_with('j')).count();
@@ -1539,6 +1549,39 @@ fn stats_can_be_asked_for_a_window_and_never_colours_a_pipe() {
 }
 
 #[test]
+#[cfg(unix)]
+fn a_watch_reports_every_ending_and_then_stops() {
+    let s = Scratch::new("watch");
+    // NOTHING RUNNING IS NOT A HANG. A watch armed for ever after its
+    // event has fired is the failure the harness warns about, so an
+    // empty store ends it at once.
+    let idle = s.run(&["watch"]);
+    assert_eq!(idle.status.code(), Some(0), "an idle watch did not end");
+    assert!(text(&idle).trim().is_empty(), "an idle watch invented events: {}", text(&idle));
+
+    // ONE THAT SUCCEEDS AND ONE THAT DOES NOT. A watch that only speaks
+    // on success is silent through a crash, and silence looks exactly
+    // like "still running" — so the failing one has to be in here.
+    s.run(&["run", "--after", "0", "--intent", "the one that works", "--", "sleep 1"]);
+    s.run(&["run", "--after", "0", "--intent", "the one that fails", "--", "sleep 1; exit 5"]);
+    let seen = text(&s.run(&["watch"]));
+    assert!(seen.contains("finished 0"), "the ending that worked went unsaid:\n{seen}");
+    assert!(seen.contains("finished 5"), "the FAILURE went unsaid:\n{seen}");
+    assert!(seen.contains("the one that fails"), "the line was not named:\n{seen}");
+
+    // AND THE STREAM IS ONE OBJECT PER LINE, not an array: an array is
+    // valid only once closed, and a stream closes when it is over.
+    s.run(&["run", "--after", "0", "--", "sleep 1"]);
+    let streamed = text(&s.run(&["watch", "--json"]));
+    let lines: Vec<&str> = streamed.lines().filter(|l| !l.trim().is_empty()).collect();
+    assert!(!lines.is_empty(), "the json watch said nothing");
+    for line in lines {
+        serde_json::from_str::<serde_json::Value>(line)
+            .unwrap_or_else(|e| panic!("a stream line was not an object ({e}): {line}"));
+    }
+}
+
+#[test]
 fn describe_covers_every_verb_and_invents_none() {
     let s = Scratch::new("describe");
     let doc: serde_json::Value =
@@ -1703,7 +1746,7 @@ fn a_job_is_named_by_whoever_ran_it_when_they_said() {
     let said = text(&s.run(&[
         "run", "--after", "1", "--intent", "replay the DAG simulation", "--", "sleep 30",
     ]));
-    let id = said.split("detached as ").nth(1).unwrap().split('.').next().unwrap().trim().to_string();
+    let id = announced(&said);
     // SIX LISTINGS READ THE SAME JOB, so it has to outlast all six. At
     // three seconds it did not on the Windows runner: the first `ps`
     // answered "nothing running here" and the name looked dropped when

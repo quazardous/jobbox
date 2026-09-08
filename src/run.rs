@@ -675,11 +675,41 @@ fn announce(id: &str, after: f64, seen: Observation) -> i32 {
     let mut out = out.lock();
     let _ = writeln!(
         out,
-        "jbx: this passed {after:.0}s, so it is now in the BACKGROUND — detached as {id}.\n\
-         Nothing was lost. It is still running, and still printing to its log.\n\
-         \n\
-         DO NOT SIT AND WAIT FOR IT. You will be told when it ends, on a later turn —\n\
-         waiting here is the exact cost jbx exists to remove. Go and do something else.\n"
+        // AND WHAT TO DO WITH NOTHING TO DO.
+        //
+        // "You will be told when it ends" is true and it arrives on a
+        // LATER TURN — so an agent with nothing else queued has no later
+        // turn to be told on, and the honest options left to it were
+        // idling or polling. Both are the waiting this exists to remove,
+        // wearing different clothes.
+        //
+        // A harness background command does not wait: it ENDS when the
+        // job does, and its ending wakes the caller. `jbx wait` is
+        // exactly that command, and it is named here because a reader
+        // who is told not to wait needs to be told what to do instead.
+        // SHORT, AND IT SAYS WHAT TO DO RATHER THAN WHAT NOT TO.
+        //
+        // This was thirteen lines of argument, printed on every single
+        // detachment. An argument is read once and skimmed after that,
+        // and the part that matters — the id, and the one command to
+        // run — was at the bottom of it. `jbx help <id>` holds the rest
+        // for whoever wants it.
+        //
+        // MONITOR IT, DO NOT WAIT ON IT. `jbx wait` blocks until the job
+        // ends and exits with its code, which is exactly the shape a
+        // background command or a monitor wants: it ENDS when there is
+        // something to say. And the hook leaves `jbx …` lines alone, so
+        // this one is not itself wrapped and detached — measured, not
+        // assumed.
+        // THE ORDER IS KEPT AND THE ARGUMENT IS NOT. "Do not wait, do
+        // something else" has to be here, on every detachment, because
+        // it is the one habit this tool exists to break. WHY waiting
+        // costs what it costs belongs in `jbx help` and `jbx why`, where
+        // it is read once by somebody who wanted to know — not skimmed
+        // ten times a session by somebody who already did.
+        "jbx: this passed {after:.0}s, so it is in the BACKGROUND as {id} — nothing lost.\n\
+         DO NOT WAIT FOR IT, DO SOMETHING ELSE. With nothing else: Monitor\n\
+         `jbx wait {id}`, which ends when the job does.\n"
     );
     if seen.reading_for >= WORTH_MENTIONING && seen.quiet_for >= WORTH_MENTIONING {
         // SAID AS AN OBSERVATION, AND ONLY ONCE IT HAS LASTED. A
@@ -687,17 +717,14 @@ fn announce(id: &str, after: f64, seen: Observation) -> i32 {
         // so the reader is told what was seen and left to judge it.
         let _ = writeln!(
             out,
-            "It has printed nothing for {:.0}s and has been reading its standard input\n\
-             throughout. That is often ordinary — a pipeline stage waiting on a slow\n\
-             producer looks the same. But if it is waiting for input nobody here can\n\
-             give it, re-running with `… < /dev/null`, or with whatever flag makes it\n\
-             non-interactive, will settle it.",
+            "Silent {:.0}s and reading its input throughout — often ordinary, but if it\n\
+             wants input nobody can give it, re-run with `… < /dev/null`.",
             seen.quiet_for
         );
     }
     let _ = writeln!(
         out,
-        "\x20 jbx how {id}   what you can do with it   ·   jbx why   why it works this way"
+        "\x20 jbx help {id}"
     );
     if seen.mirror_cut {
         // ON STDERR, because stdout is precisely what stopped being

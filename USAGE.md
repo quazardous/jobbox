@@ -17,6 +17,7 @@ jbx list                       … and what has finished, for a day
 jbx status <id>                state, exit code, where its log is
 jbx tail <id> [-f]             what it printed
 jbx wait <id>                  block until it ends, exit with its code
+jbx watch [--all] [--json]     one line per job event, until nothing runs
 jbx kill <id>                  stop it, and everything it started
 jbx slots [n|none]             how many queued jobs may run at once
 jbx health                     what runs, what is mute, what is stranded
@@ -27,7 +28,7 @@ jbx stats --thresholds         … and whether 30s is the right cut
 jbx stats --since 1h|24h|all   … over a window rather than everything kept
 jbx stats --project-path       … with full paths instead of names
 jbx config                     every setting, and where it came from
-jbx how [id]                   what you can do with it, right now
+jbx help [id]                  the way in: every verb, or one job
 jbx why                        why it works this way
 jbx init [--undo] [--global-only]
                                declare the hooks
@@ -58,6 +59,37 @@ named something: a name read off the line would repeat the line.
 `--width` says how much room to use — by default it asks the terminal,
 and falls back to 100 columns for the reader who has none, which is
 usually the agent.
+
+## Waiting without standing still
+
+You are told when a job ends — **on a later turn**. An agent with nothing
+else queued has no later turn to be told on, and the two moves left to it
+are idling and polling. Both are the waiting this exists to remove,
+wearing different clothes.
+
+So do neither. Hand the waiting to whatever runs your commands:
+
+```console
+# one wake-up, when this job ends
+jbx wait j7f3a91c            ← as a BACKGROUND command, not a foreground one
+
+# one line per ending, until nothing is running — for a monitor
+jbx watch --json
+```
+
+`jbx wait` exits when the job does and carries its exit code, so a
+background command ends exactly when there is something to say. `jbx
+watch` streams an event per job as it changes and **ends by itself** when
+nothing is left running, which is what keeps a watch from staying armed
+after the thing it waited for.
+
+Both observe and neither consumes: `jbx signals` destroys what it reports
+— right for an agent reading its own mail exactly once, ruinous for a
+watcher, which would eat the endings the session is waiting for.
+
+`jbx watch` covers the failures and not only the happy path. A watch that
+speaks only on success is silent through a crash, and silence looks
+exactly like "still running".
 
 ## The one judgement left to make
 

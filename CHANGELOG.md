@@ -18,6 +18,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-09-07
+
+### Added
+
+- **`jbx watch`** — one line per job event, until nothing is running.
+  For whatever watches a stream: it emits on every terminal state,
+  including the failures, because a watch that speaks only on success is
+  silent through a crash and silence looks exactly like "still running".
+  It **ends by itself** when nothing is left running, and it observes
+  without consuming — unlike `jbx signals`, which destroys what it
+  reports and would eat the endings the session is waiting for.
+  `--json` streams one object per line rather than an array, since an
+  array is only valid once closed.
+
+### Changed
+
+- **The detachment message is three lines instead of thirteen.** It was
+  an argument, printed on every single detachment, with the two things
+  that matter — the id, and the one command to run — at the bottom of
+  it. An argument is read once and skimmed after that. What stays is the
+  order, because it is the habit the tool exists to break, and the
+  instruction:
+
+  ```
+  jbx: this passed 30s, so it is in the BACKGROUND as j7f3a91c — nothing lost.
+  DO NOT WAIT FOR IT, DO SOMETHING ELSE. With nothing else: Monitor
+  `jbx wait j7f3a91c`, which ends when the job does.
+
+    jbx help j7f3a91c
+  ```
+
+- **`jbx help` replaces `jbx how`, and is the one way in.** `jbx help`
+  lists every verb, `jbx help <id>` says what to do with one job, and
+  both name `jbx why` for the reasoning — which is where the argument
+  the message used to carry now lives, read once by somebody who wanted
+  it rather than skimmed ten times a session by somebody who did not.
+- **Waiting is named for what it costs, in `jbx why`.** Polling is
+  waiting with extra steps; a background `jbx wait` is neither, because
+  it ends when the job does and its ending wakes you.
+
 ## [0.9.1] - 2026-09-07
 
 ### Fixed

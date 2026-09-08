@@ -72,6 +72,7 @@ pub mod signals;
 pub mod slots;
 pub mod paint;
 pub mod stats;
+pub mod watch;
 pub mod store;
 
 /// HOW LONG A LINE MAY HOLD THE CALLER before it is detached.
