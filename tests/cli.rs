@@ -1665,6 +1665,18 @@ fn the_plugin_declares_what_init_declares_and_says_the_same_version() {
     // THE MONITOR IS THE ONE VERB WRITTEN FOR IT. `jbx watch` ends by
     // itself when nothing is running, which is what a monitor needs and
     // what `tail -f` can never do.
+    // THE FAÇADE IS FOR A PERSON, NOT FOR THE MODEL. A skill the model
+    // may invoke is a document telling it what to do — and a document
+    // asking it to judge which commands are long is the thing this
+    // project refused and built a program instead of. The discipline
+    // reaches the model through the hook, which is the tool speaking.
+    let skill = read("plugin/skills/jbx/SKILL.md");
+    assert!(skill.contains("disable-model-invocation: true"),
+            "the plugin's skill is model-invocable:\n{skill}");
+    // AND IT DEFERS RATHER THAN REPEATS. A second copy of the discipline
+    // is a second copy to keep in step, and the copy is what drifts.
+    assert!(skill.contains("jbx help"), "the skill does not defer to the binary:\n{skill}");
+
     let monitors: serde_json::Value =
         serde_json::from_str(&read("plugin/monitors/monitors.json")).expect("valid JSON");
     let command = monitors[0]["command"].as_str().unwrap_or("");

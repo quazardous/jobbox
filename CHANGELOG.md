@@ -18,6 +18,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-09-08
+
+### Added
+
+- **The plugin has a face: `/jobbox:jbx`.** Loaded, it declared nothing
+  a person could see — no skill, no command — so a plugin that worked
+  was indistinguishable from one that had failed to load. The skill is
+  **user-invoked only**: a document the model may reach for, telling it
+  when to background things, is exactly what this project refused and
+  wrote a program instead of. It defers to `jbx help` rather than
+  repeating anything, because a second copy is a second copy to keep in
+  step.
+
+### Fixed
+
+- **The session discipline is said once per session, not once per
+  declaration.** Installed as a plugin *and* declared by `jbx init`, the
+  same four hooks run twice in two processes that know nothing of each
+  other — measured on a real load, with the whole paragraph printed
+  twice, which is how a paragraph becomes wallpaper. A marker created
+  atomically settles it: whoever creates it speaks.
+- **The discipline says the two things it means.** It buried the first —
+  a judgement NOT to make, whether a line will be long — under the
+  escape hatch for when you truly need a result now. A reader who is not
+  told which judgement to skip makes it anyway, by backgrounding things
+  by hand or sitting on a build in case.
+
 ## [0.11.0] - 2026-09-08
 
 ### Added

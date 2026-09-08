@@ -328,20 +328,43 @@ pub fn signals(audience: &str, as_json: bool, who: Option<&str>) -> i32 {
 /// On a session's first hook and nowhere else. A rule repeated every
 /// turn is a banner, and a banner is not read.
 pub fn discipline() -> i32 {
-    outln!("[jbx] Every command here is wrapped: if it turns out to be long it detaches");
-    outln!("      itself and hands the shell back, and you are told when it ends. So do");
-    outln!("      not background things by hand, and do not sit on a build in case.");
-    outln!("      Before running something, ask whether you need its result BEFORE you");
-    outln!("      can do anything else. If you do, say so: `jbx fg -- '<line>'` runs it");
-    outln!("      without ever letting go, and `jbx fg <id>` picks a detached one back");
-    outln!("      up. `jbx stats` counts what standing still cost.");
-    // WHAT TO DO WITH NOTHING TO DO, said once and early. Being told an
-    // ending arrives "on a later turn" leaves an agent with nothing
-    // queued no later turn to be told on, and the two moves left to it
-    // — idling and polling — are the waiting this exists to remove.
-    outln!("      With nothing else to do, never poll: run `jbx wait <id>` as a");
-    outln!("      BACKGROUND command and its ending wakes you. `jbx watch` streams one");
-    outln!("      line per job ending, for a monitor.");
+    // ONCE PER SESSION, ACROSS PROCESSES — not once per registration.
+    //
+    // The rule was already said once per hook. It is now possible to be
+    // declared twice: `jbx init` writes the hooks into the settings file
+    // and the plugin declares the same four, so a machine with both runs
+    // each event twice, in two processes that know nothing of each
+    // other. MEASURED on a real load: the whole discipline printed
+    // twice, which is how a paragraph becomes wallpaper.
+    //
+    // A marker in the store settles it. `create_new` is the atomic
+    // gesture on both platforms: whoever creates it speaks, the other
+    // finds it there and says nothing.
+    let said = store::dir().join(format!("said-{}", crate::signals::client()));
+    let _ = std::fs::create_dir_all(store::dir());
+    if std::fs::OpenOptions::new().write(true).create_new(true).open(&said).is_err() {
+        return 0;
+    }
+    // TWO BEATS, AND THEY ARE NOT THE SAME INSTRUCTION.
+    //
+    // The first is a judgement NOT to make: whether a line will be long.
+    // Everybody gets it wrong, the tool refuses to make it, and a reader
+    // who is not told so will make it anyway — by backgrounding things
+    // by hand, or by sitting on a build in case.
+    //
+    // The second is the only discipline left: a job that has let go
+    // finishes whether or not anybody watches it. Waiting on it, and
+    // polling it, are the same waste in different clothes.
+    outln!("[jbx] Every command here is wrapped.");
+    outln!("      DO NOT DECIDE IN ADVANCE whether one will be long. That judgement is");
+    outln!("      the thing everybody gets wrong, so this does not make it: it runs the");
+    outln!("      line and finds out. Nothing for you to do differently.");
+    outln!("      DO NOT WAIT ON A JOB THAT HAS LET GO. It finishes whether you watch it");
+    outln!("      or not, and you are told when it does — so go and do something else.");
+    outln!("      Polling is waiting with extra steps; with nothing else to do, run");
+    outln!("      `jbx wait <id>` as a BACKGROUND command and its ending wakes you.");
+    outln!("      Genuinely cannot go on without a result? Say so: `jbx fg -- '<line>'`");
+    outln!("      never lets go, and `jbx stats` counts what that cost.");
     0
 }
 
