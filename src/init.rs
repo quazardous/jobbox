@@ -198,8 +198,45 @@ fn declare(settings: &mut Value, event: &str, matcher: &str, binary: &str) {
     };
 }
 
+/// Take one entry of OURS back out, leaving every other tool's alone.
+///
+/// The mirror of `declare`, and it has to be as careful: a settings file
+/// is shared, so this removes entries that name OUR binary and nothing
+/// else, then drops a matcher only once it holds nothing — the empty
+/// husk is what makes a file look edited by something careless.
+///
+/// Answers whether anything was actually removed, so the caller can say
+/// what happened rather than claim it.
+fn withdraw(settings: &mut Value, event: &str, binary: &str) -> bool {
+    let Some(matchers) = settings.pointer_mut(&format!("/hooks/{event}")).and_then(Value::as_array_mut)
+    else {
+        return false;
+    };
+    let mut gone = false;
+    for matcher in matchers.iter_mut() {
+        if let Some(hooks) = matcher["hooks"].as_array_mut() {
+            let before = hooks.len();
+            hooks.retain(|e| !is_ours(e, binary));
+            gone |= hooks.len() != before;
+        }
+    }
+    matchers.retain(|m| !m["hooks"].as_array().map(|h| h.is_empty()).unwrap_or(true));
+    if matchers.is_empty() {
+        // AND THE EVENT ITSELF GOES when it was only ever ours. An
+        // `"Stop": []` left behind is not wrong, but it says jbx is
+        // still here to anyone reading the file.
+        if let Some(hooks) = settings["hooks"].as_object_mut() {
+            hooks.remove(event);
+        }
+    }
+    gone
+}
+
 /// Register our hook and displace rtk's.
-pub fn init(undo: bool, global_only: bool) -> i32 {
+/// `announce` adds the three hooks that speak WITHOUT BEING ASKED;
+/// `core` takes them back off. Neither is needed to detach a line — see
+/// the note beside the declaration below.
+pub fn init(undo: bool, global_only: bool, core: bool, announce: bool) -> i32 {
     let Some(path) = settings_path() else {
         eprintln!("jbx: cannot find the settings file — set CLAUDE_CONFIG_DIR");
         return 2;
@@ -294,17 +331,44 @@ pub fn init(undo: bool, global_only: bool) -> i32 {
     if !already {
         declare(&mut settings, "PreToolUse", "Bash", &binary);
     }
-    // THE OTHER THREE ARE WHAT MAKES A DETACHED JOB WORTH DETACHING.
+    // THE OTHER THREE ARE NO LONGER PART OF THE DEAL, and measuring is
+    // what moved them.
     //
-    // `PreToolUse` wraps the line; these carry its ENDING back. Without
-    // them a finished job is something you have to remember to check,
-    // and remembering is precisely what letting go of it was supposed to
-    // buy. `Stop` is the only one whose output reaches the model, so it
-    // is the one that can hold a session open on a failure; the other
-    // two simply say what landed.
-    for (event, matcher) in [("Stop", "*"), ("UserPromptSubmit", "*"), ("SessionStart", "*")] {
-        if !declared(&settings, event, &binary) {
-            declare(&mut settings, event, matcher, &binary);
+    // They were declared because a detached job has to say when it ends,
+    // and these were how it said so. But `jbx wait <id>` is an ORDINARY
+    // COMMAND that exits when the job does — run in the background by
+    // whatever runs the caller's commands, it delivers the same ending
+    // through no hook of ours at all. That is the path actually used in
+    // practice, and the detachment message names it on the spot.
+    //
+    // WHAT IS LOST WITHOUT THEM IS THE UNASKED ANNOUNCEMENT: a job
+    // nobody armed a wait for finishes quietly, and stays quiet until
+    // somebody runs `jbx ps`. Not lost — `jbx health` lists it — but not
+    // volunteered either. That is a real difference, and it is a choice
+    // rather than a default now, because three hooks in somebody else's
+    // settings file is a large footprint for a case the message already
+    // tells them how to cover.
+    const UNASKED: [(&str, &str); 3] =
+        [("Stop", "*"), ("UserPromptSubmit", "*"), ("SessionStart", "*")];
+    let mut added = Vec::new();
+    let mut taken = Vec::new();
+    if announce {
+        for (event, matcher) in UNASKED {
+            if !declared(&settings, event, &binary) {
+                declare(&mut settings, event, matcher, &binary);
+                added.push(event);
+            }
+        }
+    } else if core {
+        // `--core` REPAIRS, it does not merely abstain. Somebody asking
+        // for the small install on a machine that already has the large
+        // one means "take the rest back out", and a flag that left them
+        // in would be a flag that did nothing on the only machines where
+        // it was worth typing.
+        for (event, _) in UNASKED {
+            if withdraw(&mut settings, event, &binary) {
+                taken.push(event);
+            }
         }
     }
 
@@ -333,6 +397,21 @@ pub fn init(undo: bool, global_only: bool) -> i32 {
         // somebody who thought they had pinned one binary.
         outln!("  declared through {binary} — a link, so the hook");
         outln!("  follows whatever it points at.");
+    }
+    // WHAT THE FLAGS DID, SAID OUT LOUD. A flag whose whole effect is
+    // three lines in a file nobody opens is a flag you cannot tell you
+    // ran, and `--core` in particular is worth typing precisely on the
+    // machines where it has something to remove.
+    if !added.is_empty() {
+        outln!("  also declared {} — endings will now be reported unasked", added.join(", "));
+    }
+    if !taken.is_empty() {
+        outln!("  took back {} — endings now come from `jbx wait`, not a hook", taken.join(", "));
+    } else if core {
+        outln!("  (only the wrapping hook was there — nothing to take back)");
+    }
+    if !announce && !core {
+        outln!("  wrapping only. `--announce` adds the hooks that report an ending unasked.");
     }
     if moved > 0 {
         outln!("  {moved} declarations repointed at this binary");

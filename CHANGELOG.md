@@ -18,7 +18,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.13.0] - 2026-09-08
 
 ### Changed
 
@@ -38,6 +38,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of nine slivers.
 - The readings file keeps its old name. Renaming it with the verb would
   have orphaned every measurement already taken.
+- **`jbx init` now declares one hook, not four.** Only the hook that
+  wraps a command is needed to detach one: an ending is delivered by
+  `jbx wait <id>` run in the background by whatever runs your commands,
+  which is what the detachment message already tells you to do. Three
+  hooks in somebody else's settings file is a large footprint for a case
+  the message covers.
+
+  What the other three bought was the **unasked** announcement — a job
+  nobody waited on finishing quietly rather than saying so. That is now
+  a choice: `jbx init --announce` declares them. `jbx init --core` goes
+  the other way and takes them back out of an install that has them.
+  The plugin, which cannot take a flag, is the announcing install.
 
 ### Fixed
 

@@ -124,6 +124,8 @@ pub const VERBS: &[Verb] = &[
         tags: &["configure"],
         effect: "edits the harness settings and writes configuration files",
         flags: &[("--undo", "put back what was there before"),
+                 ("--core", "declare only the hook that wraps, and take back the rest"),
+                 ("--announce", "also declare the hooks that report an ending unasked"),
                  ("--global-only", "the hooks and the global file; no project file")] },
     Verb { name: "hook", summary: "answer the harness; `init` declares this one",
         tags: &["rewrite"], effect: "rewrites the command the harness is about to run",

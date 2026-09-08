@@ -3,7 +3,7 @@
   "name": "jbx",
   "displayName": "JobBox",
   "description": "Wrap every command line; detach the ones that turn out to be long.",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "author": { "name": "quazardous", "url": "https://github.com/quazardous" },
   "homepage": "https://github.com/quazardous/jobbox",
   "repository": "https://github.com/quazardous/jobbox",

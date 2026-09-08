@@ -33,7 +33,9 @@ jbx help [id]                  the way in: every verb, or one job
 jbx how                        the gestures: what to do, and when
 jbx why                        why it works this way
 jbx init [--undo] [--global-only]
-                               declare the hooks
+                               declare the wrapping hook
+jbx init --announce            … and the ones that report an ending unasked
+jbx init --core                … only the wrapping one, taking the rest back
 jbx hook                       answers the harness; init declares this one
 ```
 

@@ -125,7 +125,7 @@ fn dispatch(args: Vec<String>) -> i32 {
                 gain::render(v, how.project_path, how.thresholds)
             }),
         }),
-        "init" => with("init", rest, |how| init::init(how.undo, how.global_only)),
+        "init" => with("init", rest, |how| init::init(how.undo, how.global_only, how.core, how.announce)),
         "watch" => with("watch", rest, |how| jobbox::watch::watch(how.all, how.json)),
         "list" => with("list", rest, |how| listing(false, how)),
         "ps" => with("ps", rest, |how| listing(true, how)),
@@ -194,8 +194,8 @@ fn usage() -> String {
          \x20 jbx how               the gestures: what to do, and when\n\
          \x20 jbx why               why it works this way\n\
          \x20 jbx describe          every verb and what it does, as JSON\n\
-         \x20 jbx init [--undo] [--global-only]\n\
-         \x20                       declare the hook, and displace rtk's\n\
+         \x20 jbx init [--undo] [--global-only] [--core|--announce]\n\
+         \x20                       declare the wrapping hook, displacing rtk's\n\
          \n\
          JBX_AFTER   seconds before detaching (now {:.0})\n\
          JBX_DIR          where logs and records live (now {})\n\
@@ -292,6 +292,8 @@ pub struct Flags {
     json: bool,
     undo: bool,
     global_only: bool,
+    core: bool,
+    announce: bool,
     follow: bool,
     project_path: bool,
     thresholds: bool,
@@ -340,6 +342,8 @@ impl Flags {
                 "--json" => flags.json = true,
                 "--undo" => flags.undo = true,
                 "--global-only" => flags.global_only = true,
+                "--core" => flags.core = true,
+                "--announce" => flags.announce = true,
                 "--project-path" => flags.project_path = true,
                 "--thresholds" => flags.thresholds = true,
                 "--since" => match value().as_deref().map(jobbox::gain::window) {

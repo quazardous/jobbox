@@ -1696,21 +1696,47 @@ fn the_plugin_declares_what_init_declares_and_says_the_same_version() {
                "the plugin manifest is at {} while the crate is at {crate_version}",
                manifest["version"]);
 
-    // AND THE SAME EVENTS AS `jbx init`. Two ways in that declare
-    // different hooks are two behaviours wearing one name; whichever a
-    // reader installs, they get the one they did not read about.
+    // AND THE SAME EVENTS AS AN ANNOUNCING `jbx init`. Two ways in that
+    // declare different hooks are two behaviours wearing one name;
+    // whichever a reader installs, they get the one they did not read
+    // about. The plugin cannot take a flag, so it is the ANNOUNCING
+    // install — and this says which, rather than leaving it to be
+    // discovered.
+    //
+    // IT USED TO GREP THE SOURCE for event names, which made it blind to
+    // the only change that could ever break it: `init` still MENTIONS
+    // all four while declaring one by default. So it asks the binary
+    // now, and compares what is actually written.
     let hooks: serde_json::Value =
         serde_json::from_str(&read("plugin/hooks/hooks.json")).expect("valid JSON");
     let declared: std::collections::BTreeSet<String> =
         hooks["hooks"].as_object().expect("an object").keys().cloned().collect();
-    let init = read("src/init.rs");
-    let wanted: std::collections::BTreeSet<String> = ["PreToolUse", "Stop", "UserPromptSubmit", "SessionStart"]
-        .iter()
-        .filter(|e| init.contains(*e))
-        .map(|e| e.to_string())
-        .collect();
-    assert_eq!(declared, wanted,
-               "the plugin declares {declared:?} where `jbx init` declares {wanted:?}");
+
+    let events = |args: &[&str]| -> std::collections::BTreeSet<String> {
+        let s = Scratch::new(&format!("plugin-{}", args.join("-")));
+        let home = s.jobs().parent().unwrap().join("home");
+        std::fs::create_dir_all(home.join(".claude")).unwrap();
+        let mut all = vec!["init", "--global-only"];
+        all.extend_from_slice(args);
+        s.run_with(&[("HOME", home.to_str().unwrap())], &all);
+        let settings: serde_json::Value = std::fs::read_to_string(home.join(".claude/settings.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or(serde_json::json!({}));
+        settings["hooks"]
+            .as_object()
+            .map(|o| o.keys().cloned().collect())
+            .unwrap_or_default()
+    };
+    let announcing = events(&["--announce"]);
+    assert_eq!(declared, announcing,
+               "the plugin declares {declared:?} where `jbx init --announce` writes {announcing:?}");
+
+    // AND THE DEFAULT IS THE SMALL ONE. Named here because it is the
+    // promise the flag exists to keep: plain `init` touches one hook.
+    let plain = events(&[]);
+    assert_eq!(plain, ["PreToolUse".to_string()].into_iter().collect::<std::collections::BTreeSet<_>>(),
+               "`jbx init` with no flag wrote {plain:?}");
 
     // AND EVERY HOOK GOES THROUGH THE PLUGIN'S OWN BINARY, quoted the
     // way the docs require — an unquoted `${CLAUDE_PLUGIN_ROOT}` breaks
