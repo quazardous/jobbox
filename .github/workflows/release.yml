@@ -65,6 +65,23 @@ jobs:
           mkdir -p "dist/$out"
           if [ "${{ runner.os }}" = "Windows" ]; then
             cp "target/${{ matrix.target }}/release/jbx.exe" "dist/$out/"
+            # THE METADATA IS CHECKED, NOT HOPED FOR. `build.rs` only
+            # WARNS when it cannot write the version block -- right for
+            # someone's local build, useless for a release, because a
+            # warning in a log nobody reads ships the same nameless
+            # binary a signing review refuses. So the release asks the
+            # file itself, and stops here if it comes back empty or
+            # disagreeing with the tag. `strip = true` is in the release
+            # profile: this is also what proves it leaves resources alone.
+            got=$(powershell -NoProfile -Command \
+              "(Get-Item 'dist/$out/jbx.exe').VersionInfo.ProductVersion" | tr -d '\r')
+            want="${version#v}"
+            if [ "$got" != "$want" ]; then
+              echo "release.yml: jbx.exe says ProductVersion '$got', tag says '$want'."
+              echo "  The Windows version block is missing or stale -- see build.rs."
+              exit 1
+            fi
+            echo "jbx.exe carries ProductVersion $got"
           else
             cp "target/${{ matrix.target }}/release/jbx" "dist/$out/"
           fi

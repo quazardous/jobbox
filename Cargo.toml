@@ -4,6 +4,8 @@ version = "0.12.0"
 edition = "2021"
 description = "JobBox — wrap every command line; detach the ones that turn out to be long."
 license = "MIT"
+repository = "https://github.com/quazardous/jobbox"
+build = "build.rs"
 
 [lib]
 name = "jobbox"
@@ -19,6 +21,14 @@ yaml-rust2 = "0.12.0"
 
 [dev-dependencies]
 serde_json = "1"
+
+# ON THE HOST, NOT THE TARGET — and that is the useful reading here. For a
+# build-dependency this cfg names the machine doing the building, so a
+# Linux box cross-compiling to Windows never pulls it in and never needs
+# a resource compiler it does not have. Releases build Windows on a
+# Windows runner, which is where the metadata has to come from anyway.
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
 
 [profile.release]
 opt-level = "z"

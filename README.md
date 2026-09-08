@@ -108,6 +108,8 @@ runs without ever letting go, and `jbx stats` counts what that cost.
   commands, and the two things that differ there.
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — what belongs in a test, and
   what has already been ruled out.
+- **[CODE-SIGNING-POLICY.md](CODE-SIGNING-POLICY.md)** — who may release
+  this, what it never sends anywhere, and how to undo everything it does.
 - **[CHANGELOG.md](CHANGELOG.md)** — what changed, and why it mattered.
 
 ## License
