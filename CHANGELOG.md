@@ -18,6 +18,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-09-08
+
+### Changed
+
+- **Documentation only — the binaries are identical to 0.10.1.** Being
+  told on the next turn was written up as *the* way an ending reaches
+  you, with monitoring offered afterwards as what to do when there is
+  nothing else to do. That inverts them: monitoring does not compensate
+  for idleness, it removes the turn's delay for everyone. The two are
+  ranked now, and the detachment message's word — MONITOR, not *wait* —
+  is finally explained somewhere.
+
 ## [0.10.1] - 2026-09-07
 
 ### Fixed
