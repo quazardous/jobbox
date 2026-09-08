@@ -29,9 +29,10 @@ messages de commit, documentation, messages d'erreur : anglais.
 trois commits français ont été poussés le 08/09/2026 dans un historique
 entièrement anglais, et ils y restent. Lire `git log` avant d'écrire.
 
-> **Note :** aiball classe ce projet en `private`, dont le kit autorise
-> le français dans les commentaires et les références internes. C'est
-> faux ici. La discipline `public` s'applique.
+`.aiball.yaml` déclare `project_type: public` pour cette raison : ce
+dépôt vit dans l'arbre d'un projet privé, dont le kit autorise le
+français et les références internes. La déclaration l'emporte sur
+l'héritage.
 
 ## 3. On ne construit pas par-dessus le binaire qu'on exécute
 
