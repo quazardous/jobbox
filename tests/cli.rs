@@ -1814,7 +1814,15 @@ fn init_declares_in_the_named_client_and_nowhere_else() {
             .and_then(|v| v["hooks"].as_object().map(|o| o.keys().cloned().collect()))
             .unwrap_or_default()
     };
-    let env = [("HOME", home.to_str().unwrap())];
+    // BOTH NAMES FOR THE SAME IDEA. jbx reads `USERPROFILE` on Windows
+    // and `HOME` everywhere else, so a test that redirects only one of
+    // them redirects nothing there — and worse, writes into the real
+    // profile while looking for the answer in the fake one. Found by CI,
+    // which is the only machine here that runs Windows.
+    let env = [
+        ("HOME", home.to_str().unwrap()),
+        ("USERPROFILE", home.to_str().unwrap()),
+    ];
 
     s.run_with(&env, &["init", "--global-only", "--cli", "gemini"]);
     assert_eq!(events(".gemini"), ["BeforeTool".to_string()].into_iter().collect(),
@@ -1903,6 +1911,7 @@ fn the_old_house_is_carried_over_and_nothing_is_left_behind() {
             .env_remove("JBX_DIR")
             .env_remove("JBX_CONFIG")
             .env("HOME", &home)
+            .env("USERPROFILE", &home)
             .args(args)
             .stdin(Stdio::null())
             .output()
@@ -2182,7 +2191,16 @@ fn the_plugin_declares_what_init_declares_and_says_the_same_version() {
         std::fs::create_dir_all(home.join(".claude")).unwrap();
         let mut all = vec!["init", "--global-only"];
         all.extend_from_slice(args);
-        s.run_with(&[("HOME", home.to_str().unwrap())], &all);
+        // `USERPROFILE` TOO — see the note in the sibling test: jbx
+        // reads that one on Windows, and redirecting only `HOME` sends
+        // the write to the real profile.
+        s.run_with(
+            &[
+                ("HOME", home.to_str().unwrap()),
+                ("USERPROFILE", home.to_str().unwrap()),
+            ],
+            &all,
+        );
         let settings: serde_json::Value = std::fs::read_to_string(home.join(".claude/settings.json"))
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
