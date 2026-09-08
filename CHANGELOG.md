@@ -57,6 +57,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consumes the table, because that is where the question is asked — and
   because `jbx clients` already means something else entirely.
 
+- **`jbx hook droid`, `jbx hook cursor`, `jbx hook copilot`** — three
+  more agent CLIs answered, each read in its own reference before being
+  written down. They agree on almost nothing: Droid calls its shell tool
+  `Execute` and takes Claude's envelope; Cursor calls it `Shell` and
+  takes a top-level `updated_input`; Copilot calls it `bash`, sends
+  `toolName`/`toolArgs` rather than `tool_name`/`tool_input`, and takes
+  a top-level `modifiedArgs`.
+
+  **Three of those tool names are not what a widely used proxy assumes**,
+  which would be a hook that never fires and looks perfectly healthy.
+  That is why each name comes from the client's own documentation and is
+  pinned in a test.
+
+  `jbx init` cannot declare for these three yet — each keeps its hooks in
+  a differently named file with a different structure — and it says so
+  and writes nothing rather than installing Claude's shape somewhere it
+  would be ignored. `jbx hook --list` shows which can be declared.
+
 - **`jbx hook gemini`** — Gemini CLI is wrapped too, and adding the next
   client is a row in a table rather than a branch in the code. The
   clients disagree on almost every word: Gemini calls the shell tool
@@ -101,6 +119,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The plugin, which cannot take a flag, is the announcing install.
 
 ### Fixed
+
+- **A hook declared for another client called the wrong dialect.** `jbx
+  init --cli gemini` wrote a bare `jbx hook`, which answers as Claude —
+  so the hook fired on Gemini's `BeforeTool`, found an event name it did
+  not recognise and returned quietly. Installed, matching, and useless.
+  The declaration now names the client, `claude` included, so there is no
+  default left to mismatch.
 
 - **A finished job no longer haunts the mailbox.** `jbx wait <id>` blocks
   until a job ends and exits with its code, so by the time it returns the

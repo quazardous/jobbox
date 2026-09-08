@@ -1200,11 +1200,18 @@ fn list_dialects(how: &Flags) -> i32 {
         for d in v.as_array().into_iter().flatten() {
             let quiet = d["reports_unasked"] != true;
             jobbox::outln!(
-                "{:<8} {:<20} {:<12} ~/{}/settings.json{}",
+                "{:<8} {:<20} {:<12} {}{}",
                 d["name"].as_str().unwrap_or(""),
                 d["tool"].as_str().unwrap_or(""),
                 d["before_tool"].as_str().unwrap_or(""),
-                d["settings"].as_str().unwrap_or(""),
+                match d["settings"].as_str().unwrap_or("") {
+                    // NAMED AS A LIMIT, NOT LEFT BLANK. `jbx hook <name>`
+                    // answers these; only `jbx init` cannot declare them,
+                    // because each keeps its hooks in a file of another
+                    // shape. A blank column reads as "nothing to say".
+                    "" => "declare by hand".to_string(),
+                    dir => format!("~/{dir}/settings.json"),
+                },
                 if quiet { "  (no unasked endings)" } else { "" },
             );
         }

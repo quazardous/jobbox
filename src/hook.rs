@@ -172,10 +172,10 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect) -> i32 {
     // AND THE TOOL NAME IS THE CLIENT'S TOO. `Bash`, `run_shell_command`
     // — a mismatch here is silence, not an error, so it is worth saying
     // that this line is where a "the hook never fired" report begins.
-    if event["tool_name"].as_str() != Some(dialect.tool) {
+    if event[dialect.reads_tool].as_str() != Some(dialect.tool) {
         return 0;
     }
-    let Some(tool_input) = event["tool_input"].as_object() else { return 0 };
+    let Some(tool_input) = event[dialect.reads_input].as_object() else { return 0 };
     let Some(line) = tool_input.get("command").and_then(Value::as_str) else { return 0 };
 
     // IDEMPOTENCE, JUDGED ON THE FILE NAME AND NOT THE WHOLE PATH.

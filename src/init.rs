@@ -28,6 +28,14 @@ use serde_json::{json, Value};
 /// same shape — a matcher with a list of `{type, command}`. That was
 /// read in each client's own reference rather than assumed from one.
 pub fn settings_path_for(d: &crate::dialect::Dialect) -> Option<PathBuf> {
+    // NO ADDRESS MEANS WE CANNOT DECLARE HERE, and saying so beats
+    // writing Claude's shape into a file that wants another one — three
+    // clients keep their hooks in a differently named file with a
+    // different structure, and a hook declared wrong never fires while
+    // looking installed.
+    if d.home_dir.is_empty() {
+        return None;
+    }
     if !d.config_env.is_empty() {
         if let Some(dir) = std::env::var_os(d.config_env) {
             return Some(PathBuf::from(dir).join("settings.json"));
@@ -196,10 +204,18 @@ fn declared(settings: &Value, event: &str, binary: &str) -> bool {
 /// A SETTINGS FILE BELONGS TO OTHER TOOLS TOO. Replacing the array would
 /// be simpler and would delete somebody else's hook — the kind of edit
 /// that is noticed a week later, by its absence.
-fn declare(settings: &mut Value, event: &str, matcher: &str, binary: &str) {
+fn declare(settings: &mut Value, event: &str, matcher: &str, binary: &str, client: &str) {
+    // THE CLIENT IS NAMED, ALWAYS — `jbx hook claude` as much as
+    // `jbx hook gemini`.
+    //
+    // It was left off, and the failure was the quiet kind this whole
+    // table exists to avoid: a bare `jbx hook` answers as CLAUDE, so a
+    // hook declared for Gemini fired on `BeforeTool`, found the wrong
+    // event name, and returned 0. Installed, matching, silent, useless.
+    // Naming it removes the default that can mismatch.
     let entry = json!({
         "matcher": matcher,
-        "hooks": [{ "type": "command", "command": format!("{binary} hook") }],
+        "hooks": [{ "type": "command", "command": format!("{binary} hook {client}") }],
     });
     settings["hooks"][event] = match settings["hooks"][event].take() {
         Value::Array(mut a) => {
@@ -255,6 +271,13 @@ pub fn init(
     announce: bool,
     d: &crate::dialect::Dialect,
 ) -> i32 {
+    if d.home_dir.is_empty() {
+        eprintln!("jbx: `init` cannot declare for {} yet — it keeps its hooks in a", d.name);
+        eprintln!("  file of another name and another shape. `jbx hook {}` answers it;", d.name);
+        eprintln!("  declaring is what is missing. Declare it by hand, calling:");
+        eprintln!("    jbx hook {}", d.name);
+        return 1;
+    }
     let Some(path) = settings_path_for(d) else {
         eprintln!("jbx: cannot find the settings file — set CLAUDE_CONFIG_DIR");
         return 2;
@@ -347,7 +370,7 @@ pub fn init(
     // like "nothing to do" and was not.
     let moved = repoint(&mut settings, &binary);
     if !already {
-        declare(&mut settings, d.before_tool, d.tool, &binary);
+        declare(&mut settings, d.before_tool, d.tool, &binary, d.name);
     }
     // THE OTHER THREE ARE NO LONGER PART OF THE DEAL, and measuring is
     // what moved them.
@@ -380,7 +403,7 @@ pub fn init(
     if announce {
         for event in &unasked {
             if !declared(&settings, event, &binary) {
-                declare(&mut settings, event, "*", &binary);
+                declare(&mut settings, event, "*", &binary, d.name);
                 added.push(*event);
             }
         }

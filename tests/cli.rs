@@ -465,10 +465,15 @@ fn init_displaces_rtk_and_undo_puts_it_back() {
     // no `hook` verb and would answer a harness with a usage error on
     // every single command.
     let declared = entries[0]["command"].as_str().unwrap();
-    // `jbx hook`, OR `jbx.exe hook` — the extension is Windows's and
-    // not a different binary. The test used to spell the Unix name and
-    // called a correct declaration wrong.
-    assert!(declared.contains("jbx") && declared.ends_with(" hook"),
+    // `jbx hook claude`, OR `jbx.exe hook claude` — the extension is
+    // Windows's and not a different binary. The test used to spell the
+    // Unix name and called a correct declaration wrong.
+    //
+    // AND THE DIALECT IS NAMED, which this used to allow to be absent. A
+    // bare `jbx hook` answers as Claude, which is right here and silently
+    // wrong for every other client — so the name is written even where
+    // the default would have been correct.
+    assert!(declared.contains("jbx") && declared.ends_with(" hook claude"),
             "declared the wrong binary: {declared}");
     // WHAT WAS NOT OURS IS UNTOUCHED.
     assert_eq!(now["model"], "opus");
@@ -1805,6 +1810,16 @@ fn init_declares_in_the_named_client_and_nowhere_else() {
     s.run_with(&env, &["init", "--global-only", "--cli", "gemini"]);
     assert_eq!(events(".gemini"), ["BeforeTool".to_string()].into_iter().collect(),
                "gemini got {:?}", events(".gemini"));
+
+    // AND THE DECLARED COMMAND NAMES THE CLIENT. This guard once checked
+    // only WHICH events were declared, never WHAT they call — so it
+    // passed while `jbx init --cli gemini` wrote a bare `jbx hook`, which
+    // answers as Claude, finds `BeforeTool` unfamiliar and returns 0.
+    // Installed, matching, silent, useless: the exact failure the table
+    // exists to prevent, missed by the test written to prevent it.
+    let declared = std::fs::read_to_string(at(".gemini")).unwrap();
+    assert!(declared.contains("hook gemini"),
+            "the declaration does not name the dialect: {declared}");
     assert!(events(".claude").is_empty(), "claude was touched: {:?}", events(".claude"));
 
     // AND `--announce` SPEAKS THAT CLIENT'S NAMES. Declaring Claude's
@@ -1824,6 +1839,19 @@ fn init_declares_in_the_named_client_and_nowhere_else() {
 
     // AND THE OTHER CLIENT IS STILL UNTOUCHED after all of that.
     assert!(events(".claude").is_empty(), "claude was touched: {:?}", events(".claude"));
+
+    // A CLIENT WE CAN ANSWER BUT NOT DECLARE FOR SAYS SO. Cursor keeps
+    // its hooks in `.cursor/hooks.json`, Copilot in `~/.copilot/hooks/`,
+    // Droid in `~/.factory/hooks.json` with the events at the root —
+    // three shapes that are not this one. Writing Claude's into any of
+    // them would install a hook that never fires.
+    let cannot = s.run_with(&env, &["init", "--global-only", "--cli", "cursor"]);
+    assert_eq!(cannot.status.code(), Some(1), "init claimed to declare for cursor");
+    let said = String::from_utf8_lossy(&cannot.stderr).to_string();
+    assert!(said.contains("hook cursor"),
+            "the refusal does not say what DOES work: {said}");
+    assert!(events(".claude").is_empty() && !at(".cursor").exists(),
+            "the refusal still wrote something");
 
     // A NAME NOBODY WIRED IS REFUSED, and says what is known — the
     // listing exists so that answer is findable before the mistake.
@@ -1851,9 +1879,19 @@ fn every_declared_dialect_really_answers() {
     // from `jbx describe` and then checked the answer at that same path,
     // which is a sentence agreeing with itself: pointing the dialect at
     // the wrong tool passed cleanly. Measured, by breaking it on purpose.
-    const MEASURED: [(&str, &str, &str, [&str; 2], bool); 2] = [
-        ("claude", "Bash", "PreToolUse", ["hookSpecificOutput", "updatedInput"], true),
-        ("gemini", "run_shell_command", "BeforeTool", ["hookSpecificOutput", "tool_input"], false),
+    //
+    // THE TOOL NAMES ARE THE HALF MOST WORTH PINNING. Three of these
+    // were probed through rtk first, and rtk watches for `Bash` on all
+    // three — where Cursor says `Shell`, Droid says `Execute` and
+    // Copilot says `bash`. A wrong name is a hook that never fires and
+    // looks perfectly healthy, so the names come from each client's own
+    // reference and are written out here to stay there.
+    const MEASURED: [(&str, &str, &str, &[&str], bool); 5] = [
+        ("claude",  "Bash",              "PreToolUse", &["hookSpecificOutput", "updatedInput"], true),
+        ("gemini",  "run_shell_command", "BeforeTool", &["hookSpecificOutput", "tool_input"],   false),
+        ("droid",   "Execute",           "PreToolUse", &["hookSpecificOutput", "updatedInput"], true),
+        ("cursor",  "Shell",             "preToolUse", &["updated_input"],                      true),
+        ("copilot", "bash",              "preToolUse", &["modifiedArgs"],                       true),
     ];
 
     let s = Scratch::new("dialects");
@@ -1877,13 +1915,25 @@ fn every_declared_dialect_really_answers() {
         // hook seeing a tool it does not watch — so silence cannot be
         // read as "no rewrite needed", and a dialect shipped unwired
         // looks exactly like one that works.
+        // COPILOT'S OWN FORMAT NAMES ITS FIELDS DIFFERENTLY — `toolName`
+        // and `toolArgs` where the others say `tool_name`/`tool_input`.
+        // Reading the wrong key finds nothing, and finding nothing is
+        // indistinguishable from a tool we were not watching.
+        let (k_tool, k_input) = if name == "copilot" {
+            ("toolName", "toolArgs")
+        } else {
+            ("tool_name", "tool_input")
+        };
         let payload = format!(
-            r#"{{"hook_event_name":"{event}","tool_name":"{tool}","tool_input":{{"command":"echo hi","timeout":600000}}}}"#
+            r#"{{"hook_event_name":"{event}","{k_tool}":"{tool}","{k_input}":{{"command":"echo hi","timeout":600000}}}}"#
         );
         let out = text(&s.event_as(name, &payload));
         let answer: serde_json::Value = serde_json::from_str(out.trim())
             .unwrap_or_else(|e| panic!("{name} answered {out:?}: {e}"));
-        let here = &answer[at[0]][at[1]];
+        let mut here = &answer;
+        for key in at {
+            here = &here[*key];
+        }
         let line = here["command"].as_str()
             .unwrap_or_else(|| panic!("{name}: nothing at {at:?} in {answer}"));
         assert!(line.contains("run") && line.contains("echo hi"),
