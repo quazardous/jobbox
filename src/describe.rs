@@ -158,6 +158,8 @@ pub const VERBS: &[Verb] = &[
         flags: NOTHING },
     Verb { name: "help", summary: "the way in: what to type, and what to do with a job",
         tags: &["read"], effect: "reads", flags: JSON_ONLY },
+    Verb { name: "how", summary: "the gestures: what to do, in the order you meet it",
+        tags: &["read"], effect: "reads", flags: JSON_ONLY },
     Verb { name: "why", summary: "why it works this way", tags: &["read"], effect: "reads",
         flags: JSON_ONLY },
 ];

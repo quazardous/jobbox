@@ -107,6 +107,7 @@ fn dispatch(args: Vec<String>) -> i32 {
         "after" => with("after", rest, |f| after_cmd(f.free.first().map(String::as_str), f)),
 
         "describe" => with("describe", rest, |_| jobbox::describe::describe()),
+        "how" => with("how", rest, how_to),
         "why" => with("why", rest, why),
         "health" => with("health", rest, health),
         "clients" => with("clients", rest, clients),
@@ -190,6 +191,7 @@ fn usage() -> String {
          \x20 jbx clients           whose endings are still unread\n\
          \x20 jbx config            every setting, and where it came from\n\
          \x20 jbx help [id]         this, or what to do with one job\n\
+         \x20 jbx how               the gestures: what to do, and when\n\
          \x20 jbx why               why it works this way\n\
          \x20 jbx describe          every verb and what it does, as JSON\n\
          \x20 jbx init [--undo] [--global-only]\n\
@@ -198,8 +200,8 @@ fn usage() -> String {
          JBX_AFTER   seconds before detaching (now {:.0})\n\
          JBX_DIR          where logs and records live (now {})\n\
          \n\
-         A job that just detached: `jbx help <id>`. Why waiting costs what it\n\
-         costs, and what to do instead: `jbx why`.\n",
+         A job that just detached: `jbx help <id>`. What to do, and when:\n\
+         `jbx how`. Why it is built this way at all: `jbx why`.\n",
         default_after(),
         default_after(),
         jobbox::store::dir().display()
@@ -1113,6 +1115,73 @@ fn looks_like_an_id(word: &str) -> bool {
 /// detaches a command has no room to argue. This is where the argument
 /// lives: why it wraps everything, why waiting is the cost, and what to
 /// do when you genuinely cannot go on without the result.
+/// `jbx how` — THE GESTURES, in the order you meet them.
+///
+/// The third door. `help` is the map, `why` is the reasoning, and this
+/// is what to actually DO — which used to live scattered through `why`,
+/// where someone looking for an instruction had to read an argument to
+/// find it.
+fn how_to(how: &Flags) -> i32 {
+    let text = "\
+jbx — how to work with it
+
+A JOB JUST DETACHED
+  Do not wait for it. Go do the next thing; its ending is announced and
+  will reach you on a later turn without you looking.
+
+      jbx help <id>            what to do with THAT job, lines to copy
+
+WHEN THERE IS GENUINELY NOTHING ELSE TO DO
+  Do not poll — polling is waiting with extra steps, and it spends a turn
+  per look. Hand the waiting to whatever runs your commands:
+
+      jbx wait <id>            as a BACKGROUND command, not a foreground
+                               one. It exits when the job does and carries
+                               its exit code, so its ending wakes you.
+      jbx watch --json         one line per job event, for a monitor. It
+                               ENDS BY ITSELF when nothing is left running.
+
+  Cover the failures too. A watch that speaks only on success is silent
+  through a crash, and silence looks exactly like \"still running\".
+
+WHEN YOU WANT TO STOP IT
+  Detaching is what gave the line a NAME, and the name is the only way to
+  reach it while it runs. A foreground line has none: once it starts you
+  are committed to whatever it does, up to its timeout.
+
+      jbx list                 what is running, and under which id
+      jbx kill <id>            stop it, AND everything it started
+
+  That last part is not decoration. A shell line is normally one process
+  that spawns others; signalling the parent alone leaves the real work
+  running under a new one.
+
+WHEN YOU REALLY CANNOT GO ON WITHOUT THE RESULT
+  Say so, rather than fighting the tool:
+
+      jbx fg -- '<line>'       never lets go
+      jbx fg <id>              bring a detached job back to the front
+
+  It is counted, so the habit stays visible. `jbx stats` says what it cost.
+
+WHEN THE WORK HAS NOT STARTED YET
+  A line already running cannot be held back. Work you are ABOUT to file
+  can be — that is the other door, and the only one that takes a name:
+
+      jbx queue '<intent>' -- '<line>'
+      jbx slots 4              how many queued jobs may run at once
+
+READING WHAT HAPPENED
+      jbx ps                   what is running, here
+      jbx status <id>          state, exit code, where its log is
+      jbx tail <id> [-f]       what it printed
+      jbx stats                what takes time — a ceiling, not a receipt
+
+  `jbx help` is the map. `jbx why` is the reasoning behind all of this.";
+    Answer(serde_json::json!({ "text": text }), 0)
+        .show(how, |v| jobbox::outln!("{}", v["text"].as_str().unwrap_or("")))
+}
+
 fn why(how: &Flags) -> i32 {
     let text = "\
 jbx — why it does that
@@ -1163,16 +1232,29 @@ WHAT IT NEVER DOES
   never breaks a command to save a token. Where there is a terminal, it hands
   the line straight to a shell and stops existing.
 
+WHY LETTING GO IS ALSO WHAT GIVES YOU A GRIP
+  Detaching is usually described as time handed back. It is also the moment
+  the line acquires a NAME — and the name is the only way to reach it while
+  it still runs. A foreground line has none: once it starts you are committed
+  to everything it does, right up to its timeout, including the part you
+  would have stopped had you known.
+
+  Measured on 08/09/2026: a three-step line detached at sixty seconds; the
+  freed turn was spent reading a document that said the third step would
+  create something billable and unusable. It was killed between the second
+  step and the third. Nothing had judged that line long — that is the point.
+
 WHY WAITING IS THE THING TO AVOID
   Because the result comes to you. Standing over a detached job buys nothing
   that the announcement does not already give you, and it costs the whole
   duration twice: your attention, and the tokens of a session doing nothing.
 
-  With nothing else to do, do not poll either — polling is waiting with extra
-  steps. Put `jbx wait <id>` in the BACKGROUND, or under a monitor: it ends
-  when the job does, so its ending wakes you instead of you watching for it.
+  Polling is the same waiting in other clothes, and it spends a turn per
+  look. There is a way to hand the waiting over instead — `jbx how` says
+  which, since that is a gesture and this page is only the reasoning.
 
-  `jbx help` is the other half of this: what to type, rather than why.";
+  `jbx help` is the map, `jbx how` is the gestures, and this is the argument
+  behind both.";
     // PROSE IS STILL A VALUE. One field rather than none, so that the
     // rule "every verb answers something a machine can read" has no
     // exceptions to remember.

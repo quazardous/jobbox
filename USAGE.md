@@ -30,6 +30,7 @@ jbx stats --since 1h|24h|all   … over a window rather than everything kept
 jbx stats --project-path       … with full paths instead of names
 jbx config                     every setting, and where it came from
 jbx help [id]                  the way in: every verb, or one job
+jbx how                        the gestures: what to do, and when
 jbx why                        why it works this way
 jbx init [--undo] [--global-only]
                                declare the hooks
@@ -94,6 +95,33 @@ watcher, which would eat the endings the session is waiting for.
 `jbx watch` covers the failures and not only the happy path. A watch that
 speaks only on success is silent through a crash, and silence looks
 exactly like "still running".
+
+## Letting go is what gives you a grip
+
+Detaching is usually sold as time handed back. It is also the moment a
+running line acquires a **name** — and the name is what lets you act on
+it while it still runs.
+
+A foreground line has none. Once it starts you are committed to whatever
+it does, up to its timeout, including the part you would have stopped had
+you known.
+
+```console
+jbx list                     # what is running, and under which id
+jbx kill j7f3a91c            # stop it, and everything it started
+```
+
+Measured on 08/09/2026: a three-step `az` line detached at sixty seconds.
+The freed turn was spent reading a document, which said the third step
+would create a billable resource that could not be used at all. The job
+was killed between the second step and the third. Nothing had judged that
+line long — that is precisely the point — and nothing else in the session
+could have reached it.
+
+**"And everything it started" is not decoration.** A shell line is
+normally one process that spawns others; signalling the parent alone
+leaves the real work running under a new one. `kill` tears down the
+group.
 
 ## The one judgement left to make
 
