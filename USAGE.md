@@ -62,12 +62,15 @@ usually the agent.
 
 ## Waiting without standing still
 
-You are told when a job ends — **on a later turn**. An agent with nothing
-else queued has no later turn to be told on, and the two moves left to it
-are idling and polling. Both are the waiting this exists to remove,
-wearing different clothes.
+An ending reaches you two ways, and one of them is better.
 
-So do neither. Hand the waiting to whatever runs your commands:
+**Left alone**, it is announced on the next turn. That is free and it
+costs a turn's delay — and an agent with nothing else queued has no next
+turn at all, so it is left with idling or polling, which are the same
+waiting in different clothes.
+
+**Monitored**, it arrives the moment it happens. Hand the waiting to
+whatever runs your commands and it wakes you then rather than later:
 
 ```console
 # one wake-up, when this job ends

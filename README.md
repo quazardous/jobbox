@@ -87,14 +87,20 @@ DO NOT WAIT FOR IT, DO SOMETHING ELSE. With nothing else: Monitor
 ```
 
 The build output arrived **as it was written**, not replayed at the end.
-When it finishes, the model is told on its next turn and you are told
-when the session stops — a failure holds the session open and points at
-the log.
 
-**And if there is nothing else to do, do not poll.** `jbx wait <id>`
-ends exactly when the job does, so run it in the background and let its
-ending wake you; `jbx watch` streams one line per job as they end, for
-anything watching several. Polling is waiting with extra steps.
+**The ending reaches you two ways, and one of them is better.** Left
+alone, it is announced on the next turn — free, and it costs a turn's
+delay. Monitored, it arrives the moment it happens: `jbx wait <id>` ends
+exactly when the job does, so anything watching that command is woken
+then rather than later. `jbx watch` does it for every job at once, one
+line each.
+
+That is the whole difference between waiting and being told, and it is
+why the message says *monitor* rather than *wait*. Polling is neither —
+it is waiting with extra steps.
+
+You are told when the session stops as well, and a failure holds it open
+and points at the log.
 
 ## The one judgement left to make
 
