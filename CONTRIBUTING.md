@@ -132,3 +132,28 @@ do not belong there — the commit log covers them.
 
 Version bumps follow SemVer: a new flag or command is at least MINOR, a
 pure bug fix is PATCH, and a renamed field or removed flag is MAJOR.
+
+## Never let a build install itself
+
+`./bin/promote` builds, proves the binary answers, and only then copies
+it over the installed one. Use it instead of installing by hand.
+
+The installed `jbx` used to be a **symlink** to `target/release/jbx`, so
+`cargo build` replaced the live hook at the instant it linked. A build
+that compiles and then hangs therefore becomes a dead shell immediately —
+and the hook runs before every command, including the ones that would
+diagnose it.
+
+That is not hypothetical. Moving the config into `~/.jobbox` made
+`config::path()` ask `store::root()` where things live, and `root()`
+reads the config to find out. The recursion ran inside the hook; the
+session could not run `cargo build` to fix itself, and the settings file
+had to be edited from outside Claude Code.
+
+`promote` asks the two questions a hook actually asks — resolve
+configuration, answer a payload — each under a timeout, in a throwaway
+home. It is not a test suite. It asks only: would installing this kill
+the shell?
+
+**And no path function may consult the configuration to say where the
+configuration lives.** That is the cycle above, stated forwards.

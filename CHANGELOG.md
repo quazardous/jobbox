@@ -89,6 +89,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Everything lives in `~/.jobbox/` now**, and the move happens by
+  itself the first time jbx is run.
+
+  What could not be replayed was living in a cache. `~/.cache` may be
+  emptied at any hour by the system or by a person tidying up — and that
+  is where the readings sat, thousands of them, along with the record of
+  the hooks `init` displaced, which is the only thing that lets `--undo`
+  put them back. Settings were somewhere else again, under a directory
+  that did not even use the same name.
+
+  So: `readings.jsonl`, `displaced-hooks.json` and `config.yaml` in
+  `~/.jobbox/`, and everything genuinely disposable — logs, job records,
+  mailboxes — one level down in `~/.jobbox/cache/`. Deleting that
+  directory is now safe, which was never true before. `JBX_DIR` still
+  moves the lot.
+
+  The move is a rename, never a copy followed by a delete, and each
+  piece stands alone: interrupted halfway, the next run finishes it.
+
 - **`jbx stats` is now `jbx gain`, and the old name is gone.** One verb,
   not two doors onto the same number. There is no alias: `jbx stats`
   answers `unknown verb`.

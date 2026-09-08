@@ -273,6 +273,25 @@ to call would remove it from the machine outright.
   including the one you would have refused. The extra prompt is the cost
   of keeping that answer yours.
 
+## Where it keeps things
+
+```
+~/.jobbox/readings.jsonl        what `jbx gain` counts
+~/.jobbox/displaced-hooks.json  what `jbx init --undo` puts back
+~/.jobbox/config.yaml           what you wrote
+~/.jobbox/cache/                logs, job records, mailboxes
+```
+
+**Only `cache/` is safe to delete**, and that is the point of the split.
+The readings and the record of displaced hooks used to live in
+`~/.cache`, whose contract is that it may be emptied at any hour — so
+weeks of measurement and the ability to uninstall depended on nobody
+tidying up. An older layout is moved here by itself, once, the first
+time jbx runs.
+
+`JBX_DIR` moves the whole house; the settings file stays where it is,
+since the setting that says where things go cannot live where it points.
+
 ## Settings
 
 **jbx works everywhere by default.** A project says otherwise in a
@@ -301,7 +320,7 @@ this one run.
 |---|---|---|
 | `JBX_ENABLED` | `enabled` | whether jbx does anything here at all |
 | `JBX_AFTER` | `after` | seconds before a line is detached (`30`) |
-| `JBX_DIR` | `dir` | where logs and records live (`~/.cache/jbx`) |
+| `JBX_DIR` | `dir` | where jbx keeps its house (`~/.jobbox`) |
 | `JBX_SLOTS` | `slots` | how many QUEUED jobs run at once (`none` for no cap) |
 | `JBX_MUTE_AFTER` | `mute_after` | seconds of silence before a job is called mute (`600`) |
 | `JBX_WIDTH` | `width` | columns a listing draws in (`auto` asks the terminal) |

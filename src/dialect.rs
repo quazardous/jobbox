@@ -67,10 +67,11 @@ pub struct Dialect {
     /// with a flat list, `~/.cursor/hooks.json`, `~/.factory/hooks.json`
     /// with the events at the root), and writing Claude's shape there
     /// would produce a hook that never fires and looks installed. `jbx
-    /// hook <name>` answers them all the same; only declaring is missing. The file inside is `settings.json`
-    /// for both, and the entry has the SAME SHAPE for both — a matcher
-    /// with a list of `{type, command}`. Read in each client's own
-    /// reference rather than assumed from one of them.
+    /// hook <name>` answers them all the same; only declaring is missing.
+    ///
+    /// Where it IS set, the file inside is `settings.json` and the entry
+    /// has the same shape — a matcher with a list of `{type, command}` —
+    /// read in each client's own reference rather than assumed from one.
     pub home_dir: &'static str,
     /// An environment variable that moves that directory, where the
     /// client offers one. Empty when it does not — Gemini's reference

@@ -8,7 +8,7 @@
 
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Everything remembered about one wrapped line.
@@ -79,25 +79,141 @@ pub fn now() -> f64 {
 /// `JBX_DIR` FIRST, because the caller is the one who knows where
 /// they want their files — and because the tests need somewhere that is
 /// not the user's real home. Otherwise the platform's usual place.
+/// WHERE THE THROWAWAY LIVES: logs, job records, mailboxes, slot marks.
+///
+/// Named `cache` because that is what it is, and because the name is a
+/// PROMISE: everything under here can be deleted without losing anything
+/// that cannot be had again. That promise used to be broken — the
+/// readings and the record of what `init` displaced sat in a directory
+/// the system may empty at any hour, which is how weeks of measurement
+/// and the ability to uninstall came to depend on nobody tidying up.
 pub fn dir() -> PathBuf {
-    root().join("jobs")
+    root().join("cache")
+}
+
+/// WHERE WHAT CANNOT BE REPLAYED LIVES — the readings, and the record of
+/// the hooks `init` moved aside. Beside the settings, not under a cache.
+pub fn home() -> PathBuf {
+    root()
 }
 
 /// WHAT `JBX_DIR` NAMES: the directory everything lives UNDER, not the
 /// one jobs land in. `config` reports settings, and reporting a computed
 /// subdirectory where a setting belongs invites somebody to set the
 /// variable to it — which would then nest one level deeper every time.
+/// WHERE EVERYTHING LIVES, and the one place that must not ask the
+/// configuration where the configuration is.
+///
+/// This function READS the settings — `dir` may move the whole house —
+/// so `config::path()` cannot be built on it. It was, for a few minutes
+/// on 08/09/2026, and the resulting recursion ran inside the hook: every
+/// command in the session hung, including the ones that would have said
+/// why. The cycle is easy to reintroduce and impossible to notice from
+/// the type system, so it is named here.
 pub fn root() -> PathBuf {
-    crate::config::dir(platform_root()).0
+    let here = crate::config::dir(platform_root()).0;
+    // ONCE PER PROCESS, AND ONLY FOR THE DEFAULT HOME. Somebody who set
+    // `dir` has said where things go; moving their files would be
+    // answering a question they already answered.
+    settle();
+    here
 }
 
-/// Where the platform would put a cache, when nobody has said otherwise.
+/// RUN THE MOVE BEFORE ANYTHING READS. Once per process, and only for
+/// the default home: somebody who set `dir` has said where things go.
+///
+/// CALLED FROM `config::path()` TOO, and that is the point. The move has
+/// to happen before the settings are read, or the first run after an
+/// upgrade answers from defaults while the file sits one directory away.
+/// `config::path()` computes the home itself and asks nothing of the
+/// settings, so calling this from there adds no cycle.
+pub fn settle() {
+    static MOVED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    MOVED.get_or_init(|| {
+        let home = platform_root();
+        // The default home only. A pinned `JBX_DIR` is an answer given.
+        if std::env::var_os("JBX_DIR").is_none() {
+            bring_the_old_house_over(&home);
+        }
+    });
+}
+
+/// MOVE WHAT THE OLD LAYOUT LEFT BEHIND, once, and say so.
+///
+/// jbx used to keep its readings and the record of the hooks `init`
+/// displaced under `~/.cache`, whose contract is that it may be emptied
+/// at any moment — so weeks of measurement and the ability to uninstall
+/// depended on nobody tidying up. Its settings lived somewhere else
+/// again, under a different name. This brings all three home.
+///
+/// A MOVE, NEVER A COPY FOLLOWED BY A DELETE. Interrupted halfway, a
+/// copy leaves two truths and no way to tell which is current; a rename
+/// leaves the file at exactly one of two places, both of which this
+/// function knows how to find next time.
+///
+/// EACH STEP STANDS ALONE for the same reason: none of them is gated on
+/// another having happened, so an interrupted migration simply finishes
+/// on the next run rather than skipping what it missed.
+fn bring_the_old_house_over(home: &Path) {
+    let Some(user) = home.parent().map(PathBuf::from) else { return };
+    let old_jobs = user.join(".cache").join("jbx").join("jobs");
+    let old_conf = user.join(".config").join("jobbox").join("config.yaml");
+    let cache = home.join("cache");
+
+    let mut moved: Vec<String> = Vec::new();
+    let mut carry = |from: PathBuf, to: PathBuf, what: &str| {
+        if !from.exists() || to.exists() {
+            return;
+        }
+        if let Some(parent) = to.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        if fs::rename(&from, &to).is_ok() {
+            moved.push(what.to_string());
+        }
+    };
+
+    // The whole cache first, as one rename where the filesystem allows.
+    carry(old_jobs.clone(), cache.clone(), "logs and mailboxes");
+    // Then the two that were never cache, from wherever they now are.
+    for source in [cache.join("stats.jsonl"), old_jobs.join("stats.jsonl")] {
+        carry(source, home.join("readings.jsonl"), "readings");
+    }
+    for source in [
+        cache.join("displaced-hooks.json"),
+        old_jobs.join("displaced-hooks.json"),
+    ] {
+        carry(source, home.join("displaced-hooks.json"), "the record of displaced hooks");
+    }
+    carry(old_conf, home.join("config.yaml"), "settings");
+
+    if !moved.is_empty() {
+        // SAID ON STDERR, not stdout: this can happen during a hook, and
+        // a hook's stdout is a protocol.
+        eprintln!("jbx: moved {} into {}", moved.join(", "), home.display());
+    }
+}
+
+/// ONE HOME, WHERE IT WILL BE LOOKED FOR.
+///
+/// `~/.jobbox` rather than a cache directory and a config directory that
+/// did not even agree on a name — one said `jbx`, the other `jobbox`.
+///
+/// It also puts jbx where its neighbours are. Every agent CLI it speaks
+/// to keeps its own house in the same place: `~/.claude`, `~/.gemini`,
+/// `~/.cursor`, `~/.factory`, `~/.copilot`. Being the one tool split
+/// across three directories bought nothing and hid what mattered.
+///
+/// AND IT MAKES A BACKUP ONE DIRECTORY. That is the whole reason the
+/// durable half is here at all.
 fn platform_root() -> PathBuf {
     #[cfg(windows)]
-    let base = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .map(|b| b.join("jobbox"));
     #[cfg(not(windows))]
-    let base = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache"));
-    base.unwrap_or_else(|| PathBuf::from(".")).join("jbx")
+    let base = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".jobbox"));
+    base.unwrap_or_else(|| PathBuf::from(".jobbox"))
 }
 
 pub fn log_path(id: &str) -> PathBuf { dir().join(format!("{id}.log")) }

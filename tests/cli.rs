@@ -197,8 +197,17 @@ impl Scratch {
             .expect("the binary runs")
     }
 
+    /// The throwaway half of the store. Named `cache` since jbx moved
+    /// house: the readings and the record of displaced hooks now sit
+    /// beside it rather than inside it, because `~/.cache` may be emptied
+    /// at any hour and neither of those can be had again.
     fn jobs(&self) -> PathBuf {
-        self.0.join("jobs")
+        self.0.join("cache")
+    }
+
+    /// The durable half — readings, displaced hooks, settings.
+    fn home(&self) -> PathBuf {
+        self.0.clone()
     }
 }
 
@@ -521,7 +530,7 @@ fn signals_of(s: &Scratch) -> Vec<serde_json::Value> {
 }
 
 fn readings(s: &Scratch) -> Vec<serde_json::Value> {
-    std::fs::read_to_string(s.jobs().join("stats.jsonl"))
+    std::fs::read_to_string(s.home().join("readings.jsonl"))
         .unwrap_or_default()
         .lines()
         .filter_map(|l| serde_json::from_str(l).ok())
@@ -548,7 +557,7 @@ fn the_table_never_holds_the_line_as_typed() {
     // in a cache directory for weeks. Truncating it would not do: a
     // truncated secret is still a leaked prefix, so it is dropped whole.
     s.run(&["run", "--", "TOKEN=hunter2 echo done"]);
-    let raw = std::fs::read_to_string(s.jobs().join("stats.jsonl")).unwrap();
+    let raw = std::fs::read_to_string(s.home().join("readings.jsonl")).unwrap();
     assert!(!raw.contains("hunter2"), "the secret was written down: {raw}");
     assert!(!raw.contains("TOKEN"), "the assignment was kept: {raw}");
     assert!(raw.contains("echo done"), "the shape was lost with it: {raw}");
@@ -1144,7 +1153,7 @@ fn a_reading_belongs_to_the_calling_session_not_to_wherever_it_ran() {
     let home = s.project(None, "");
     // What the hook writes down the first time it sees a session: the
     // directory of the Claude Code that is calling.
-    let roots = s.0.join("jobs/sessions");
+    let roots = s.0.join("cache/sessions");
     std::fs::create_dir_all(&roots).unwrap();
     std::fs::write(roots.join("abcd1234"), home.display().to_string()).unwrap();
 
@@ -1470,7 +1479,7 @@ fn the_head_of_the_line_goes_first_even_when_slots_are_free() {
     // order this job would start at once — "whoever asks when a slot is
     // free" was the rule, and it followed the filing order only because
     // waiters happen to start asking in that order.
-    let tickets = s.0.join("jobs/slots/tickets");
+    let tickets = s.0.join("cache/slots/tickets");
     std::fs::create_dir_all(&tickets).unwrap();
     let holder = Command::new("sleep").arg("20").spawn().unwrap();
     std::fs::write(tickets.join(format!("1.{}", holder.id())), "").unwrap();
@@ -1862,6 +1871,67 @@ fn init_declares_in_the_named_client_and_nowhere_else() {
             "the listing does not name what works: {told}");
     assert!(told.contains(".gemini/settings.json"),
             "the listing does not say where it declares: {told}");
+}
+
+#[test]
+#[cfg(unix)]
+fn the_old_house_is_carried_over_and_nothing_is_left_behind() {
+    // WHAT WAS NEVER CACHE WAS LIVING IN ONE. The readings and the
+    // record of the hooks `init` displaced sat under `~/.cache`, whose
+    // contract is that it may be emptied at any hour — so weeks of
+    // measurement and the ability to uninstall depended on nobody
+    // tidying up. Moving house is the fix; losing the furniture in the
+    // move would be worse than the problem.
+    let s = Scratch::new("moving");
+    let home = s.jobs().parent().unwrap().join("home");
+    let old_jobs = home.join(".cache/jbx/jobs");
+    std::fs::create_dir_all(old_jobs.join("sessions")).unwrap();
+    std::fs::create_dir_all(home.join(".config/jobbox")).unwrap();
+
+    std::fs::write(old_jobs.join("stats.jsonl"), "{\"kind\":\"run\",\"secs\":1}\n").unwrap();
+    std::fs::write(old_jobs.join("displaced-hooks.json"), "{\"displaced\":[]}").unwrap();
+    std::fs::write(old_jobs.join("j1234567.log"), "a log").unwrap();
+    std::fs::write(home.join(".config/jobbox/config.yaml"), "after: 42\n").unwrap();
+
+    // HOME ONLY, AND NOTHING ELSE. The usual helper pins `JBX_DIR` and
+    // `JBX_CONFIG`, and the move deliberately does not happen for
+    // somebody who has said where things go — pinning them here would
+    // test the one case this cannot apply to.
+    let ask = |args: &[&str]| -> String {
+        let out = Command::new(JBX)
+            .env_remove("JBX_WRAPPED")
+            .env_remove("JBX_DIR")
+            .env_remove("JBX_CONFIG")
+            .env("HOME", &home)
+            .args(args)
+            .stdin(Stdio::null())
+            .output()
+            .expect("the binary runs");
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    // Any command at all: the move happens the first time jbx is asked
+    // where it keeps things, not from a verb somebody has to know about.
+    let shown = ask(&["config"]);
+
+    let now = home.join(".jobbox");
+    assert!(now.join("readings.jsonl").exists(), "the readings were left behind");
+    assert!(now.join("displaced-hooks.json").exists(), "the undo record was left behind");
+    assert!(now.join("cache/j1234567.log").exists(), "the logs were left behind");
+    assert!(now.join("config.yaml").exists(), "the settings were left behind");
+
+    // AND THE SETTINGS ARE READ, not merely moved — the point of the
+    // move is that jbx finds them afterwards.
+    assert!(shown.contains("42"), "the moved settings were not read:\n{shown}");
+
+    // MOVED, NOT COPIED. Two truths and no way to tell which is current
+    // is the failure a copy leaves behind.
+    assert!(!old_jobs.join("stats.jsonl").exists(), "the readings were copied, not moved");
+    assert!(!home.join(".config/jobbox/config.yaml").exists(), "the settings were copied");
+
+    // AND IT DOES NOT RUN TWICE. A second call must find nothing to do
+    // rather than announce a move it did not make.
+    let again = ask(&["config"]);
+    assert!(!again.contains("moved"), "it moved things a second time:\n{again}");
 }
 
 #[test]

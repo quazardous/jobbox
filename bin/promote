@@ -1,0 +1,66 @@
+#!/usr/bin/env sh
+# BUILD, PROVE THE BINARY IS NOT LETHAL, THEN INSTALL IT.
+#
+# WHY THIS EXISTS. The installed `jbx` used to be a SYMLINK to
+# `target/release/jbx`, so `cargo build` replaced the live hook at the
+# instant it linked — with nothing in between. A build that compiles and
+# then hangs therefore becomes a dead shell immediately, and the hook
+# runs before EVERY command, including the ones that would diagnose it.
+#
+# That happened on 08/09/2026: moving the config into `~/.jobbox` made
+# `config::path()` ask `store::root()` where things live, and `root()`
+# reads the config to find out. Infinite recursion, inside the hook. The
+# session could not run `cargo build` to fix itself, and the settings
+# file had to be edited by hand from outside.
+#
+# So: the binary is COPIED here, never linked, and only after it has
+# answered on the two paths a hook actually takes.
+#
+# THE TEST IS DELIBERATELY TINY. It is not a test suite — `cargo test` is
+# that, and it runs against a binary nobody depends on yet. This asks one
+# question: would installing this kill the shell? A timeout answers it.
+set -eu
+
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+built="$repo/target/release/jbx"
+installed="${JBX_INSTALL:-$HOME/.local/bin/jbx}"
+
+say() { printf 'promote: %s\n' "$*"; }
+die() { printf 'promote: %s\n' "$*" >&2; exit 1; }
+
+# Some `timeout` implementations are absent; without one this script
+# cannot make its only promise, so it says so rather than pretending.
+command -v timeout >/dev/null 2>&1 || die "no \`timeout\` — cannot prove the binary answers"
+
+say 'building...'
+( cd "$repo" && cargo build --release --quiet ) || die 'build failed — nothing installed'
+[ -x "$built" ] || die "no binary at $built"
+
+# ── THE TWO PATHS A HOOK TAKES ───────────────────────────────────────
+#
+# A hook resolves configuration, then answers a payload. Both are run
+# against a THROWAWAY HOME so this cannot touch real readings, and both
+# are given far more time than either needs: the failure being looked for
+# is "never returns", not "slow".
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+
+say 'asking it where it keeps things...'
+HOME="$scratch" JBX_DIR="$scratch/store" timeout 10 "$built" config >/dev/null 2>&1 \
+  || die 'it could not answer `config` — installing this would hang every command'
+
+say 'feeding it a hook payload...'
+answer=$(printf '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo smoke"}}' \
+  | HOME="$scratch" JBX_DIR="$scratch/store" JBX_WRAPPED=1 timeout 10 "$built" hook 2>/dev/null) \
+  || die 'the hook did not answer — installing this would hang every command'
+case "$answer" in
+  *hookSpecificOutput*echo*smoke*) ;;
+  *) die "the hook answered something unexpected: ${answer:-<nothing>}" ;;
+esac
+
+# ── ONLY NOW ─────────────────────────────────────────────────────────
+mkdir -p "$(dirname "$installed")"
+# COPIED, NEVER LINKED. A link makes the next `cargo build` an install,
+# which is the whole hazard this script exists to remove.
+cp -f "$built" "$installed.new" && mv -f "$installed.new" "$installed"
+say "installed $installed — $("$installed" --version 2>/dev/null || echo '?')"

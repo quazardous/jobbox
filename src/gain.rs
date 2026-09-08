@@ -188,7 +188,7 @@ fn table_path() -> PathBuf {
     // renaming the ledger with it would orphan every reading already
     // taken, and a measurement tool that loses its measurements to a
     // rename is worse than one with a slightly stale filename.
-    store::dir().join("stats.jsonl")
+    store::home().join("readings.jsonl")
 }
 
 /// Append one reading of a line that ran. Called by the supervisor,

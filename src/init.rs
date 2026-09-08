@@ -54,7 +54,7 @@ pub fn settings_path() -> Option<PathBuf> {
 }
 
 fn saved_path() -> PathBuf {
-    crate::store::dir().join("displaced-hooks.json")
+    crate::store::home().join("displaced-hooks.json")
 }
 
 fn read(path: &Path) -> Value {
@@ -284,7 +284,7 @@ pub fn init(
     };
     let binary = declared_binary();
     if undo {
-        return restore(&path, &binary);
+        return restore(&path, &binary, d.name);
     }
 
     // THE GLOBAL FILE IS WRITTEN WHEN THERE IS NONE, so the settings are
@@ -348,9 +348,15 @@ pub fn init(
                 // call would remove it from the machine altogether, which
                 // is not what "never compose" asks for.
                 if is_rtk(entry) && keep_rtk_hook {
+                    // THE CLIENT IS RECORDED, because there is more than
+                    // one now. Without it, `--undo` run for Claude would
+                    // put a Gemini entry back into Claude's settings and
+                    // take it out of nowhere — a hook returned to the
+                    // wrong door, and gone from the right one.
                     displaced.push(json!({
                         "matcher": label.clone(),
                         "hook": entry.clone(),
+                        "client": d.name,
                     }));
                 }
                 if is_ours(entry, &binary) {
@@ -481,7 +487,7 @@ pub fn init(
     0
 }
 
-fn restore(path: &Path, binary: &str) -> i32 {
+fn restore(path: &Path, binary: &str, client: &str) -> i32 {
     let mut settings = read(path);
     // EVERY EVENT WE EVER DECLARED, not just the one we came for: an
     // undo that leaves three of four behind is worse than no undo, since
@@ -513,6 +519,14 @@ fn restore(path: &Path, binary: &str) -> i32 {
     let kept = read(&saved_path());
     let displaced = kept["displaced"].as_array().cloned().unwrap_or_default();
     for d in &displaced {
+        // OURS ONLY. An entry written before this field existed says
+        // nothing, and `claude` is what it was — every displacement made
+        // before today was made there, since that is the only client
+        // `init` could write to.
+        let from = d["client"].as_str().unwrap_or("claude");
+        if from != client {
+            continue;
+        }
         let wanted = d["matcher"].clone();
         let entry = d["hook"].clone();
         let matchers = settings["hooks"]["PreToolUse"].as_array_mut();

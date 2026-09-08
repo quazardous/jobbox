@@ -66,7 +66,7 @@ if [ "$MODE" = uninstall ]; then
     fi
     rm -f "$BIN/jbx"
     say "removed $BIN/jbx"
-    say "your logs and readings are untouched, in \${JBX_DIR:-~/.cache/jbx}."
+    say "your logs and readings are untouched, in \${JBX_DIR:-~/.jobbox}."
     exit 0
 fi
 

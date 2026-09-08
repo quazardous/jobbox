@@ -91,22 +91,41 @@ impl Compose {
 ///
 /// `JBX_CONFIG` first, because a test — and a person trying something —
 /// needs to point this somewhere that is not their real one. Otherwise
-/// the platform's usual place for configuration, which is not where the
-/// logs go: one is edited by hand and kept, the other is written by the
-/// machine and swept.
+/// `~/.jobbox/config.yaml`, beside the readings rather than in a
+/// directory of its own: the throwaway is one level down, in `cache/`,
+/// so the difference that matters — kept versus swept — is visible in
+/// the layout instead of in two unrelated paths.
 pub fn path() -> PathBuf {
     if let Some(named) = std::env::var_os("JBX_CONFIG") {
         return PathBuf::from(named);
     }
+    // BESIDE EVERYTHING ELSE, in `~/.jobbox`. It used to live in the
+    // configuration directory while the rest lived in a cache — two
+    // homes that did not even agree on a name, one saying `jbx` and the
+    // other `jobbox`. Somebody backing up their settings backed up half.
+    //
+    // COMPUTED HERE, NOT ASKED OF `store`. `store::root()` consults the
+    // configuration to see whether `dir` was set — so asking it where
+    // the configuration lives is a question that answers itself for
+    // ever. Measured the hard way: the recursion runs inside the hook,
+    // so every command in the session hung, including the ones that
+    // would have diagnosed it.
+    //
+    // `JBX_DIR` DELIBERATELY DOES NOT MOVE THIS FILE, and that is the
+    // same reason stated forwards: the setting that says where things go
+    // cannot itself live where it points.
+    // BEFORE READING, MOVE. An upgrade that answered from defaults for
+    // one run while the settings file sat one directory away would be a
+    // threshold silently ignored exactly once — the sort of thing nobody
+    // reproduces.
+    crate::store::settle();
     #[cfg(windows)]
-    let base = std::env::var_os("APPDATA").map(PathBuf::from);
-    #[cfg(not(windows))]
-    let base = std::env::var_os("XDG_CONFIG_HOME")
+    let base = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
-    base.unwrap_or_else(|| PathBuf::from("."))
-        .join("jobbox")
-        .join("config.yaml")
+        .map(|b| b.join("jobbox"));
+    #[cfg(not(windows))]
+    let base = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".jobbox"));
+    base.unwrap_or_else(|| PathBuf::from(".jobbox")).join("config.yaml")
 }
 
 /// THE PROJECT'S OWN FILE, at the root of the repository it lives in.
