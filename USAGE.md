@@ -157,6 +157,25 @@ at once. It is also the only place a name is required — somebody choosing
 to hand work over has one in mind, and three words at that moment make a
 list readable three hours later.
 
+## Two numbers, and they answer different halves
+
+`given back` is time that ran while you were free. `reached for` is how
+many detached jobs were later killed, brought back, or read.
+
+The second exists because the first missed something. Detaching hands
+back a **window** and hands over a **name**, and only the window was
+counted — so a job killed between its second step and its third, on the
+strength of what the freed window turned up, showed here as a few
+seconds saved.
+
+It counts the act, not its worth: whether reaching for a job was a good
+idea is not knowable from a ledger, and a number invented to look like
+value would be worse than none.
+
+A job killed before it finished leaves no reading of its own — the run
+is recorded when it ends — so `reached for` can name a job that
+`detached` never counted. Worth knowing before reading the two together.
+
 ## `saved` is a ceiling, and it says so
 
 Detaching a job you then stand and wait for saved nobody anything, and a

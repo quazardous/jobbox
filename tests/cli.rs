@@ -1632,6 +1632,80 @@ fn colour_costs_a_column_nothing() {
 }
 
 #[test]
+#[cfg(unix)]
+fn only_a_job_that_let_go_counts_as_reached_for() {
+    // THE POINT OF THE COLUMN IS THAT THE ACT NEEDED A NAME. Reaching
+    // for a job that never let go is reaching for something the caller
+    // was standing over anyway — it proves nothing about wrapping, and
+    // counting it would turn a narrow true number into a flattering one.
+    //
+    // THE NEGATIVE CASE IS NOT "a job that did not detach": a record is
+    // deleted when its line finishes in time, so there is nothing left
+    // to reach for. It is the record that never SAID — written by a
+    // version before the field existed. That one answers None, and None
+    // must not be read as "yes"; asserting detachment nobody observed is
+    // how a narrow number starts flattering.
+    let s = Scratch::new("grips");
+    let out = s.run(&["run", "--after", "0.1", "--", "sleep 30"]);
+    let detached = announced(&text(&out));
+
+    // An older record, made by copying a real one and taking the field
+    // back out — closer to the truth than a hand-written stub, which
+    // would only prove that our own guess parses.
+    let older = "j0000001";
+    let mut record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(s.jobs().join(format!("{detached}.json"))).unwrap(),
+    )
+    .unwrap();
+    record["id"] = serde_json::json!(older);
+    record.as_object_mut().unwrap().remove("detached");
+    std::fs::write(
+        s.jobs().join(format!("{older}.json")),
+        serde_json::to_string(&record).unwrap(),
+    )
+    .unwrap();
+    s.run(&["tail", older]);
+
+    // A JOB THAT LET GO, REACHED FOR TWICE BY DIFFERENT VERBS.
+    s.run(&["tail", &detached]);
+    s.run(&["kill", &detached]);
+    s.stop_everything();
+
+    let seen = readings(&s);
+    let touches: Vec<&serde_json::Value> =
+        seen.iter().filter(|r| r["kind"] == "touch").collect();
+    let verbs: std::collections::BTreeSet<&str> =
+        touches.iter().filter_map(|t| t["verb"].as_str()).collect();
+    assert_eq!(verbs, ["killed", "read"].into_iter().collect(),
+               "the verbs recorded were {verbs:?}");
+    assert!(touches.iter().all(|t| t["id"] == detached.as_str()),
+            "a record that never said it detached was counted: {touches:?}");
+
+    // AND THE HEADLINE COUNTS THE JOB ONCE, not the two gestures. The
+    // question is how often a name was worth having, not how often
+    // somebody typed.
+    let doc: serde_json::Value =
+        serde_json::from_str(&text(&s.run(&["gain", "--json"]))).expect("gain is JSON");
+    assert_eq!(doc["grips"]["jobs"], 1, "one job, two gestures: {}", doc["grips"]);
+    assert_eq!(doc["grips"]["killed"], 1);
+    assert_eq!(doc["grips"]["read"], 1);
+
+    // AND IT IS SHOWN. Writing the reading is half the job; a number
+    // nobody sees answers nothing.
+    //
+    // A KILLED JOB LEAVES NO READING OF ITS OWN — the run is recorded
+    // when it finishes, and this one was stopped before it could. So a
+    // store whose only command was killed renders "nothing measured yet"
+    // and the grip goes unseen. Found by this test, not reasoned about:
+    // the line below exists so there is something to render beside it.
+    // It means `reached for` can name a job that `detached` never
+    // counted, which is worth knowing before reading the two together.
+    s.run(&["run", "--", "echo done"]);
+    let shown = text(&s.run(&["gain"]));
+    assert!(shown.contains("reached for"), "the headline says nothing: {shown}");
+}
+
+#[test]
 fn every_declared_dialect_really_answers() {
     // WHAT THIS CAN PROVE, AND WHAT IT CANNOT.
     //

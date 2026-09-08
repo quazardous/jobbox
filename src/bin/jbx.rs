@@ -106,7 +106,10 @@ fn dispatch(args: Vec<String>) -> i32 {
         "fg" => match Flags::of("fg", rest) {
             Err(code) => code,
             Ok(how) => match rest.first() {
-                Some(first) if looks_like_an_id(first) && rest.len() == 1 => run::attach(first),
+                Some(first) if looks_like_an_id(first) && rest.len() == 1 => {
+                    note_grip(first, "brought back");
+                    run::attach(first)
+                }
                 Some(_) => run::foreground(&tail(rest), how.intent.as_deref()),
                 None => usage_error("fg needs a line or a job id"),
             },
@@ -148,7 +151,10 @@ fn dispatch(args: Vec<String>) -> i32 {
             None => usage_error("status needs an id"),
         }),
         "tail" => with("tail", rest, |how| match how.free.first() {
-            Some(id) => tail_log(id, how.follow),
+            Some(id) => {
+                note_grip(id, "read");
+                tail_log(id, how.follow)
+            }
             None => usage_error("tail needs an id"),
         }),
         "wait" => with("wait", rest, |how| match how.free.first() {
@@ -156,7 +162,10 @@ fn dispatch(args: Vec<String>) -> i32 {
             None => usage_error("wait needs an id"),
         }),
         "kill" => with("kill", rest, |how| match how.free.first() {
-            Some(id) => kill(id),
+            Some(id) => {
+                note_grip(id, "killed");
+                kill(id)
+            }
             None => usage_error("kill needs an id"),
         }),
         other => {
@@ -1121,6 +1130,24 @@ fn which_rtk() -> bool {
 /// No command looks like this, which is what lets `fg` take either
 /// without a flag to disambiguate — and what makes a typo fall through
 /// to "run this line" rather than to a wrong job.
+/// NOTE A GESTURE THAT ONLY A NAME MADE POSSIBLE.
+///
+/// Only for a job that actually LET GO. Reaching for one that never
+/// detached is reaching for something the caller was standing over
+/// anyway — it needed no name and proves nothing about wrapping.
+///
+/// Silent when the id is unknown: this is bookkeeping beside the verb,
+/// and a failed lookup is the verb's business to report, not ours.
+fn note_grip(id: &str, verb: &str) {
+    // `detached` IS THREE-VALUED, and the third value matters: a
+    // record written before the field existed says None, never false.
+    // Treating that as "did not detach" would assert something nobody
+    // observed, so it simply does not count.
+    if store::read_record(id).and_then(|r| r.detached) == Some(true) {
+        jobbox::gain::record_touch(id, verb);
+    }
+}
+
 fn looks_like_an_id(word: &str) -> bool {
     word.len() == 8
         && word.starts_with('j')

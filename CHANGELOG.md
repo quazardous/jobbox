@@ -22,6 +22,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`jbx gain` counts what letting go made possible**, not only the time
+  it handed back. `kill`, `fg <id>` and `tail <id>` on a job that let go
+  are acts that could not have happened otherwise — a foreground line
+  has no name, so there is nothing to reach for and you are committed
+  until its timeout. A headline line says how many jobs were reached
+  for, and with which verb; it hides itself when there is nothing to
+  say.
+
+  It counts the act, not its worth. Whether reaching for a job was a
+  good idea is not knowable here, and a number invented to look like
+  value would be worse than none.
+
+  A job whose record predates the field saying whether it detached is
+  not counted: answering "yes" for something nobody observed is how a
+  narrow number starts flattering.
+
 - **`jbx hook gemini`** — Gemini CLI is wrapped too, and adding the next
   client is a row in a table rather than a branch in the code. The
   clients disagree on almost every word: Gemini calls the shell tool

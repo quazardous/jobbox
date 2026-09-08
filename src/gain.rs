@@ -224,6 +224,30 @@ pub fn record(shape: &str, secs: f64, after: f64, fg: bool, code: i32) {
 /// So every block is written down and subtracted. What is left is time
 /// the caller genuinely did something else with — or at least, time this
 /// tool can prove it did not spend here.
+/// A GESTURE THE DETACHMENT MADE POSSIBLE.
+///
+/// `kill`, `fg <id>` and `tail <id>` on a job that let go are acts that
+/// could not have happened otherwise: a foreground line has no name, so
+/// there is nothing to reach for, and you are committed to whatever it
+/// does until its timeout.
+///
+/// IT COUNTS THE ACT, NOT ITS WORTH. Whether the kill was a good idea is
+/// not knowable here and this does not pretend otherwise — a number
+/// invented to look like value would be worse than no number, which is
+/// the trap this whole table was built to stay out of. What it says is
+/// narrow and true: this many jobs were reached for while they ran.
+pub fn record_touch(id: &str, verb: &str) {
+    let (name, path) = project();
+    append(serde_json::json!({
+        "at": store::now(),
+        "kind": "touch",
+        "id": id,
+        "verb": verb,
+        "project": name,
+        "path": path,
+    }));
+}
+
 pub fn record_wait(secs: f64) {
     let (name, path) = project();
     append(serde_json::json!({
@@ -268,6 +292,11 @@ fn read_all() -> Vec<Reading> {
     let Ok(text) = std::fs::read_to_string(table_path()) else { return Vec::new() };
     text.lines()
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        // A GESTURE IS NOT A DURATION. Left in this stream a `touch`
+        // would arrive as a zero-second block: harmless in the sum and
+        // wrong in kind, which is the sort of thing that is true until
+        // somebody divides by it.
+        .filter(|v| v["kind"].as_str().unwrap_or("run") != "touch")
         .map(|v| Reading {
             at: v["at"].as_f64().unwrap_or(0.0),
             project: v["project"].as_str().unwrap_or("?").into(),
@@ -643,6 +672,7 @@ pub fn measure(only: Option<&str>, since: Option<f64>) -> Result<Value, i32> {
             "saved": all.saved(), "ratio": all.ratio(),
             "chosen": all.chosen, "chosen_secs": all.chosen_secs,
         },
+        "grips": grips(since),
         "durations": spread(&readings),
         "thresholds": replay(&readings),
     }))
@@ -653,6 +683,40 @@ pub fn measure(only: Option<&str>, since: Option<f64>) -> Result<Value, i32> {
 /// A mean alone says nothing here and the distribution is the point:
 /// almost every call is under a second and a handful are minutes, so the
 /// average lands in a region where no command ever does.
+/// HOW MANY JOBS WERE REACHED FOR, and with which verb.
+///
+/// BY DISTINCT ID, because tailing a job twice is one job reached for,
+/// not two — and the question is how often a name was worth having, not
+/// how often somebody typed.
+fn grips(since: Option<f64>) -> Value {
+    use std::collections::{BTreeMap, BTreeSet};
+    let now = store::now();
+    let Ok(text) = std::fs::read_to_string(table_path()) else {
+        return serde_json::json!({ "jobs": 0 });
+    };
+    let mut by_verb: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut all: BTreeSet<String> = BTreeSet::new();
+    for v in text.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()) {
+        if v["kind"].as_str() != Some("touch") {
+            continue;
+        }
+        if let Some(span) = since {
+            if now - v["at"].as_f64().unwrap_or(0.0) > span {
+                continue;
+            }
+        }
+        let (Some(id), Some(verb)) = (v["id"].as_str(), v["verb"].as_str()) else { continue };
+        by_verb.entry(verb.into()).or_default().insert(id.into());
+        all.insert(id.into());
+    }
+    let mut out = serde_json::Map::new();
+    out.insert("jobs".into(), Value::from(all.len()));
+    for (verb, ids) in by_verb {
+        out.insert(verb, Value::from(ids.len()));
+    }
+    Value::Object(out)
+}
+
 fn spread(readings: &[Reading]) -> Value {
     let mut secs: Vec<f64> = readings.iter().filter(|r| r.ran).map(|r| r.secs).collect();
     if secs.is_empty() {
@@ -750,6 +814,39 @@ fn headline(total: &Value, v: &Value) {
     outln!("  commands wrapped   {calls:>9}");
     outln!("  of those, detached {detached:>9}  {}",
         crate::paint::dim(&format!("({:.1}% of them)", cut * 100.0)));
+    // THE GESTURES, RIGHT UNDER THE COUNT THEY ARE A FRACTION OF.
+    //
+    // `given back` is time; this is not, and it sits here because the
+    // two answer different halves of "was the wrapping worth it".
+    // Detaching hands back a WINDOW and hands over a NAME, and until now
+    // only the window was counted — a job killed between its second step
+    // and its third, on the strength of what the freed window turned up,
+    // appeared in this table as a few seconds saved.
+    //
+    // IT COUNTS ACTS, NOT THEIR WORTH. Whether reaching for a job was a
+    // good idea is not knowable here, and a number invented to look like
+    // value would be worse than none.
+    //
+    // ONLY WHEN THERE IS SOMETHING TO SAY: a line reading "0" every time
+    // teaches the eye to skip that part of the block.
+    let grips = &v["grips"];
+    if grips["jobs"].as_u64().unwrap_or(0) > 0 {
+        let mut how: Vec<String> = grips
+            .as_object()
+            .map(|o| {
+                o.iter()
+                    .filter(|(k, _)| *k != "jobs")
+                    .map(|(verb, n)| format!("{verb} {n}"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        how.sort();
+        outln!(
+            "  reached for        {:>9}  {}",
+            grips["jobs"].as_u64().unwrap_or(0),
+            crate::paint::dim(&format!("({})", how.join(", ")))
+        );
+    }
     outln!("  they took          {:>9}", human(num(total, "elapsed")));
     outln!("  you stood still    {:>9}", human(num(total, "waited")));
     outln!("  given back         {:>9}  {}  {}",
