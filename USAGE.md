@@ -176,6 +176,13 @@ to call would remove it from the machine outright.
   wrapping safe is a fact about a terminal that is not there.
 - **It is not a scheduler.** No dependencies between jobs, no retries, no
   calendar.
+- **It does not spend your permissions.** The wrapped line is what the
+  harness asks you about, so an existing rule like `Bash(cargo test:*)`
+  stops matching and you are asked where you were not before. A hook can
+  silence that by answering `allow` for itself — jbx never does. It wraps
+  *every* command, so allowing on your behalf would allow all of them,
+  including the one you would have refused. The extra prompt is the cost
+  of keeping that answer yours.
 
 ## Settings
 

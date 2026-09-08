@@ -234,10 +234,24 @@ pub fn hook(binary: &str) -> i32 {
             quote(&through_rtk(line))
         )),
     );
-    // `permissionDecision` IS DELIBERATELY ABSENT. Setting it to "allow"
-    // alongside an `updatedInput` makes the harness drop the rewrite
-    // without a word (claude-code#15897) — the failure that leaves you
-    // certain the hook never ran.
+    // `permissionDecision` IS DELIBERATELY ABSENT, AND NO LONGER FOR THE
+    // REASON THIS COMMENT USED TO GIVE. It said "allow" alongside an
+    // `updatedInput` makes the harness drop the rewrite in silence
+    // (claude-code#15897). Measured again on 08/09/2026, with jbx as the
+    // only PreToolUse hook: the rewrite SURVIVES and `allow` does lift
+    // the prompt. The old claim was true of a build we are no longer on.
+    //
+    // It stays absent because of what it would mean, not what it breaks.
+    // This hook wraps EVERY Bash command. Emitting "allow" would grant
+    // every one of them, and a hook cannot know which the person would
+    // have refused — so the setting would read "jbx makes it quieter"
+    // and spend a permission the user never gave.
+    //
+    // THE COST OF LEAVING IT OUT IS REAL AND FALLS ON THE USER: a rule
+    // like `Bash(cargo test:*)` no longer matches the rewritten line, so
+    // installing jbx ADDS prompts for anyone who had allow-rules. That
+    // is a fair price for not spending their permissions for them, and
+    // it is written down rather than discovered. See BookShepherd #2126.
     let answer = serde_json::json!({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
