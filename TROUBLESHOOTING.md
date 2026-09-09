@@ -60,6 +60,13 @@ for a long compile, and worth a look if it was supposed to be chatty.
 `jbx health` lists both, and stranded records are swept once they are
 six hours past their last sign of life.
 
+## On macOS
+
+If macOS says the developer cannot be verified, the file was downloaded
+by a browser, which flags it — `install.sh` uses `curl`, which does not.
+[MACOS.md](MACOS.md) has the one-line remedy and why the binaries are
+not notarised.
+
 ## On Windows
 
 `WINDOWS.md` covers Smart App Control, which shell runs your commands,

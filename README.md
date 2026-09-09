@@ -133,6 +133,8 @@ runs without ever letting go, and `jbx gain` counts what that cost.
   counted and why it is a ceiling, and what was deliberately left out.
 - **[CLI-AI.md](CLI-AI.md)** — every agent CLI jbx answers, what to paste
   where, and the two it leaves alone.
+- **[MACOS.md](MACOS.md)** — why the install command never trips
+  Gatekeeper, and what to do if you downloaded by hand.
 - **[WINDOWS.md](WINDOWS.md)** — Smart App Control, which shell runs your
   commands, and the two things that differ there.
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — why nothing is
