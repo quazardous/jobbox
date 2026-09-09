@@ -360,6 +360,35 @@ this one run.
 `jbx config` prints every value, where it came from, and which files it
 would be edited in.
 
+## `jbx wait` is for Monitor
+
+Waiting is legitimate — for the caller that genuinely has nothing else
+to do, `jbx wait <id>` ends exactly when the job does, so the ending
+wakes whatever is watching. **Handed to Monitor**, that is the fastest
+an ending can reach you. Run in front of you, it is the waiting the
+detachment had just removed.
+
+**The detachment message does not offer the command**, and that is
+deliberate: saying "do not wait" and then handing over the line that
+waits is a contradiction, and an agent resolves it the easy way — by
+pasting what it was given. `jbx help <id>` lists it, one step further
+away, along with everything else that can be done with the job.
+
+Where the habit has already set in, a project can take the foreground
+use away:
+
+```yaml
+allow_wait: false      # `jbx wait` is for Monitor, not the foreground
+```
+
+`jbx wait` then refuses with exit 2 and names Monitor instead. Nothing
+else changes: endings are still announced on the next turn, `jbx watch`
+still reports them, `jbx status` still says where a job is.
+
+**It is on by default**, because on a client with no end-of-turn hook —
+Cursor, today — `jbx wait` is the only way an ending reaches anyone at
+all.
+
 ## What the wrapping costs
 
 `jbx gain` says what the detaching bought. Saying that without saying

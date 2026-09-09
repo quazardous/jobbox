@@ -171,6 +171,7 @@ fn dispatch(args: Vec<String>) -> i32 {
             None => usage_error("tail needs an id"),
         }),
         "wait" => with("wait", rest, |how| match how.free.first() {
+            Some(id) if !jobbox::config::allow_wait().0 => refuse_wait(id),
             Some(id) => wait(id),
             None => usage_error("wait needs an id"),
         }),
@@ -1066,6 +1067,23 @@ fn clients(how: &Flags) -> i32 {
     })
 }
 
+/// `allow_wait: false` — SAY WHAT TO DO INSTEAD, not merely no.
+///
+/// A refusal that only refuses sends the caller looking for another way
+/// to stand still, and there is always one — a `sleep` in a loop, a
+/// `tail -f`, a poll every second. So this names the gesture that was
+/// wanted: hand the waiting to whatever backgrounds a command for you,
+/// and go on with the turn.
+fn refuse_wait(id: &str) -> i32 {
+    eprintln!(
+        "jbx: waiting in front of you is off here (`allow_wait: false`).\n\
+         \x20 Hand it to Monitor instead — `jbx wait {id}` ends when the job does,\n\
+         \x20 and that ending wakes you. Then carry on with this turn.\n\
+         \x20 jbx help {id}    everything else you can do with it"
+    );
+    2
+}
+
 fn config(how: &Flags) -> i32 {
     use jobbox::config;
 
@@ -1075,6 +1093,7 @@ fn config(how: &Flags) -> i32 {
     let (dir, dir_from) = config::dir(store::root());
     let (compose, compose_from) = config::compose();
     let (on, on_from) = config::enabled();
+    let (waiting, waiting_from) = config::allow_wait();
     let (width, width_from) = config::width();
     let (color, color_from) = config::color();
 
@@ -1103,6 +1122,10 @@ fn config(how: &Flags) -> i32 {
                     on.into(), on_from.as_str()),
                 row("after", format!("{after:.0}s before detaching"), after.into(),
                     after_from.as_str()),
+                row("allow_wait",
+                    if waiting { "`jbx wait` may run in front of you" }
+                    else { "`jbx wait` is for Monitor only" }.to_string(),
+                    waiting.into(), waiting_from.as_str()),
                 row("mute_after", format!("{mute:.0}s of silence is mute"), mute.into(),
                     mute_from.as_str()),
                 row("slots", slots_said, slots.into(), slots_from.as_str()),
@@ -1438,7 +1461,7 @@ fn help_for(id: &str, flags: &Flags) -> i32 {
         (format!("jbx tail {id} -f"), "… and keep watching"),
         (format!("jbx fg {id}"), "bring it back to the foreground and watch it"),
         (format!("jbx wait {id}"),
-         "in the BACKGROUND: it ends when the job does, and that wakes you"),
+         "give this to Monitor: it ends when the job does, and that wakes you"),
         (format!("jbx kill {id}"), "stop it, and everything it started"),
     ];
 Answer(
@@ -1459,9 +1482,9 @@ Answer(
             jobbox::outln!("  {:<22} {}", text(c, "command"), text(c, "what"));
         }
         jobbox::outln!("\nTHE USUAL ANSWER IS NONE OF THESE. You will be told when it ends, on a");
-        jobbox::outln!("later turn — go and do something else. With nothing else to do, put");
-        jobbox::outln!("`jbx wait` in the BACKGROUND rather than polling: it ends when the job");
-        jobbox::outln!("does, so the ending wakes you.");
+        jobbox::outln!("later turn — go and do something else. With nothing else to do, hand");
+        jobbox::outln!("`jbx wait` to Monitor rather than polling, or running it in front of");
+        jobbox::outln!("you: it ends when the job does, so the ending wakes you.");
 })
 }
 

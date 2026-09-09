@@ -707,9 +707,14 @@ fn announce(id: &str, after: f64, seen: Observation) -> i32 {
         // costs what it costs belongs in `jbx help` and `jbx why`, where
         // it is read once by somebody who wanted to know — not skimmed
         // ten times a session by somebody who already did.
+        // THE COMMAND FOR WAITING IS NOT OFFERED HERE, and that is the
+        // point. Saying "do not wait" and then handing over the exact
+        // line that waits is a contradiction an agent resolves the easy
+        // way: it pastes what it was given. `jbx help <id>` lists every
+        // gesture, waiting included, for the caller that genuinely has
+        // nothing else to do — one step further away, which is enough.
         "jbx: this passed {after:.0}s, so it is in the BACKGROUND as {id} — nothing lost.\n\
-         DO NOT WAIT FOR IT, DO SOMETHING ELSE. With nothing else: Monitor\n\
-         `jbx wait {id}`, which ends when the job does.\n"
+         DO NOT WAIT FOR IT, DO SOMETHING ELSE.\n"
     );
     if seen.reading_for >= WORTH_MENTIONING && seen.quiet_for >= WORTH_MENTIONING {
         // SAID AS AN OBSERVATION, AND ONLY ONCE IT HAS LASTED. A

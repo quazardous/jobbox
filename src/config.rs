@@ -473,6 +473,38 @@ pub fn enabled() -> (bool, Source) {
     }
 }
 
+/// WHETHER `jbx wait` MAY BE RUN IN FRONT OF YOU.
+///
+/// `jbx wait` is a BACKGROUND gesture. Put it in the background and it
+/// ends when the job does, so the ending wakes whoever is watching —
+/// that is what it is for, and why it is allowed by default.
+///
+/// Run in the foreground it is the opposite: the caller stands still
+/// until the job finishes, which is exactly the waiting the detachment
+/// just removed. It is also the easiest line to reach for right after
+/// being told a job went to the background, and some agents reach for
+/// it every single time.
+///
+/// So a project may take the foreground use away. Nothing else changes:
+/// endings are still announced on the next turn, `jbx watch` still
+/// reports them, `jbx status` still says where a job is, and `jbx wait`
+/// still works where it belongs — under whatever backgrounds a command
+/// for you. In Claude Code that is Monitor.
+pub fn allow_wait() -> (bool, Source) {
+    if let Some(text) = std::env::var("JBX_ALLOW_WAIT").ok().filter(|v| !v.is_empty()) {
+        return (!matches!(text.trim(), "0" | "false" | "no"), Source::Environment);
+    }
+    let (node, source) = at("allow_wait");
+    match node {
+        Yaml::Boolean(value) => (*value, source),
+        node => match text_of(node) {
+            Some("false") => (false, source),
+            Some("true") => (true, source),
+            _ => (true, Source::Default),
+        },
+    }
+}
+
 /// WHETHER rtk ANSWERS — asked by running it, not by looking for a file.
 ///
 /// What matters is whether it responds, not whether something with that
@@ -518,6 +550,7 @@ pub fn project_template(rtk_found: bool) -> String {
          \n\
          # enabled: false       # jbx stays out of the way in this project\n\
          # after: 30            # seconds before a long line detaches itself\n\
+         # allow_wait: true      # false: `jbx wait` is for Monitor, not the foreground\n\
          # slots: 4             # how many QUEUED jobs run at once; `none` for no cap\n\
          \n\
          {seen}\n\
@@ -536,6 +569,7 @@ pub const TEMPLATE: &str = "\
 # decided once.
 
 # after: 30            # seconds before a long line detaches itself
+# allow_wait: true      # false: `jbx wait` is for Monitor, not the foreground
 # mute_after: 600      # seconds of silence before a running job is called mute
 # slots: 4             # how many QUEUED jobs run at once; `none` for no cap
 # dir: ~/.cache/jbx    # where logs and records live

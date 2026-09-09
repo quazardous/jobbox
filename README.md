@@ -98,8 +98,7 @@ Nothing changes — until something is slow:
 $ npm run build
 > building…
 jbx: this passed 30s, so it is in the BACKGROUND as j7f3a91c — nothing lost.
-DO NOT WAIT FOR IT, DO SOMETHING ELSE. With nothing else: Monitor
-`jbx wait j7f3a91c`, which ends when the job does.
+DO NOT WAIT FOR IT, DO SOMETHING ELSE.
 
   jbx help j7f3a91c
 ```
@@ -107,10 +106,16 @@ DO NOT WAIT FOR IT, DO SOMETHING ELSE. With nothing else: Monitor
 The build output arrived **as it was written**, not replayed at the end.
 
 **The ending reaches you two ways, and one is better.** Left alone, it is
-announced on the next turn — free, and it costs that delay. Monitored, it
-arrives the moment it happens: `jbx wait <id>` ends exactly when the job
-does, so anything watching it is woken then. `jbx watch` does that for
-every job at once, one line each.
+announced on the next turn — free, and it costs that delay. Handed to
+Monitor, it arrives the moment it happens: `jbx wait <id>` ends exactly
+when the job does, so whatever is watching is woken then. `jbx watch`
+does that for every job at once, one line each.
+
+**The message does not hand over that command**, on purpose. Saying "do
+not wait" and then offering the line that waits is a contradiction, and
+an agent resolves it the easy way. `jbx help <id>` lists it, one step
+further away — and `allow_wait: false` takes the foreground use away
+entirely, for a project where the habit has already set in.
 
 That is the difference between waiting and being told. Polling is
 neither — it is waiting with extra steps.

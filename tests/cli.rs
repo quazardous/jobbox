@@ -2542,3 +2542,45 @@ fn a_job_is_named_by_whoever_ran_it_when_they_said() {
             "the description did not travel: {rewritten}");
     let _ = s.run(&["kill", &id]);
 }
+
+#[test]
+fn the_detachment_does_not_hand_over_the_command_for_waiting() {
+    // SAYING "DO NOT WAIT" AND THEN OFFERING THE LINE THAT WAITS is a
+    // contradiction, and an agent resolves it the easy way: it pastes
+    // what it was given. Reported as agents calling `jbx wait` on every
+    // single detachment, which puts them straight back to standing
+    // still — having spent a turn to get there.
+    //
+    // `jbx help <id>` still lists it, one step further away, for the
+    // caller that genuinely has nothing else to do.
+    let s = Scratch::new("nowait");
+    let said = text(&s.run(&["run", "--after", "0", "--", "sleep 2"]));
+    assert!(said.contains("DO NOT WAIT FOR IT"), "the instruction is gone:\n{said}");
+    assert!(!said.contains("jbx wait"), "the announcement still offers waiting:\n{said}");
+    assert!(said.contains("jbx help"), "and nothing points anywhere:\n{said}");
+}
+
+#[test]
+fn allow_wait_false_refuses_the_foreground_and_names_monitor() {
+    // A REFUSAL THAT ONLY REFUSES sends the caller looking for another
+    // way to stand still, and there is always one — a sleep in a loop, a
+    // `tail -f`, a poll every second. So it has to name the gesture that
+    // was wanted instead.
+    let s = Scratch::new("allowwait");
+    let off = [("JBX_ALLOW_WAIT", "false")];
+    let refused = s.run_with(&off, &["wait", "j0000000"]);
+    assert_eq!(refused.status.code(), Some(2), "a refusal must not look like a job's own code");
+    // ON STDERR, because a refusal is a diagnostic and not the answer
+    // the caller asked for — a script reading stdout gets nothing, which
+    // is correct, and a person reading the terminal gets the sentence.
+    let said = String::from_utf8_lossy(&refused.stderr).into_owned();
+    assert!(said.contains("Monitor"), "it refused without saying what to do:\n{said}");
+
+    // AND ON BY DEFAULT. `wait` is how an ending wakes anything watching
+    // it; taking that away everywhere would remove the mechanism the
+    // announcement depends on.
+    let (on, _) = jobbox::config::allow_wait();
+    assert!(on, "waiting must be allowed unless a project says otherwise");
+    let normally = s.run(&["wait", "j0000000"]);
+    assert_ne!(normally.status.code(), Some(2), "an unknown id is not a refusal");
+}
