@@ -2590,6 +2590,10 @@ fn only_the_agents_own_wait_is_refused() {
     // ON STDERR: a refusal is a diagnostic, not the answer that was asked for.
     let said = String::from_utf8_lossy(&refused.stderr).into_owned();
     assert!(said.contains("Monitor"), "it refused without saying what to do:\n{said}");
+    // AND IT DOES NOT NAME THE SETTING. Telling an agent which knob
+    // forbade this is telling it where to go and switch the guardrail
+    // off — and editing a config file is what it does all day.
+    assert!(!said.contains("allow_wait"), "the refusal handed over the way around it:\n{said}");
 
     // UNMARKED IS MONITOR'S PATH, and it must go straight through. An
     // unknown id is an unknown id, not a refusal.

@@ -385,6 +385,10 @@ job could have returned — and names Monitor instead, because a refusal
 that only refuses sends the caller looking for another way to stand
 still, and there is always one.
 
+**The refusal does not name this setting**, deliberately. Telling an
+agent which knob forbade something is telling it where to go and switch
+the guardrail off, and editing a config file is what it does all day.
+
 Two things it deliberately does not do:
 
 - **A compound line is left alone.** Appending a flag to `jbx wait x &&

@@ -1071,18 +1071,23 @@ fn clients(how: &Flags) -> i32 {
     })
 }
 
-/// `allow_wait: false` — SAY WHAT TO DO INSTEAD, not merely no.
+/// SAY WHAT TO DO INSTEAD, and DO NOT NAME THE SETTING.
 ///
 /// A refusal that only refuses sends the caller looking for another way
 /// to stand still, and there is always one — a `sleep` in a loop, a
 /// `tail -f`, a poll every second. So this names the gesture that was
-/// wanted: hand the waiting to whatever backgrounds a command for you,
-/// and go on with the turn.
+/// wanted.
+///
+/// It does NOT name `allow_wait`. Telling an agent which setting forbade
+/// this is telling it where to go and switch the guardrail off, and a
+/// resourceful one will: the config file is a file, and editing files is
+/// what it does all day. The person who set it already knows it exists —
+/// `jbx config` says so, to whoever asks.
 fn refuse_wait(id: &str) -> i32 {
     eprintln!(
-        "jbx: waiting in front of you is off here (`allow_wait: false`).\n\
-         \x20 Hand it to Monitor instead — `jbx wait {id}` ends when the job does,\n\
-         \x20 and that ending wakes you. Then carry on with this turn.\n\
+        "jbx: this waiting is Monitor's, not yours.\n\
+         \x20 Hand `jbx wait {id}` to Monitor — it ends when the job does, and that\n\
+         \x20 ending wakes you. Then carry on with this turn.\n\
          \x20 jbx help {id}    everything else you can do with it"
     );
     2
