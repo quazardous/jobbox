@@ -18,15 +18,9 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.16.0] - 2026-09-09
+## [0.17.0] - 2026-09-09
 
 ### Added
-
-- **`jbx top [--all]`** — `jbx ps` redrawn every second, for when you
-  want to sit and watch. Drawn by the same code as `ps`, on purpose: a
-  second renderer drifts from the first, and the day it does the live
-  view is the one nobody trusts. Piped, it is one snapshot, because a
-  loop that never ends is how a pipe becomes a hang.
 
 - **A record whose process is gone now collects itself.** The daily
   sweep skipped every record without an exit code, so a job whose
@@ -51,6 +45,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never among the casualties: `jbx kill` is itself a wrapped command, so
   a wrapper above it has a record like any other and a short threshold
   would reach it.
+
+- **`ps`, `top` and `list` explain their state column.** Six words that
+  look alike and are not, and the difference decides what to do next:
+  `foreground` is somebody standing still, `held` is somebody who chose
+  to, `background` is nobody. Guessing between them is how a healthy
+  listing comes to look frightening — which is how a thirty-five-minute
+  held job was read as a hang, by the person who owns the tool. Said
+  once, from one constant, on the three verbs that print the column.
+
+### Fixed
+
+- **CI ran clippy as an error and nothing local did.** Two commits went
+  out red for one unused variable in a test file: all three build jobs
+  failed while every test passed. `CONTRIBUTING.md` and `CLAUDE.md` now
+  ask for both, and say why — three seconds here against a red pipeline
+  there.
+
+- **A bulk kill could stop the command running it.** `jbx kill` is
+  itself a wrapped command, so a wrapper above it has a record like any
+  other and a short threshold reaches it: the kill would stop itself
+  half way through. The process chain is spared on Unix; on Windows,
+  where walking it costs a PowerShell query per step, only the caller
+  itself is — written down rather than pretended away.
+
+## [0.16.0] - 2026-09-09
+
+### Added
+
+- **`jbx top [--all]`** — `jbx ps` redrawn every second, for when you
+  want to sit and watch. Drawn by the same code as `ps`, on purpose: a
+  second renderer drifts from the first, and the day it does the live
+  view is the one nobody trusts. Piped, it is one snapshot, because a
+  loop that never ends is how a pipe becomes a hang.
 
 - **`jbx prune [--all]`** — forget what is over, and what cannot be true.
   Two kinds of record deserve removing and **nothing else does**: one
