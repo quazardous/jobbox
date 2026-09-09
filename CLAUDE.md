@@ -50,7 +50,19 @@ pour s'en sortir.
 `bin/promote` **copie**, jamais ne lie, et refuse de promouvoir un
 binaire qui ne répond pas à un `config` et à une charge de crochet.
 
-## 4. jbx enveloppe TES propres commandes
+## 4. `cargo test` ne suffit pas — clippy est une erreur en CI
+
+```bash
+cargo test
+cargo clippy --release --all-targets -- -D warnings
+```
+
+La CI passe clippy en `-D warnings`, et une suite verte ne dit **rien**
+là-dessus. Le 09/09/2026, une variable inutilisée dans un fichier de
+test a fait échouer les trois jobs `build` alors que les 84 tests
+passaient. En local, trois secondes.
+
+## 5. jbx enveloppe TES propres commandes
 
 Le crochet est posé dans cette session. Une commande de premier plan qui
 dépasse la coupe (30 s par défaut) **est détachée pendant que tu
@@ -65,14 +77,14 @@ Un `cargo test` bavard suffit à déclencher le détachement.
 la main s'efface au lieu de détacher — c'est voulu (#2066). Pour éprouver
 le détachement, `env -u JBX_WRAPPED`, sans TTY.
 
-## 5. Le dépôt frère
+## 6. Le dépôt frère
 
 `../simai-cli` (`quazardous/simai-cli`) joue les cinq clients d'agent
 pour éprouver un crochet sans les installer, et c'est lui qui produit le
 GIF du README. Son scénario vit **ici**, dans `demo/detach.txt`, puisque
 c'est jbx qu'il démontre.
 
-## 6. Ce qui a déjà été refusé
+## 7. Ce qui a déjà été refusé
 
 `CONTRIBUTING.md` § *What was already ruled out* porte la liste, et elle
 vaut d'être lue avant de proposer. La première entrée est celle qui

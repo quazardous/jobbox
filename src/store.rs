@@ -612,13 +612,26 @@ fn parent_of(pid: u32) -> Option<u32> {
     tail.split_whitespace().nth(1)?.parse().ok()
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(unix, not(target_os = "linux")))]
 fn parent_of(pid: u32) -> Option<u32> {
     let out = std::process::Command::new("ps")
         .args(["-o", "ppid=", "-p", &pid.to_string()])
         .output()
         .ok()?;
     String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
+/// WINDOWS GETS THE WEAKER GUARANTEE, and it is written down rather than
+/// pretended away.
+///
+/// Walking the chain there means a PowerShell CIM query per step, which
+/// is seconds, not milliseconds — too much to spend on a guard against
+/// an inconvenience. So `ancestors()` returns this process alone: a bulk
+/// kill will not stop ITSELF, but it may stop the wrapper holding the
+/// command that launched it. On Unix the whole chain is spared.
+#[cfg(windows)]
+fn parent_of(_pid: u32) -> Option<u32> {
+    None
 }
 
 /// DROP ONE JOB'S TRACES, WHATEVER STATE IT IS IN.

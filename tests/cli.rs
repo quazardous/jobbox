@@ -2822,10 +2822,15 @@ fn a_bulk_kill_spares_the_command_running_it() {
     // above it has a record like any other — and with a short age it is
     // old enough to match. Stopping it kills the kill half way through,
     // and the caller sees a command that died for no reason it can name.
-    let s = Scratch::new("killself");
     let mine = jobbox::store::ancestors();
     assert!(mine.contains(&std::process::id()), "we are not in our own ancestry");
-    assert!(mine.len() > 1, "the chain stopped at ourselves: {mine:?}");
+    // ON WINDOWS THE CHAIN IS JUST US, on purpose: walking it there costs
+    // a PowerShell query per step, which is seconds. A bulk kill will not
+    // stop itself; it may stop the wrapper above it. Said here so the
+    // weaker guarantee is a decision rather than a surprise.
+    if !cfg!(windows) {
+        assert!(mine.len() > 1, "the chain stopped at ourselves: {mine:?}");
+    }
 }
 
 #[test]

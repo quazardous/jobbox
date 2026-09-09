@@ -29,11 +29,17 @@ reads the table it is testing passes whatever the table says, typos
 included, which is how a wrong tool name ships. `CLI-AI.md` then gets a
 section with the exact JSON.
 
-## Run the tests first
+## Run the tests first — and clippy with them
 
 ```console
 $ cargo test
+$ cargo clippy --release --all-targets -- -D warnings
 ```
+
+**Both, or CI will tell you the second one.** It runs clippy as an error
+and a green `cargo test` says nothing about it: an unused variable in a
+test file failed all three build jobs while every test passed. Locally
+it is three seconds.
 
 They need nothing installed. `rtk` is deliberately kept off the `PATH`
 inside the hook tests: what it rewrites is its business and its version's,
