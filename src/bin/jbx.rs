@@ -132,6 +132,10 @@ fn dispatch(args: Vec<String>) -> i32 {
         "describe" => with("describe", rest, |_| jobbox::describe::describe()),
         "how" => with("how", rest, how_to),
         "why" => with("why", rest, why),
+        "bench" => with("bench", rest, |how| jobbox::bench::bench(
+            how.free.first().and_then(|n| n.parse().ok()).unwrap_or(60),
+            how.json,
+        )),
         "health" => with("health", rest, health),
         "clients" => with("clients", rest, clients),
         "config" => with("config", rest, config),
@@ -219,6 +223,7 @@ fn usage() -> String {
          \x20 jbx after [seconds]   how long a line may hold before detaching\n\
          \x20 jbx signals <who>     endings not yet read: agent or user\n\
          \x20 jbx gain [project]   what the wrapping bought, and cost\n\
+         \x20 jbx bench [runs]      what the wrapping costs, per command\n\
          \x20 jbx health            what runs, what is mute, what is stranded\n\
          \x20 jbx clients           whose endings are still unread\n\
          \x20 jbx config            every setting, and where it came from\n\

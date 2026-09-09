@@ -73,6 +73,7 @@ pub mod slots;
 pub mod paint;
 pub mod dialect;
 pub mod gain;
+pub mod bench;
 pub mod watch;
 pub mod store;
 

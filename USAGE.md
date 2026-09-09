@@ -360,6 +360,42 @@ this one run.
 `jbx config` prints every value, where it came from, and which files it
 would be edited in.
 
+## What the wrapping costs
+
+`jbx gain` says what the detaching bought. Saying that without saying
+what it costs is half a sentence, and the flattering half.
+
+```console
+$ jbx bench
+  what the wrapping costs, over 200 interleaved runs
+
+  the hook, on every command             6.2 ms
+  the wrapper, on a short line          26.0 ms
+    and at its slowest                  29.4 ms   ← nine runs in ten
+  so a short command pays               32.0 ms
+
+  for comparison, a bare `/bin/sh -c true` takes 1.7 ms
+```
+
+**The hook is the number to judge it by.** It runs on every command an
+agent issues, including the overwhelming majority that finish instantly
+and are never touched again — six milliseconds each, and nobody escapes
+it. The wrapper's twenty-six is paid only by commands that actually run
+through `jbx run`.
+
+Two spawns of the same binary and a log file is what those milliseconds
+are. There is no polling floor hiding in them: the first poll comes
+after 500µs.
+
+**The detached path is deliberately not timed.** A command that outlasts
+thirty seconds is dominated by itself by four orders of magnitude, and
+quoting an overhead percentage against it would be arithmetic designed
+to look good.
+
+`jbx bench --json` prints the same numbers for a regression check. The
+figures above were measured on one Linux machine; run it on yours,
+because that is the only number that concerns you.
+
 ## Tests
 
 ```console
