@@ -45,7 +45,14 @@ pub fn watch(all: bool, as_json: bool) -> i32 {
             store::all().into_iter().filter(|r| all || r.project == me).collect();
         let mut live = 0;
         for r in &records {
-            let state = store::state_of(r);
+            // SETTLED, BECAUSE THIS IS THE VERB THAT ANNOUNCES ENDINGS.
+            // A supervisor between its last write and its exit is
+            // momentarily neither running nor recorded, and `state_of`
+            // calls that `gone` — the state that means killed. `wait`
+            // and `run` already ask twice before saying so; watch did
+            // not, and a macOS runner announced a clean exit as a death.
+            // The second look costs 250 ms and only on that answer.
+            let state = store::settled_state(r);
             if matches!(state, State::Queued | State::Running { .. }) {
                 live += 1;
             }

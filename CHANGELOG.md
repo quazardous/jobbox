@@ -72,6 +72,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`jbx watch` no longer announces a clean exit as a death.** A
+  supervisor between its last write and its exit is momentarily neither
+  running nor recorded, and the raw reading of that is `gone` — the
+  state that means *killed*. `wait` and `run` already looked twice
+  before saying so; `watch` did not, and a macOS runner announced a job
+  that had finished with code 0 as gone. `jbx status` is settled the
+  same way, because a script acts on its answer and there is no next
+  refresh to correct it. `ps` and `list` still read raw: they refresh.
+
 - **`jbx queue` no longer predicts that a job starts now.** It said "a
   slot was free — it starts now", which is a guess: slots are held by
   the supervisors themselves, and one spawned a moment earlier may not

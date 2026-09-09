@@ -656,7 +656,11 @@ fn status(id: &str, how: &Flags) -> i32 {
         eprintln!("jbx: {id} is unknown");
         return 1;
     };
-    let state = store::state_of(&r);
+    // SETTLED, BECAUSE A SCRIPT ACTS ON THIS ANSWER. `ps` and `list` can
+    // read `gone` for a job whose supervisor is between its last write
+    // and its exit — the next refresh corrects them. A single-shot
+    // answer has no next refresh.
+    let state = store::settled_state(&r);
     // THE JOB'S CODE BECOMES OURS, so a script can decide without
     // reading a word of this.
     let code = match state {
