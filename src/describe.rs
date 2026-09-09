@@ -54,6 +54,13 @@ pub const TAGS: &[(&str, &str)] = &[
     ("capacity", "changes how much may run from now on"),
     ("configure", "edits settings on this machine, including the harness"),
     ("rewrite", "changes the command the harness is about to run"),
+    // NEITHER `read` NOR `execute`, and the difference matters to
+    // whoever reads these to decide what to allow. `execute` means an
+    // arbitrary line — the caller's — and that is the risky one. This
+    // runs a fixed line of its own, many times, and leaves finished job
+    // records behind. Saying `read` would hide the processes; saying
+    // `execute` would borrow a warning it has not earned.
+    ("measure", "runs a fixed line of its own repeatedly, to time itself"),
     ("block", "does not return until something else ends"),
 ];
 
@@ -104,7 +111,8 @@ pub const VERBS: &[Verb] = &[
         flags: &[("--intent", "what this job is for, in a few words")] },
     Verb { name: "bench", summary: "what the wrapping costs, per command",
         tags: &["read", "measure"],
-        effect: "runs `true` a few dozen times, wrapped and bare, and times both",
+        effect: "runs `true` a few dozen times, wrapped and bare, timing both; \
+                 leaves the finished job records that wrapping created",
         flags: &[("--json", "the numbers, for a regression check")] },
     Verb { name: "queue", summary: "hand work over before it starts, under a cap",
         tags: &["create"], effect: "creates pending work", flags: NOTHING },

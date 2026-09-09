@@ -135,6 +135,8 @@ runs without ever letting go, and `jbx gain` counts what that cost.
   where, and the two it leaves alone.
 - **[WINDOWS.md](WINDOWS.md)** — Smart App Control, which shell runs your
   commands, and the two things that differ there.
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — why nothing is
+  detaching, which is usually on purpose.
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — what belongs in a test, and
   what has already been ruled out.
 - **[CODE-SIGNING-POLICY.md](CODE-SIGNING-POLICY.md)** — who may release

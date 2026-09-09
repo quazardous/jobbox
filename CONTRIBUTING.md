@@ -2,6 +2,32 @@
 
 The project is **JobBox**; the command it installs is `jbx`.
 
+## Where things are
+
+One binary, one crate. The whole of it fits in a morning.
+
+| | |
+|---|---|
+| `run.rs` | **the heart** — hold a line, watch it, let go at the cut, announce |
+| `hook.rs` | answer an agent CLI: read its payload, hand back the rewrite |
+| `dialect.rs` | the five clients' shapes, in one table |
+| `store.rs` | where jobs live under `~/.jobbox`, and how ids are minted |
+| `gain.rs` | what the wrapping bought; `bench.rs` what it costs |
+| `init.rs` | declare and withdraw the hook, per client |
+| `signals.rs` | endings not yet read, and the sweep for stranded ones |
+| `describe.rs` | every verb as JSON, with what it does to the world |
+
+**Two doors, and only two.** `run` wraps a line that was going to run
+anyway and lets go if it turns out to be long. `queue` takes work that
+has not started, so it can be made to wait its turn. Everything else
+reads or reports.
+
+**Adding an agent CLI** is a row in `dialect.rs` and a row in the
+hardcoded table in `tests/cli.rs` — deliberately in both. A test that
+reads the table it is testing passes whatever the table says, typos
+included, which is how a wrong tool name ships. `CLI-AI.md` then gets a
+section with the exact JSON.
+
 ## Run the tests first
 
 ```console
