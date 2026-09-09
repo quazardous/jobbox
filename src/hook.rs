@@ -108,13 +108,23 @@ pub fn shell_word(path: &str) -> String {
 pub fn is_us(line: &str, binary: &str) -> bool {
     let first = line.split_whitespace().next().unwrap_or("");
     let first = first.trim_start_matches('\'').trim_end_matches('\'');
+    // THE STEM, NOT THE FILE NAME. On Windows we are installed as
+    // `jbx.exe` and written as `jbx`, so comparing whole names called
+    // the two different tools — and the hook then WRAPPED ITS OWN
+    // commands there: `jbx wait`, `jbx ps`, everything. Caught by CI on
+    // Windows; invisible on Linux, where the two spellings are one.
     let name = |p: &str| {
         std::path::Path::new(p)
-            .file_name()
+            .file_stem()
             .map(|n| n.to_string_lossy().into_owned())
     };
+    // AND CASE-INSENSITIVELY WHERE THE FILE SYSTEM IS. `JBX.EXE` and
+    // `jbx.exe` are one file on Windows and two on Linux, so the
+    // comparison follows the platform rather than picking a side.
     match (name(first), name(binary)) {
-        (Some(a), Some(b)) => a == b,
+        (Some(a), Some(b)) => {
+            if cfg!(windows) { a.eq_ignore_ascii_case(&b) } else { a == b }
+        }
         _ => false,
     }
 }

@@ -2656,3 +2656,18 @@ fn recognising_a_client_happens_in_one_place() {
     }
     assert!(elsewhere.is_empty(), "the environment is read outside harness.rs:\n{elsewhere:#?}");
 }
+
+#[test]
+fn the_hook_knows_itself_however_it_is_spelled() {
+    // IT DID NOT, ON WINDOWS. Installed as `jbx.exe` and written as
+    // `jbx`, comparing whole file names made the two different tools —
+    // so the hook wrapped its own commands there, which is the one thing
+    // `is_us` exists to prevent. Linux never saw it: the two spellings
+    // are the same word.
+    let binary = if cfg!(windows) { r"C:\tools\jbx.exe" } else { "/usr/local/bin/jbx" };
+    for written in ["jbx ps", "'jbx' ps", "/usr/local/bin/jbx ps", "./jbx ps"] {
+        assert!(jobbox::hook::is_us(written, binary), "did not recognise itself in {written:?}");
+    }
+    assert!(!jobbox::hook::is_us("jbxtra ps", binary), "claimed a different tool");
+    assert!(!jobbox::hook::is_us("cargo build", binary), "claimed somebody else's command");
+}

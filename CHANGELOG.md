@@ -63,6 +63,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   switch the guardrail off, and editing a config file is what it does
   all day. `jbx config` still says so, to whoever asks.
 
+### Fixed
+
+- **On Windows, the hook did not recognise its own commands.** Installed
+  as `jbx.exe` and written as `jbx`, comparing whole file names made the
+  two different tools — so `jbx ps`, `jbx wait` and the rest were wrapped
+  by the very hook that must never wrap them. Invisible on Linux, where
+  the two spellings are one word, and caught by CI on Windows the day a
+  test looked at what the hook does with a `jbx` line. It compares the
+  stem now, and case-insensitively where the file system is.
+
 ### Added
 
 - **`src/harness.rs` — which agent CLI we are running inside, asked in
