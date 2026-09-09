@@ -1423,6 +1423,14 @@ fn queue_says_out_loud_when_a_job_does_not_start() {
     let s = Scratch::new("stacked");
     let one = [("JBX_SLOTS", "1")];
     let first = text(&s.run_with(&one, &["queue", "a", "--", "sleep 3"]));
+    // WAIT FOR THE SLOT TO BE HELD, don't assume it. `queue` returns as
+    // soon as the record is written; the supervisor takes the lock a
+    // moment later. This raced on a loaded macOS runner — the second
+    // job was filed before the first had claimed anything, so it was
+    // told a slot was free, which was true at that instant and useless.
+    until("the first job holds its slot", || {
+        text(&s.run_with(&one, &["ps"])).contains("sleep 3")
+    });
     let second = text(&s.run_with(&one, &["queue", "b", "--", "sleep 3"]));
 
     // A VERB THAT ANSWERS WITH AN ID AND NOTHING ELSE lets somebody

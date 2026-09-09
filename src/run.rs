@@ -841,7 +841,12 @@ pub fn queue(intent: &str, line: &str) -> i32 {
             "  NOT STARTED — all {cap} slots are busy, {ahead} waiting. It begins when one frees.\n\
              \x20 jbx ps    what is holding them"
         ),
-        Some(cap) => outln!("  a slot was free ({busy} of {cap} busy) — it starts now."),
+        // SAID IN THE PAST TENSE, BECAUSE THE FUTURE IS NOT KNOWN HERE.
+        // The slots are held by the supervisors themselves, and one that
+        // was spawned a moment ago may not have taken its lock yet — so
+        // "it starts now" is a guess that a busy machine turns into a
+        // lie. What can be stated is what was counted.
+        Some(cap) => outln!("  {busy} of {cap} slots were busy when this was filed."),
         None => outln!("  no cap on how many run at once — it starts now."),
     }
     0

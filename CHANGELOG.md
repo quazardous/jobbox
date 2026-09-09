@@ -72,6 +72,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`jbx queue` no longer predicts that a job starts now.** It said "a
+  slot was free — it starts now", which is a guess: slots are held by
+  the supervisors themselves, and one spawned a moment earlier may not
+  have taken its lock yet. On a loaded machine the sentence became a
+  lie about a job that then waited. It reports what was counted —
+  "*N of M slots were busy when this was filed*" — which cannot go
+  stale. The cap itself was never wrong; only the sentence was.
+
 - Two tests set `HOME` where Windows reads `USERPROFILE`, so they wrote
   to the real profile and looked for the result in a temporary one. They
   set both now, and the Windows CI is green again.
