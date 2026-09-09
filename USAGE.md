@@ -360,6 +360,42 @@ this one run.
 `jbx config` prints every value, where it came from, and which files it
 would be edited in.
 
+## Forgetting what is over
+
+```console
+$ jbx prune            # this project;  --all for every one on the machine
+  j44978b4 finished 0                         sleep 20; echo done
+  j5d89a20 gone — no process, and no exit code   gh run watch 33987949825…
+
+  2 finished, 1 that could not be true. Anything still running was left alone.
+```
+
+Two kinds of record deserve removing, **and nothing else does**: one that
+has an exit code, and one whose record claims a job is running while no
+process answers to its pid. The second is the one worth a verb — nobody
+is waiting on it, nothing will ever write its exit code, and it sits in
+every listing looking like work in progress until the six-hour sweep
+reaches it.
+
+**It stops nothing.** A job whose process is alive is left exactly where
+it is, however old and however quiet. Age is not a fault and silence is
+not either: the thirty-five-minute job that prompted this verb was a
+harness's own background loop, held on purpose and mute by design, and a
+prune that killed by age would have killed it first.
+
+Each removal is named as it happens, because a destructive verb that
+prints a count has told you nothing you can check.
+
+### `held` — the silence somebody chose
+
+A line the harness is already running in the background is wrapped with
+an infinite threshold: detaching underneath it would make the wrapper
+exit at the cut, and the harness would announce the work finished when
+it had barely started. Those jobs show as **`held`** rather than
+`foreground`, and are never called `MUTE` — an `until` loop has nothing
+to say until it is over, and raising an alarm about a chosen silence is
+how a healthy listing comes to look frightening.
+
 ## Watching it happen
 
 `jbx ps` is a snapshot. `jbx top` is the same table redrawn every

@@ -491,6 +491,11 @@ fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>) -> i32 {
         id: id.clone(),
         queued: false,
         mirror_cut: false,
+        // NEVER TO BE LET GO OF, when the threshold is infinite. The
+        // hook sets that for a line the harness is already running in
+        // the background; without it written down here, a listing cannot
+        // tell such a job from one somebody is standing still for.
+        held: !after.is_finite(),
         detached: Some(false),
         pid: child.id(),
         command: line.to_string(),
@@ -725,7 +730,8 @@ fn announce(id: &str, after: f64, seen: Observation) -> i32 {
     if let Some(into) = crate::harness::here().and_then(|h| h.backgrounder) {
         let _ = writeln!(
             out,
-            "With nothing else: hand `jbx wait {id}` to {into} — it ends when the job\n             does, and that ending wakes you. Do not run it in front of you."
+            "With nothing else: hand `jbx wait {id}` to {into} — it ends when the job\n\
+             does, and that ending wakes you. Do not run it in front of you."
         );
     }
     if seen.reading_for >= WORTH_MENTIONING && seen.quiet_for >= WORTH_MENTIONING {
@@ -827,6 +833,9 @@ pub fn queue(intent: &str, line: &str) -> i32 {
         id: id.clone(),
         queued: true,
         mirror_cut: false,
+        // A QUEUED JOB IS NEVER HELD: handing it over is the opposite of
+        // holding it.
+        held: false,
         // NOBODY HOLDS A QUEUED JOB — that is the point of handing it
         // over. It is in the background from the moment it starts.
         detached: Some(true),

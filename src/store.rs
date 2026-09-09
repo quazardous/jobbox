@@ -37,6 +37,18 @@ pub struct Record {
     /// `… 2>&1 | head -3` both streams are the closed pipe, and nothing
     /// the launcher prints can reach anybody. The record outlives that.
     pub mirror_cut: bool,
+    /// WHETHER THIS ONE WAS NEVER MEANT TO BE LET GO OF.
+    ///
+    /// The hook gives a threshold of infinity to a line the harness is
+    /// already running in the background: detaching underneath it would
+    /// make the wrapper exit at the cut, and the harness would announce
+    /// the work finished when it had barely started.
+    ///
+    /// Without this the record cannot tell such a job from one somebody
+    /// is standing still for, and a listing shows both as `foreground`.
+    /// A deliberate thirty-five-minute wait then reads as a hang — which
+    /// is how this field came to exist.
+    pub held: bool,
     pub pid: u32,
     pub command: String,
     pub intent: String,
@@ -301,6 +313,7 @@ pub fn write_record(r: &Record) -> io::Result<()> {
         "id": r.id, "pid": r.pid, "command": r.command, "intent": r.intent,
         "started": r.started, "client": r.client, "cwd": r.cwd,
         "queued": r.queued, "mirror_cut": r.mirror_cut, "detached": r.detached,
+        "held": r.held,
         "project": r.project,
     });
     fs::write(record_path(&r.id), value.to_string())
@@ -313,6 +326,10 @@ pub fn read_record(id: &str) -> Option<Record> {
         id: v["id"].as_str()?.to_string(),
         queued: v["queued"].as_bool().unwrap_or(false),
         mirror_cut: v["mirror_cut"].as_bool().unwrap_or(false),
+        // FALSE FOR A RECORD WRITTEN BEFORE THIS EXISTED, which is the
+        // safe direction: it says "ordinary job", and the worst that
+        // costs is the old reading of an old job.
+        held: v["held"].as_bool().unwrap_or(false),
         detached: v["detached"].as_bool(),
         pid: v["pid"].as_u64().unwrap_or(0) as u32,
         command: v["command"].as_str().unwrap_or("").to_string(),
@@ -563,6 +580,20 @@ pub fn all() -> Vec<Record> {
     }
     out.sort_by(|a, b| a.started.total_cmp(&b.started));
     out
+}
+
+/// DROP ONE JOB'S TRACES, WHATEVER STATE IT IS IN.
+///
+/// The caller decides what deserves forgetting; this only does it. Kept
+/// beside `forget_older_than` so the list of files that make up a job
+/// lives in one place — a fifth file added one day and forgotten here is
+/// a leak nobody would notice.
+pub fn forget(id: &str) -> bool {
+    let mut any = false;
+    for path in [record_path(id), code_path(id), log_path(id), started_path(id)] {
+        any |= fs::remove_file(path).is_ok();
+    }
+    any
 }
 
 /// DROP THE TRACES OF LINES THAT ENDED LONG AGO.

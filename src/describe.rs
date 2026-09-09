@@ -61,6 +61,11 @@ pub const TAGS: &[(&str, &str)] = &[
     // records behind. Saying `read` would hide the processes; saying
     // `execute` would borrow a warning it has not earned.
     ("measure", "runs a fixed line of its own repeatedly, to time itself"),
+    // NOT `destroy`, WHICH MEANS STOPPING A PROCESS. This removes
+    // records of jobs that are already over — nothing is interrupted,
+    // and borrowing the stronger word would make an agent ask for
+    // permission it does not need while hiding what it really does.
+    ("forget", "removes records of jobs that have already ended"),
     ("block", "does not return until something else ends"),
 ];
 
@@ -125,6 +130,11 @@ pub const VERBS: &[Verb] = &[
         tags: &["read", "configure"],
         effect: "reads, and writes the threshold into this project's settings",
         flags: JSON_ONLY },
+    Verb { name: "prune", summary: "forget what is over, and what cannot be true",
+        tags: &["forget"],
+        effect: "deletes the records and logs of finished and unrecoverable jobs; \
+                 stops nothing that is still running",
+        flags: &[("--all", "every project on this machine, not only this one")] },
     Verb { name: "top", summary: "what is happening right now, redrawn until you stop it",
         tags: &["read", "block"],
         effect: "reads, and keeps drawing until interrupted",

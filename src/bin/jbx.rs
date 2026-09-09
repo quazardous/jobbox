@@ -160,6 +160,7 @@ fn dispatch(args: Vec<String>) -> i32 {
         "list" => with("list", rest, |how| listing(false, how)),
         "ps" => with("ps", rest, |how| listing(true, how)),
         "top" => with("top", rest, top),
+        "prune" => with("prune", rest, prune),
         "status" => with("status", rest, |how| match how.free.first() {
             Some(id) => status(id, how),
             None => usage_error("status needs an id"),
@@ -216,6 +217,7 @@ fn usage() -> String {
          \x20 jbx ps [--all] [--full] [--json] [--width <n>]\n\
          \x20                       what is happening right now, here\n\
          \x20 jbx top [--all]       the same, redrawn, until you stop it\n\
+         \x20 jbx prune [--all]     forget what is over, and what cannot be true\n\
          \x20 jbx list              … and what has finished, for a day\n\
          \x20 jbx watch             one line per job event, until nothing runs\n\
          \x20 jbx status <id>       state, exit code, where its log is\n\
@@ -271,6 +273,9 @@ fn describe(state: &store::State) -> String {
         store::State::Running { for_secs, detached: Some(false) } => {
             format!("foreground {for_secs:.0}s")
         }
+        // `held` NEVER REACHES HERE — the state alone cannot tell it, so
+        // `held_or` below asks the record. Kept as a note because the
+        // next person will look for it in this match first.
         // WRITTEN BEFORE THIS TOOL KNEW THE DIFFERENCE. The neutral word
         // is the honest one: saying "foreground" here would assert
         // something nobody observed, which is how a job that had been
@@ -280,6 +285,22 @@ fn describe(state: &store::State) -> String {
         }
         store::State::Finished { code } => format!("finished  exit {code}"),
         store::State::Lost => "gone".into(),
+    }
+}
+
+/// THE STATE, WITH WHAT ONLY THE RECORD KNOWS.
+///
+/// `describe` reads a state, and a state cannot say whether anybody ever
+/// intended to let this job go. A line the harness is already running in
+/// the background is held on purpose and reads as `foreground` — which
+/// is true, and which somebody scanning a listing takes for "blocked for
+/// thirty-five minutes".
+fn held_or(r: &store::Record, state: &store::State) -> String {
+    match state {
+        store::State::Running { for_secs, detached: Some(false) } if r.held => {
+            format!("held       {for_secs:.0}s")
+        }
+        other => describe(other),
     }
 }
 
@@ -496,6 +517,65 @@ fn terminal_columns() -> Option<usize> {
     String::from_utf8_lossy(&out.stdout).split_whitespace().nth(1)?.parse().ok()
 }
 
+/// `jbx prune` — FORGET WHAT IS OVER, AND WHAT CANNOT BE TRUE.
+///
+/// Two kinds of record deserve removing, and NOTHING ELSE DOES.
+///
+///   FINISHED — it has an exit code. `list` keeps a day of these on
+///   purpose, and this is the way to say you have read them.
+///
+///   SICK — the record says a job is running and no process answers to
+///   its pid. Nobody is waiting on it, nothing will ever write its code,
+///   and it will sit in every listing looking like work in progress
+///   until the six-hour sweep gets to it.
+///
+/// IT STOPS NOTHING. A job whose process is alive is left exactly where
+/// it is, however old and however quiet — because age is not a fault and
+/// silence is not either. The thirty-five-minute job that prompted this
+/// verb was a harness's own background loop, held on purpose and mute by
+/// design, and a prune that killed by age would have killed it first.
+///
+/// EACH REMOVAL IS NAMED AS IT HAPPENS. A destructive verb that prints a
+/// count has told you nothing you can check.
+fn prune(how: &Flags) -> i32 {
+    let me = jobbox::gain::project().1;
+    let mut finished = 0;
+    let mut sick = 0;
+    for r in store::all() {
+        if !how.all && r.project != me {
+            continue;
+        }
+        // SETTLED, because `Lost` is the answer a race produces out of
+        // nothing — a supervisor between its last write and its exit is
+        // momentarily neither running nor recorded. Removing a live
+        // job's record on the strength of one glance is the one mistake
+        // this verb must not make.
+        let why = match store::settled_state(&r) {
+            store::State::Finished { code } => Some(format!("finished {code}")),
+            store::State::Lost => Some("gone — no process, and no exit code".into()),
+            _ => None,
+        };
+        let Some(why) = why else { continue };
+        if store::forget(&r.id) {
+            if why.starts_with("finished") { finished += 1 } else { sick += 1 }
+            // THE LINE ITSELF, TRIMMED — an id and a verdict tell you a
+                // record went, not which one. Somebody scanning this wants
+                // to recognise their own command.
+                let line: String = r.command.chars().take(46).collect();
+                jobbox::outln!("  {} {:<34} {}", r.id, why, jobbox::paint::dim(&line));
+        }
+    }
+    if finished + sick == 0 {
+        jobbox::outln!("nothing to forget — everything here is still happening.");
+        return 0;
+    }
+    jobbox::outln!();
+    jobbox::outln!("{}", jobbox::paint::dim(&format!(
+        "{finished} finished, {sick} that could not be true. Anything still running was left alone."
+    )));
+    0
+}
+
 /// `jbx top` — `jbx ps`, REDRAWN, FOR SOMEBODY WATCHING.
 ///
 /// The same table as `ps`, and deliberately the same code drawing it: a
@@ -571,6 +651,11 @@ fn listing(only_alive: bool, how: &Flags) -> i32 {
                 serde_json::json!({
                     "id": r.id,
                     "state": describe(&store::state_of(r)).split_whitespace().next().unwrap_or(""),
+                    // SAID AS ITS OWN FIELD rather than folded into the
+                    // state word: a reader filtering on `state` should
+                    // not have to learn a new value, and one that cares
+                    // about deliberate holds can ask for this.
+                    "held": r.held,
                     "detached": r.detached,
                     "queued": r.queued,
                     "mirror_cut": r.mirror_cut,
@@ -655,8 +740,15 @@ fn listing(only_alive: bool, how: &Flags) -> i32 {
         // MUTENESS IS ONLY SAID WHEN IT MATTERS. On every line it would
         // be a column people stop reading — and it is precisely the one
         // that must be seen the day it speaks.
+        // AND NEVER ON A HELD JOB. The harness runs those in the
+        // background itself and they print nothing for minutes at a
+        // time by design — an `until` loop has nothing to say until it
+        // is over. Calling that mute is raising an alarm about a
+        // silence somebody chose.
         let mute = match store::silence(r) {
-            Some(secs) if secs > store::mute_after() => format!("MUTE {}s", secs as i64),
+            Some(secs) if secs > store::mute_after() && !r.held => {
+                format!("MUTE {}s", secs as i64)
+            }
             _ => String::new(),
         };
         if all {
@@ -669,7 +761,7 @@ fn listing(only_alive: bool, how: &Flags) -> i32 {
                 r.id,
                 age(r),
                 project,
-                describe(&store::state_of(r)),
+                held_or(r, &store::state_of(r)),
                 mute,
                 cell(given_name(r)),
                 shown_line(r, how, wide)
@@ -679,7 +771,7 @@ fn listing(only_alive: bool, how: &Flags) -> i32 {
                 "{:<10} {:>5} {:<16} {:<10} {}{}",
                 r.id,
                 age(r),
-                describe(&store::state_of(r)),
+                held_or(r, &store::state_of(r)),
                 mute,
                 cell(given_name(r)),
                 shown_line(r, how, wide)

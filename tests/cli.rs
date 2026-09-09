@@ -2712,3 +2712,62 @@ fn the_spans_say_what_the_percentage_is_a_percentage_of() {
     assert!(shown.contains(" saved of "), "no span row names its denominator:\n{shown}");
     assert!(shown.contains("never out of the clock"), "and nothing rules out the wrong reading");
 }
+
+#[test]
+fn prune_forgets_what_is_over_and_leaves_what_is_happening() {
+    // TWO KINDS DESERVE REMOVING AND NOTHING ELSE DOES: a job with an
+    // exit code, and one whose record claims it is running while no
+    // process answers. Anything alive is left exactly where it is,
+    // however old and however quiet — age is not a fault, and the
+    // thirty-five-minute job that prompted this verb was a harness's own
+    // background loop, held on purpose.
+    let s = Scratch::new("prune");
+    s.run(&["run", "--after", "0", "--", "true"]);
+    let running = text(&s.run(&["run", "--after", "0", "--", "sleep 30"]));
+    let alive = announced(&running);
+    until("the short one to finish", || {
+        text(&s.run(&["list"])).contains("finished")
+    });
+
+    let said = text(&s.run(&["prune"]));
+    assert!(said.contains("finished"), "the finished job was not forgotten:\n{said}");
+    assert!(!said.contains(&alive), "prune touched a job that was still running:\n{said}");
+    assert!(text(&s.run(&["ps"])).contains(&alive), "the running job disappeared");
+
+    // AND A SECOND PRUNE FINDS NOTHING, which is what says it removed
+    // rather than merely reported.
+    assert!(text(&s.run(&["prune"])).contains("nothing to forget"));
+}
+
+#[test]
+fn a_job_held_on_purpose_is_not_called_mute() {
+    // `--after inf` is what the hook gives a line the harness is already
+    // running in the background: detaching underneath it would make the
+    // wrapper exit at the cut and the harness announce the work finished
+    // when it had barely started. Such a job prints nothing for minutes
+    // by design — an `until` loop has nothing to say until it is over —
+    // and calling that MUTE raises an alarm about a chosen silence.
+    let s = Scratch::new("heldjob");
+    let quiet = [("JBX_MUTE_AFTER", "1")];
+    // SPAWNED, NOT RUN. `--after inf` never lets go — that is the whole
+    // property under test — so waiting for it here would wait out the
+    // job and then look at an empty store.
+    let mut held = Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .env("JBX_CLIENT", "me")
+        .env("JBX_MUTE_AFTER", "1")
+        .args(["run", "--after", "inf", "--", "sleep 30"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    until("the held job to appear", || text(&s.run_with(&quiet, &["ps"])).contains("sleep 30"));
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    let shown = text(&s.run_with(&quiet, &["ps"]));
+    let _ = held.kill();
+    let _ = held.wait();
+    assert!(shown.contains("held"), "a held job did not say so:\n{shown}");
+    assert!(!shown.contains("MUTE"), "a deliberate silence was called mute:\n{shown}");
+}
