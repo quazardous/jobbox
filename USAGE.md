@@ -360,34 +360,44 @@ this one run.
 `jbx config` prints every value, where it came from, and which files it
 would be edited in.
 
-## `jbx wait` is for Monitor
+## `jbx wait` is Monitor's
 
-Waiting is legitimate — for the caller that genuinely has nothing else
-to do, `jbx wait <id>` ends exactly when the job does, so the ending
-wakes whatever is watching. **Handed to Monitor**, that is the fastest
-an ending can reach you. Run in front of you, it is the waiting the
-detachment had just removed.
+Waiting is a good gesture in one place. **Handed to Monitor**, `jbx wait
+<id>` ends the moment the job does, so the ending wakes the session —
+that is the fastest an ending can arrive, and it is why `wait` exists.
 
-**The detachment message does not offer the command**, and that is
-deliberate: saying "do not wait" and then handing over the line that
-waits is a contradiction, and an agent resolves it the easy way — by
-pasting what it was given. `jbx help <id>` lists it, one step further
-away, along with everything else that can be done with the job.
+Typed by the agent into its own shell it is the opposite: the turn
+stands still until the job finishes, which is the waiting the detachment
+had just removed. It is also the easiest line to reach for right after
+being told a job went to the background.
 
-Where the habit has already set in, a project can take the foreground
-use away:
+**So `allow_wait` is off by default, and off means *for the agent*.**
 
 ```yaml
-allow_wait: false      # `jbx wait` is for Monitor, not the foreground
+allow_wait: true       # let the agent run `jbx wait` in front of itself
 ```
 
-`jbx wait` then refuses with exit 2 and names Monitor instead. Nothing
-else changes: endings are still announced on the next turn, `jbx watch`
-still reports them, `jbx status` still says where a job is.
+The discrimination costs nothing to explain: the hook sees every command
+the agent types and marks a bare `jbx wait` with `--via-agent`; what
+Monitor launches is not a tool call and never reaches the hook, so it is
+never marked. `wait` refuses the marked ones with exit 2 — not a code a
+job could have returned — and names Monitor instead, because a refusal
+that only refuses sends the caller looking for another way to stand
+still, and there is always one.
 
-**It is on by default**, because on a client with no end-of-turn hook —
-Cursor, today — `jbx wait` is the only way an ending reaches anyone at
-all.
+Two things it deliberately does not do:
+
+- **A compound line is left alone.** Appending a flag to `jbx wait x &&
+  deploy` would change what the shell runs. This is a guardrail against
+  a habit, not against somebody working around it.
+- **A client with no Monitor is never marked.** On Cursor — no
+  end-of-turn hook either — `jbx wait` is the only way an ending reaches
+  anybody, and refusing it there would silence the mechanism rather than
+  the habit.
+
+The detachment message follows the same rule: under Claude Code it names
+Monitor and says not to run the wait in front of you; elsewhere it says
+neither, and `jbx help <id>` lists what can be done instead.
 
 ## What the wrapping costs
 

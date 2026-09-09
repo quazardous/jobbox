@@ -187,6 +187,29 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect) -> i32 {
     // comparing whole strings would miss it as soon as the binary is
     // reached by another name: what identifies us is the file name.
     if is_us(line, binary) {
+        // A `jbx wait` THE AGENT TYPED — mark it, so `wait` can tell it
+        // from one Monitor launched. Monitor's never reaches this hook:
+        // it is not a Bash tool call, so nothing marks it and nothing
+        // refuses it. That asymmetry IS the discrimination.
+        //
+        // ONLY A BARE LINE. Appending a flag to `jbx wait x && deploy`
+        // would change what the shell runs, so anything carrying shell
+        // punctuation is left exactly as it was — the guardrail is
+        // against a habit, not against somebody working around it.
+        if !crate::config::allow_wait().0
+            && crate::dialect::has_monitor(dialect.name)
+            && !line.contains(|c| "&|;><`$()\n".contains(c))
+        {
+            let mut words = line.split_whitespace();
+            let _ = words.next();
+            if words.next() == Some("wait") {
+                let mut updated = tool_input.clone();
+                updated["command"] = Value::String(format!("{} --via-agent", line.trim()));
+                let answer = dialect.answer(updated);
+                outln!("{answer}");
+                return 0;
+            }
+        }
         return 0;
     }
 

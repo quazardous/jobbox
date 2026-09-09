@@ -171,7 +171,7 @@ fn dispatch(args: Vec<String>) -> i32 {
             None => usage_error("tail needs an id"),
         }),
         "wait" => with("wait", rest, |how| match how.free.first() {
-            Some(id) if !jobbox::config::allow_wait().0 => refuse_wait(id),
+            Some(id) if how.via_agent && !jobbox::config::allow_wait().0 => refuse_wait(id),
             Some(id) => wait(id),
             None => usage_error("wait needs an id"),
         }),
@@ -335,6 +335,9 @@ pub struct Flags {
     list: bool,
     cli: Option<String>,
     follow: bool,
+    /// Written by the hook onto a `jbx wait` the AGENT typed, never onto
+    /// one the harness backgrounds for it. See `allow_wait`.
+    via_agent: bool,
     project_path: bool,
     thresholds: bool,
     since: Option<f64>,
@@ -380,6 +383,7 @@ impl Flags {
                 "--all" => flags.all = true,
                 "--full" => flags.full = true,
                 "--json" => flags.json = true,
+                "--via-agent" => flags.via_agent = true,
                 "--undo" => flags.undo = true,
                 "--global-only" => flags.global_only = true,
                 "--core" => flags.core = true,
@@ -1123,8 +1127,8 @@ fn config(how: &Flags) -> i32 {
                 row("after", format!("{after:.0}s before detaching"), after.into(),
                     after_from.as_str()),
                 row("allow_wait",
-                    if waiting { "`jbx wait` may run in front of you" }
-                    else { "`jbx wait` is for Monitor only" }.to_string(),
+                    if waiting { "the agent may run `jbx wait` itself" }
+                    else { "`jbx wait` is Monitor's; the agent's own is refused" }.to_string(),
                     waiting.into(), waiting_from.as_str()),
                 row("mute_after", format!("{mute:.0}s of silence is mute"), mute.into(),
                     mute_from.as_str()),

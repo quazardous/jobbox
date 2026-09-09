@@ -127,7 +127,13 @@ pub const VERBS: &[Verb] = &[
         flags: JSON_ONLY },
     Verb { name: "wait", summary: "block until a job ends, and exit with its code",
         tags: &["read", "block"], effect: "reads, and blocks until the job ends",
-        flags: NOTHING },
+        // WRITTEN BY THE HOOK, NOT BY A CALLER. It marks a `jbx wait`
+        // the agent typed into its own shell, which `allow_wait: false`
+        // refuses; what Monitor launches never passes the hook, so it is
+        // never marked. Documented rather than hidden: it shows up in
+        // `jbx ps`, and a flag nobody can look up is worse than one that
+        // explains itself.
+        flags: &[("--via-agent", "set by the hook on a wait the agent typed itself")] },
     Verb { name: "signals", summary: "endings not yet read", tags: &["consume"],
         effect: "reports each ending once and then forgets it",
         flags: &[("--json", "answer as JSON rather than as a table"),

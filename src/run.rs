@@ -716,6 +716,18 @@ fn announce(id: &str, after: f64, seen: Observation) -> i32 {
         "jbx: this passed {after:.0}s, so it is in the BACKGROUND as {id} — nothing lost.\n\
          DO NOT WAIT FOR IT, DO SOMETHING ELSE.\n"
     );
+    // NAMED ONLY WHERE IT EXISTS. Under Claude Code, handing the wait to
+    // Monitor is the RIGHT gesture — it ends when the job does, so the
+    // ending wakes the session — and withholding it there would leave an
+    // agent with an instruction and no way to obey it. Everywhere else
+    // the word means nothing, and `jbx help <id>` says what to do
+    // instead.
+    if crate::dialect::harness() == Some("claude") {
+        let _ = writeln!(
+            out,
+            "With nothing else: hand `jbx wait {id}` to Monitor — it ends when the job\n             does, and that ending wakes you. Do not run it in front of you."
+        );
+    }
     if seen.reading_for >= WORTH_MENTIONING && seen.quiet_for >= WORTH_MENTIONING {
         // SAID AS AN OBSERVATION, AND ONLY ONCE IT HAS LASTED. A
         // pipeline waiting on a slow producer looks exactly like this,

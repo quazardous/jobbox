@@ -299,15 +299,21 @@ fn a_detached_line_keeps_its_log() {
 // ── THE HOOK ────────────────────────────────────────────────────────────
 
 fn hook(s: &Scratch, command: &str) -> String {
+    hook_as(s, "claude", "PreToolUse", "Bash", command)
+}
+
+/// The same, said in another client's dialect.
+fn hook_as(s: &Scratch, client: &str, event_name: &str, tool: &str, command: &str) -> String {
     let event = serde_json::json!({
-        "hook_event_name": "PreToolUse",
-        "tool_name": "Bash",
+        "hook_event_name": event_name,
+        "tool_name": tool,
         "tool_input": {"command": command, "description": "d", "timeout": 120000},
     })
     .to_string();
     let mut child = Command::new(JBX)
         .env_remove("JBX_WRAPPED")
         .arg("hook")
+        .arg(client)
         .env("JBX_DIR", &s.0)
             .env("JBX_CONFIG", s.0.join("global.yaml"))
         // rtk MUST NOT BE FOUND during the tests: what it rewrites is its
@@ -2544,43 +2550,75 @@ fn a_job_is_named_by_whoever_ran_it_when_they_said() {
 }
 
 #[test]
-fn the_detachment_does_not_hand_over_the_command_for_waiting() {
-    // SAYING "DO NOT WAIT" AND THEN OFFERING THE LINE THAT WAITS is a
-    // contradiction, and an agent resolves it the easy way: it pastes
+fn the_detachment_offers_monitor_only_where_monitor_exists() {
+    // SAYING "DO NOT WAIT" AND THEN OFFERING THE BARE LINE THAT WAITS is
+    // a contradiction, and an agent resolves it the easy way: it pastes
     // what it was given. Reported as agents calling `jbx wait` on every
     // single detachment, which puts them straight back to standing
     // still — having spent a turn to get there.
     //
-    // `jbx help <id>` still lists it, one step further away, for the
-    // caller that genuinely has nothing else to do.
+    // But handing that wait to Monitor IS the right gesture under Claude
+    // Code: it ends when the job does, so the ending wakes the session.
+    // So the sentence is there, and it names the vehicle.
     let s = Scratch::new("nowait");
-    let said = text(&s.run(&["run", "--after", "0", "--", "sleep 2"]));
+    let claude = [("CLAUDE_CODE_SESSION_ID", "abc123")];
+    let said = text(&s.run_with(&claude, &["run", "--after", "0", "--", "sleep 2"]));
     assert!(said.contains("DO NOT WAIT FOR IT"), "the instruction is gone:\n{said}");
-    assert!(!said.contains("jbx wait"), "the announcement still offers waiting:\n{said}");
-    assert!(said.contains("jbx help"), "and nothing points anywhere:\n{said}");
+    assert!(said.contains("Monitor"), "the right gesture is not named:\n{said}");
+    assert!(said.contains("Do not run it in front of you"), "the wrong one is not ruled out:\n{said}");
+
+    // AND NOWHERE ELSE. On a client with no Monitor the word means
+    // nothing, so the announcement does not say it — `jbx help <id>`
+    // lists what can be done instead.
+    let plain = [("CLAUDE_CODE_SESSION_ID", "")];
+    let elsewhere = text(&s.run_with(&plain, &["run", "--after", "0", "--", "sleep 2"]));
+    assert!(!elsewhere.contains("Monitor"), "Monitor was named where it does not exist:\n{elsewhere}");
+    assert!(!elsewhere.contains("jbx wait"), "the bare waiting line was offered:\n{elsewhere}");
+    assert!(elsewhere.contains("jbx help"), "and nothing points anywhere:\n{elsewhere}");
 }
 
 #[test]
-fn allow_wait_false_refuses_the_foreground_and_names_monitor() {
-    // A REFUSAL THAT ONLY REFUSES sends the caller looking for another
-    // way to stand still, and there is always one — a sleep in a loop, a
-    // `tail -f`, a poll every second. So it has to name the gesture that
-    // was wanted instead.
+fn only_the_agents_own_wait_is_refused() {
+    // OFF BY DEFAULT, AND OFF MEANS *FOR THE AGENT*. The mark is written
+    // by the hook onto a `jbx wait` the agent typed into its own shell.
+    // What Monitor launches never passes through the hook, so it is
+    // never marked — and that asymmetry is the whole discrimination.
     let s = Scratch::new("allowwait");
-    let off = [("JBX_ALLOW_WAIT", "false")];
-    let refused = s.run_with(&off, &["wait", "j0000000"]);
+
+    let refused = s.run(&["wait", "j0000000", "--via-agent"]);
     assert_eq!(refused.status.code(), Some(2), "a refusal must not look like a job's own code");
-    // ON STDERR, because a refusal is a diagnostic and not the answer
-    // the caller asked for — a script reading stdout gets nothing, which
-    // is correct, and a person reading the terminal gets the sentence.
+    // ON STDERR: a refusal is a diagnostic, not the answer that was asked for.
     let said = String::from_utf8_lossy(&refused.stderr).into_owned();
     assert!(said.contains("Monitor"), "it refused without saying what to do:\n{said}");
 
-    // AND ON BY DEFAULT. `wait` is how an ending wakes anything watching
-    // it; taking that away everywhere would remove the mechanism the
-    // announcement depends on.
-    let (on, _) = jobbox::config::allow_wait();
-    assert!(on, "waiting must be allowed unless a project says otherwise");
-    let normally = s.run(&["wait", "j0000000"]);
-    assert_ne!(normally.status.code(), Some(2), "an unknown id is not a refusal");
+    // UNMARKED IS MONITOR'S PATH, and it must go straight through. An
+    // unknown id is an unknown id, not a refusal.
+    let allowed = s.run(&["wait", "j0000000"]);
+    assert_ne!(allowed.status.code(), Some(2), "Monitor's own wait was refused");
+
+    // AND A PROJECT CAN HAND IT BACK.
+    let on = [("JBX_ALLOW_WAIT", "true")];
+    let back = s.run_with(&on, &["wait", "j0000000", "--via-agent"]);
+    assert_ne!(back.status.code(), Some(2), "`allow_wait: true` did not lift the refusal");
+}
+
+#[test]
+fn the_hook_marks_only_a_bare_wait_and_only_where_monitor_exists() {
+    let s = Scratch::new("markwait");
+
+    let marked = hook(&s, "jbx wait j123abc");
+    assert!(marked.contains("--via-agent"), "the agent's own wait went unmarked:\n{marked}");
+
+    // COMPOUND LINES ARE LEFT ALONE. Appending a flag to `jbx wait x &&
+    // deploy` changes what the shell runs. This is a guardrail against a
+    // habit, not against somebody deliberately working around it.
+    let compound = hook(&s, "jbx wait j123abc && echo done");
+    assert!(!compound.contains("--via-agent"), "a compound line was rewritten:\n{compound}");
+
+    // AND NEVER ON A CLIENT WITH NO MONITOR. Cursor has no end-of-turn
+    // hook either, so `jbx wait` is the only way an ending reaches
+    // anybody there; refusing it would silence the mechanism, not the
+    // habit.
+    let elsewhere = hook_as(&s, "cursor", "preToolUse", "Shell", "jbx wait j123abc");
+    assert!(!elsewhere.contains("--via-agent"), "cursor lost its only channel:\n{elsewhere}");
 }
