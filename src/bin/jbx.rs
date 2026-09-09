@@ -489,11 +489,13 @@ fn verb_usage(name: &str) -> String {
     let mut text = format!("jbx {} — {}\n", v.name, v.summary);
     if v.flags.is_empty() {
         text.push_str("  takes no flags.\n");
-        return text;
     }
     for (flag, what) in v.flags {
         text.push_str(&format!("  {flag:<16} {what}\n"));
     }
+    // AFTER THE FLAGS, because a flag is what you came for and a note is
+    // what you did not know you needed.
+    text.push_str(v.notes);
     text
 }
 

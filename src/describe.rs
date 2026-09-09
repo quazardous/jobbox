@@ -89,7 +89,20 @@ pub struct Verb {
     pub tags: &'static [&'static str],
     pub effect: &'static str,
     pub flags: &'static [Flag],
+    /// What `--help` says after the flags, when a verb needs more than
+    /// its summary. Empty for most: a note nobody needs is a note that
+    /// teaches the eye to skip the ones that matter.
+    pub notes: &'static str,
 }
+
+/// WHAT THE STATE COLUMN MEANS, said once for the three verbs that
+/// print it.
+///
+/// Six words that look alike and are not, and the difference decides
+/// what to do next: `foreground` is somebody standing still, `held` is
+/// somebody who chose to, `background` is nobody. Guessing between them
+/// is how a healthy listing comes to look frightening.
+const STATES: &str = "\n\x20\x20the state column\n\x20\x20\x20\x20queued        waiting its turn under the cap; not stuck\n\x20\x20\x20\x20foreground    still held — output is mirroring to whoever asked,\n\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20and it may yet finish in time and leave nothing behind\n\x20\x20\x20\x20background    let go of; only the log receives anything now\n\x20\x20\x20\x20held          never to be let go of. The harness is already running\n\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20this one in the background, so jbx only records it\n\x20\x20\x20\x20running       an older record that never said which; nobody\n\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20observed it, so it is not claimed either way\n\x20\x20\x20\x20finished      it ended, and the exit code is beside it\n\x20\x20\x20\x20gone          no process and no exit code — killed, or the machine\n\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20went down under it. `jbx prune` clears these\n\n\x20\x20MUTE means nothing has reached its log for a while. Never said of a\n\x20\x20held job: those print nothing for minutes by design.\n\n";
 
 /// Flags a listing takes, named once because two verbs share them.
 const LISTING: &[Flag] = &[
@@ -106,46 +119,46 @@ const NOTHING: &[Flag] = &[];
 /// README taught that lesson: a guard that only checks for what is false
 /// never notices what is missing.
 pub const VERBS: &[Verb] = &[
-    Verb { name: "run", summary: "run a line, detaching it if it turns out to be long",
+    Verb { name: "run", notes: "", summary: "run a line, detaching it if it turns out to be long",
         tags: &["execute"], effect: "runs an arbitrary command line",
         flags: &[("--after", "seconds to hold the caller before detaching"),
                  ("--intent", "what this job is for, in a few words")] },
-    Verb { name: "fg", summary: "run a line and never let go, or bring a detached job back",
+    Verb { name: "fg", notes: "", summary: "run a line and never let go, or bring a detached job back",
         tags: &["execute", "block"],
         effect: "runs a line without ever letting go, or attaches to one",
         flags: &[("--intent", "what this job is for, in a few words")] },
-    Verb { name: "bench", summary: "what the wrapping costs, per command",
+    Verb { name: "bench", notes: "", summary: "what the wrapping costs, per command",
         tags: &["read", "measure"],
         effect: "runs `true` a few dozen times, wrapped and bare, timing both; \
                  leaves the finished job records that wrapping created",
         flags: &[("--json", "the numbers, for a regression check")] },
-    Verb { name: "queue", summary: "hand work over before it starts, under a cap",
+    Verb { name: "queue", notes: "", summary: "hand work over before it starts, under a cap",
         tags: &["create"], effect: "creates pending work", flags: NOTHING },
-    Verb { name: "kill", summary: "stop a job and everything it started",
+    Verb { name: "kill", notes: "", summary: "stop a job and everything it started",
         tags: &["destroy"], effect: "stops a process tree",
         flags: &[("--too-old", "instead of an id: everything running over an hour"),
                  ("--older-than", "the same, at an age you choose: 30s, 45m, 2h"),
                  ("--all", "every project on this machine, not only this one")] },
-    Verb { name: "slots", summary: "how many queued jobs may run at once",
+    Verb { name: "slots", notes: "", summary: "how many queued jobs may run at once",
         tags: &["read", "capacity"],
         effect: "changes future capacity; reads when given no number", flags: JSON_ONLY },
-    Verb { name: "after", summary: "seconds before a long line detaches itself",
+    Verb { name: "after", notes: "", summary: "seconds before a long line detaches itself",
         tags: &["read", "configure"],
         effect: "reads, and writes the threshold into this project's settings",
         flags: JSON_ONLY },
-    Verb { name: "prune", summary: "forget what is over, and what cannot be true",
+    Verb { name: "prune", notes: "", summary: "forget what is over, and what cannot be true",
         tags: &["forget"],
         effect: "deletes the records and logs of finished and unrecoverable jobs; \
                  stops nothing that is still running",
         flags: &[("--all", "every project on this machine, not only this one")] },
-    Verb { name: "top", summary: "what is happening right now, redrawn until you stop it",
+    Verb { name: "top", notes: STATES, summary: "what is happening right now, redrawn until you stop it",
         tags: &["read", "block"],
         effect: "reads, and keeps drawing until interrupted",
         // THE SAME FLAGS AS `ps`, from the same constant: it is the same
         // table, and two lists of flags for one renderer is two lists to
         // forget to update.
         flags: LISTING },
-    Verb { name: "wait", summary: "block until a job ends, and exit with its code",
+    Verb { name: "wait", notes: "", summary: "block until a job ends, and exit with its code",
         tags: &["read", "block"], effect: "reads, and blocks until the job ends",
         // WRITTEN BY THE HOOK, NOT BY A CALLER. It marks a `jbx wait`
         // the agent typed into its own shell, which `allow_wait: false`
@@ -154,11 +167,11 @@ pub const VERBS: &[Verb] = &[
         // `jbx ps`, and a flag nobody can look up is worse than one that
         // explains itself.
         flags: &[("--via-agent", "set by the hook on a wait the agent typed itself")] },
-    Verb { name: "signals", summary: "endings not yet read", tags: &["consume"],
+    Verb { name: "signals", notes: "", summary: "endings not yet read", tags: &["consume"],
         effect: "reports each ending once and then forgets it",
         flags: &[("--json", "answer as JSON rather than as a table"),
                  ("--client", "read another mailbox than this session's")] },
-    Verb { name: "init", summary: "declare the hooks, and take rtk's over",
+    Verb { name: "init", notes: "", summary: "declare the hooks, and take rtk's over",
         tags: &["configure"],
         effect: "edits the harness settings and writes configuration files",
         flags: &[("--undo", "put back what was there before"),
@@ -166,43 +179,43 @@ pub const VERBS: &[Verb] = &[
                  ("--announce", "also declare the hooks that report an ending unasked"),
                  ("--cli", "which agent CLI to declare in: claude, gemini"),
                  ("--global-only", "the hooks and the global file; no project file")] },
-    Verb { name: "hook", summary: "answer an agent CLI; `init` declares this one",
+    Verb { name: "hook", notes: "", summary: "answer an agent CLI; `init` declares this one",
         tags: &["rewrite"], effect: "rewrites the command the harness is about to run",
         flags: &[("--list", "name every client this binary can answer"),
                  ("--json", "as JSON")] },
-    Verb { name: "list", summary: "what is detached, and how it went",
+    Verb { name: "list", notes: STATES, summary: "what is detached, and how it went",
         tags: &["read"], effect: "reads", flags: LISTING },
-    Verb { name: "ps", summary: "what is happening right now",
+    Verb { name: "ps", notes: STATES, summary: "what is happening right now",
         tags: &["read"], effect: "reads", flags: LISTING },
-    Verb { name: "watch", summary: "one line per job event, until nothing is running",
+    Verb { name: "watch", notes: "", summary: "one line per job event, until nothing is running",
         tags: &["read", "block"],
         effect: "reads, and blocks until nothing is running any more",
         flags: &[("--all", "every project on this machine, not just this one"),
                  ("--json", "one JSON object per line, for a stream")] },
-    Verb { name: "status", summary: "one job: where it is, its exit code, its log",
+    Verb { name: "status", notes: "", summary: "one job: where it is, its exit code, its log",
         tags: &["read"], effect: "reads", flags: JSON_ONLY },
-    Verb { name: "tail", summary: "what a job printed", tags: &["read"],
+    Verb { name: "tail", notes: "", summary: "what a job printed", tags: &["read"],
         effect: "reads; `-f` blocks until the job ends",
         flags: &[("-f", "keep printing until the job ends")] },
-    Verb { name: "gain", summary: "what the wrapping bought, and what it cost", tags: &["read"],
+    Verb { name: "gain", notes: "", summary: "what the wrapping bought, and what it cost", tags: &["read"],
         effect: "reads",
         flags: &[("--json", "answer as JSON rather than as a table"),
                  ("--project-path", "full paths instead of names"),
                  ("--thresholds", "what another `after` would have cost, replayed"),
                  ("--since", "how far back to look: 1h, 24h, 7d, or all")] },
-    Verb { name: "health", summary: "what runs, what is mute, what nobody will read",
+    Verb { name: "health", notes: "", summary: "what runs, what is mute, what nobody will read",
         tags: &["read"], effect: "reads", flags: JSON_ONLY },
-    Verb { name: "clients", summary: "whose endings are still unread",
+    Verb { name: "clients", notes: "", summary: "whose endings are still unread",
         tags: &["read"], effect: "reads", flags: JSON_ONLY },
-    Verb { name: "config", summary: "every setting, and where it came from",
+    Verb { name: "config", notes: "", summary: "every setting, and where it came from",
         tags: &["read"], effect: "reads", flags: JSON_ONLY },
-    Verb { name: "describe", summary: "this document", tags: &["read"], effect: "reads",
+    Verb { name: "describe", notes: "", summary: "this document", tags: &["read"], effect: "reads",
         flags: NOTHING },
-    Verb { name: "help", summary: "the way in: what to type, and what to do with a job",
+    Verb { name: "help", notes: "", summary: "the way in: what to type, and what to do with a job",
         tags: &["read"], effect: "reads", flags: JSON_ONLY },
-    Verb { name: "how", summary: "the gestures: what to do, in the order you meet it",
+    Verb { name: "how", notes: "", summary: "the gestures: what to do, in the order you meet it",
         tags: &["read"], effect: "reads", flags: JSON_ONLY },
-    Verb { name: "why", summary: "why it works this way", tags: &["read"], effect: "reads",
+    Verb { name: "why", notes: "", summary: "why it works this way", tags: &["read"], effect: "reads",
         flags: JSON_ONLY },
 ];
 

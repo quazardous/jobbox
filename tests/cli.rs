@@ -2870,3 +2870,24 @@ fn a_two_day_old_record_whose_process_is_gone_is_collected_by_itself() {
     s.run(&["run", "--after", "0", "--", "true"]);
     assert!(!record.exists(), "the two-day-old record with no process survived the sweep");
 }
+
+#[test]
+fn the_listing_verbs_explain_their_state_column() {
+    // SIX WORDS THAT LOOK ALIKE AND ARE NOT, and the difference decides
+    // what to do next: `foreground` is somebody standing still, `held`
+    // is somebody who chose to, `background` is nobody. Guessing between
+    // them is how a healthy listing comes to look frightening — which is
+    // how a thirty-five-minute `held` job was read as a hang.
+    let s = Scratch::new("stateshelp");
+    for verb in ["ps", "top", "list"] {
+        let said = text(&s.run(&[verb, "--help"]));
+        for state in ["queued", "foreground", "background", "held", "gone", "MUTE"] {
+            assert!(said.contains(state), "`jbx {verb} --help` never mentions `{state}`:\n{said}");
+        }
+        // SAID ONCE, FROM ONE PLACE. Three copies of an explanation is
+        // two that will not be updated.
+        assert!(said.contains("the state column"), "`jbx {verb} --help` lost the block");
+    }
+    // AND NOT EVERYWHERE. A note on every verb is a note the eye skips.
+    assert!(!text(&s.run(&["kill", "--help"])).contains("the state column"));
+}
