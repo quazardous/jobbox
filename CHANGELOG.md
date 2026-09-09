@@ -28,6 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   view is the one nobody trusts. Piped, it is one snapshot, because a
   loop that never ends is how a pipe becomes a hang.
 
+- **`jbx kill --too-old`, `--older-than <age>`** — stop what has gone on
+  too long, without naming each one. The age threshold belongs here
+  rather than on `prune`: `prune` forgets and `kill` stops, and a flag
+  that stops belongs to the verb that stops. An age is written the way
+  people write one — `30s`, `45m`, `2h`, a bare number meaning minutes.
+
+  The records stay, because a job you have just stopped is the one whose
+  log you are most likely to want. And the command doing the stopping is
+  never among the casualties: `jbx kill` is itself a wrapped command, so
+  a wrapper above it has a record like any other and a short threshold
+  would reach it.
+
 - **`jbx prune [--all]`** — forget what is over, and what cannot be true.
   Two kinds of record deserve removing and **nothing else does**: one
   that has an exit code, and one whose record claims a job is running

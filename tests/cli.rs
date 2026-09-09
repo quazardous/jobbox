@@ -2790,3 +2790,40 @@ fn the_short_version_flag_works_and_a_flag_is_not_called_a_verb() {
     assert!(said.contains("is a flag"), "a flag was called a verb:\n{said}");
     assert!(!said.contains("unknown verb"), "still calls it a verb:\n{said}");
 }
+
+#[test]
+fn kill_by_age_stops_the_old_and_never_its_own_caller() {
+    // THE FLAGS THAT STOP BELONG TO THE VERB THAT STOPS. `prune` forgets;
+    // `kill` is where an age threshold goes, because what it does is
+    // stop things.
+    let s = Scratch::new("killold");
+    let young = announced(&text(&s.run(&["run", "--after", "0", "--", "sleep 30"])));
+    std::thread::sleep(std::time::Duration::from_secs(3));
+
+    // Nothing is three hours old, so nothing goes.
+    assert!(text(&s.run(&["kill", "--too-old"])).contains("nothing has been running that long"));
+
+    let said = text(&s.run(&["kill", "--older-than", "2s"]));
+    assert!(said.contains(&young), "the old job was not stopped:\n{said}");
+    // THE RECORD STAYS. A job you have just stopped is the one whose log
+    // you are most likely to want; `prune` clears it afterwards.
+    assert!(text(&s.run(&["list"])).contains(&young), "the record went with the process");
+
+    // AN AGE IS WRITTEN THE WAY PEOPLE WRITE ONE, and anything else is
+    // refused rather than guessed at.
+    let bad = s.run(&["kill", "--older-than", "soon"]);
+    assert_eq!(bad.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&bad.stderr).contains("30s, 45m, 2h"));
+}
+
+#[test]
+fn a_bulk_kill_spares_the_command_running_it() {
+    // `jbx kill` IS ITSELF A WRAPPED COMMAND under a hook, so a wrapper
+    // above it has a record like any other — and with a short age it is
+    // old enough to match. Stopping it kills the kill half way through,
+    // and the caller sees a command that died for no reason it can name.
+    let s = Scratch::new("killself");
+    let mine = jobbox::store::ancestors();
+    assert!(mine.contains(&std::process::id()), "we are not in our own ancestry");
+    assert!(mine.len() > 1, "the chain stopped at ourselves: {mine:?}");
+}

@@ -177,12 +177,13 @@ fn dispatch(args: Vec<String>) -> i32 {
             Some(id) => wait(id),
             None => usage_error("wait needs an id"),
         }),
-        "kill" => with("kill", rest, |how| match how.free.first() {
-            Some(id) => {
+        "kill" => with("kill", rest, |how| match (how.free.first(), how.older_than) {
+            (Some(id), _) => {
                 note_grip(id, "killed");
                 kill(id)
             }
-            None => usage_error("kill needs an id"),
+            (None, Some(age)) => kill_older_than(age, how.all),
+            (None, None) => usage_error("kill needs an id, or `--too-old`"),
         }),
         // A FLAG IS NOT A VERB, and saying so is the difference between
         // "you spelled the verb wrong" and "that flag goes after one".
@@ -231,7 +232,8 @@ fn usage() -> String {
          \x20 jbx status <id>       state, exit code, where its log is\n\
          \x20 jbx tail <id> [-f]    what it printed\n\
          \x20 jbx wait <id>         block until it ends, exit with its code\n\
-         \x20 jbx kill <id>         stop it, and everything it started\n\
+         \x20 jbx kill <id> | --too-old | --older-than <age>\n\
+         \x20                       stop it, and everything it started\n\
          \x20 jbx slots [n|none]    how many queued jobs may run at once\n\
          \x20 jbx after [seconds]   how long a line may hold before detaching\n\
          \x20 jbx signals <who>     endings not yet read: agent or user\n\
@@ -366,6 +368,8 @@ pub struct Flags {
     list: bool,
     cli: Option<String>,
     follow: bool,
+    /// Seconds past which a still-running job is stopped by `prune`.
+    older_than: Option<f64>,
     /// Written by the hook onto a `jbx wait` the AGENT typed, never onto
     /// one the harness backgrounds for it. See `allow_wait`.
     via_agent: bool,
@@ -415,6 +419,16 @@ impl Flags {
                 "--full" => flags.full = true,
                 "--json" => flags.json = true,
                 "--via-agent" => flags.via_agent = true,
+                // AN HOUR, SPELLED AS A WORD because that is the case
+                // people arrive with: something has been sitting there
+                // far too long and they want it gone.
+                "--too-old" => flags.older_than = Some(3600.0),
+                "--older-than" => match value().as_deref().map(str::trim).map(parse_age) {
+                    Some(Some(secs)) => flags.older_than = Some(secs),
+                    _ => return Err(usage_error(
+                        "`--older-than` wants an age: 30s, 45m, 2h — a bare number means minutes",
+                    )),
+                },
                 "--undo" => flags.undo = true,
                 "--global-only" => flags.global_only = true,
                 "--core" => flags.core = true,
@@ -523,6 +537,22 @@ fn terminal_columns() -> Option<usize> {
         return None;
     }
     String::from_utf8_lossy(&out.stdout).split_whitespace().nth(1)?.parse().ok()
+}
+
+/// AN AGE, WRITTEN THE WAY PEOPLE WRITE ONE.
+///
+/// A bare number means minutes, because that is the unit somebody has in
+/// mind when they say a job has been there too long. Seconds and hours
+/// are spelled out.
+fn parse_age(text: &str) -> Option<f64> {
+    let (number, scale) = match text.chars().last()? {
+        's' => (&text[..text.len() - 1], 1.0),
+        'm' => (&text[..text.len() - 1], 60.0),
+        'h' => (&text[..text.len() - 1], 3600.0),
+        _ => (text, 60.0),
+    };
+    let n: f64 = number.trim().parse().ok()?;
+    (n > 0.0).then_some(n * scale)
 }
 
 /// `jbx prune` — FORGET WHAT IS OVER, AND WHAT CANNOT BE TRUE.
@@ -955,6 +985,54 @@ fn wait(id: &str) -> i32 {
 /// THE WHOLE GROUP GOES, not just the supervisor. A line is usually a
 /// shell that started something else; killing the shell alone would
 /// leave the real work running with nothing watching it.
+/// `jbx kill --too-old` — STOP WHAT HAS BEEN GOING ON TOO LONG.
+///
+/// The id form asks about one job somebody has looked at. This one is
+/// for the other situation: a listing full of things that should have
+/// ended, and no wish to name them one at a time.
+///
+/// EACH ONE IS NAMED AS IT GOES. Stopping another session's work
+/// silently is not a tidy-up, and a count tells you nothing you could
+/// have checked. Held jobs are not spared: a harness's background loop
+/// still waiting after an hour is exactly what somebody reaching for
+/// this is looking at.
+///
+/// AND IT DOES NOT FORGET THEM. The record stays, so the log stays with
+/// it — a job you have just stopped is the one whose output you are
+/// most likely to want. `jbx prune` clears them afterwards.
+fn kill_older_than(age: f64, all: bool) -> i32 {
+    let me = jobbox::gain::project().1;
+    // NEVER THE HAND THAT IS DOING THIS. `jbx kill` is itself a wrapped
+    // command, so its own wrapper has a record — and with a short age it
+    // is old enough to match. Stopping it kills the kill, half way
+    // through, and the caller sees a command that died for no reason it
+    // can name.
+    let mine = jobbox::store::ancestors();
+    let mut stopped = 0;
+    for r in store::all() {
+        if !all && r.project != me {
+            continue;
+        }
+        let ran_for = store::now() - r.started;
+        if ran_for < age || !store::alive(r.pid) || mine.contains(&r.pid) {
+            continue;
+        }
+        note_grip(&r.id, "killed");
+        jobbox::outln!("  {} running for {:.0}m — stopping it", r.id, ran_for / 60.0);
+        kill(&r.id);
+        stopped += 1;
+    }
+    if stopped == 0 {
+        jobbox::outln!("nothing has been running that long.");
+    } else {
+        jobbox::outln!();
+        jobbox::outln!("{}", jobbox::paint::dim(&format!(
+            "{stopped} stopped. Their logs are still here — `jbx prune` clears the records."
+        )));
+    }
+    0
+}
+
 fn kill(id: &str) -> i32 {
     let Some(r) = store::read_record(id) else {
         jobbox::outln!("jbx: {id} is unknown");

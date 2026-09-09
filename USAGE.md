@@ -386,6 +386,29 @@ prune that killed by age would have killed it first.
 Each removal is named as it happens, because a destructive verb that
 prints a count has told you nothing you can check.
 
+### Stopping what has gone on too long
+
+The age threshold belongs to `kill`, not to `prune`: `prune` forgets,
+`kill` stops, and a flag that stops belongs to the verb that stops.
+
+```console
+$ jbx kill --too-old              # anything running over an hour
+$ jbx kill --older-than 45m --all # at an age you choose, everywhere
+```
+
+An age is written the way people write one — `30s`, `45m`, `2h`, and a
+bare number means minutes. Each job is named as it goes, because
+stopping another session's work silently is not a tidy-up.
+
+**The records stay.** A job you have just stopped is the one whose log
+you are most likely to want; `jbx prune` clears them afterwards.
+
+**Held jobs are not spared.** A harness's background loop still waiting
+after an hour is exactly what somebody reaching for this is looking at.
+And the command doing the stopping is never among the casualties: `jbx
+kill` is itself wrapped, so a wrapper above it has a record like any
+other.
+
 ### `held` — the silence somebody chose
 
 A line the harness is already running in the background is wrapped with

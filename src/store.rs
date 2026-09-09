@@ -582,6 +582,45 @@ pub fn all() -> Vec<Record> {
     out
 }
 
+/// THE PROCESSES THIS ONE IS RUNNING INSIDE, ourselves included.
+///
+/// Asked by anything that stops jobs in bulk: a wrapper somewhere above
+/// us has a record like any other, and stopping it stops the command
+/// doing the stopping. The chain is short — a handful of steps to the
+/// session — so walking it costs nothing worth counting.
+pub fn ancestors() -> std::collections::HashSet<u32> {
+    let mut seen = std::collections::HashSet::new();
+    let mut pid = std::process::id();
+    for _ in 0..12 {
+        if !seen.insert(pid) {
+            break;
+        }
+        match parent_of(pid) {
+            Some(up) if up > 1 => pid = up,
+            _ => break,
+        }
+    }
+    seen
+}
+
+#[cfg(target_os = "linux")]
+fn parent_of(pid: u32) -> Option<u32> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // FIELD FOUR, AFTER THE COMMAND — which may itself contain spaces
+    // and parentheses, so the split starts past the closing one.
+    let tail = stat.rsplit_once(") ").map(|(_, t)| t)?;
+    tail.split_whitespace().nth(1)?.parse().ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn parent_of(pid: u32) -> Option<u32> {
+    let out = std::process::Command::new("ps")
+        .args(["-o", "ppid=", "-p", &pid.to_string()])
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
 /// DROP ONE JOB'S TRACES, WHATEVER STATE IT IS IN.
 ///
 /// The caller decides what deserves forgetting; this only does it. Kept
