@@ -26,7 +26,7 @@ fn dispatch(args: Vec<String>) -> i32 {
     let rest = if args.is_empty() { &[][..] } else { &args[1..] };
 
     match verb {
-        "-V" | "--version" => {
+        "-v" | "-V" | "--version" => {
             jobbox::outln!("jbx {VERSION}");
             0
         }
@@ -184,6 +184,14 @@ fn dispatch(args: Vec<String>) -> i32 {
             }
             None => usage_error("kill needs an id"),
         }),
+        // A FLAG IS NOT A VERB, and saying so is the difference between
+        // "you spelled the verb wrong" and "that flag goes after one".
+        // Somebody typing `jbx -x` was told they had invented a verb.
+        other if other.starts_with('-') => {
+            eprintln!("jbx: {other:?} is a flag, and jbx wants a verb first — `jbx <verb> {other}`");
+            eprint!("{}", usage());
+            2
+        }
         other => {
             eprintln!("jbx: unknown verb {other:?}");
             eprint!("{}", usage());

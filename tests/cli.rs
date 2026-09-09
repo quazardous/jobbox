@@ -2771,3 +2771,22 @@ fn a_job_held_on_purpose_is_not_called_mute() {
     assert!(shown.contains("held"), "a held job did not say so:\n{shown}");
     assert!(!shown.contains("MUTE"), "a deliberate silence was called mute:\n{shown}");
 }
+
+#[test]
+fn the_short_version_flag_works_and_a_flag_is_not_called_a_verb() {
+    // `jbx -v` answered "unknown verb \"-v\"", which is wrong twice: the
+    // short form is what everyone types, and a flag is not a verb. The
+    // second half matters more — being told you invented a verb sends
+    // you looking for the right verb, when what you needed was to put
+    // the flag after one.
+    let s = Scratch::new("shortv");
+    for spelling in ["-v", "-V", "--version"] {
+        let out = s.run(&[spelling]);
+        assert_eq!(out.status.code(), Some(0), "`jbx {spelling}` did not answer");
+        assert!(text(&out).starts_with("jbx "), "`jbx {spelling}` said something else");
+    }
+    let stray = s.run(&["-x"]);
+    let said = String::from_utf8_lossy(&stray.stderr).into_owned();
+    assert!(said.contains("is a flag"), "a flag was called a verb:\n{said}");
+    assert!(!said.contains("unknown verb"), "still calls it a verb:\n{said}");
+}
