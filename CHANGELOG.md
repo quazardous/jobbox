@@ -18,6 +18,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-09-09
+
+### Added
+
+- **`jbx bench` says what the wrapping costs.** `jbx gain` reports what
+  the detaching bought, and reporting that without ever reporting the
+  price is half a sentence — the flattering half. On the machine this
+  was written on: **6 ms for the hook**, which runs on every command an
+  agent issues including the overwhelming majority that finish
+  instantly; **26 ms for the wrapper** on a short line that actually
+  goes through `jbx run`; against 1.7 ms for a bare `/bin/sh -c true`.
+  `--json` prints the same numbers for a regression check.
+
+  Two ways of getting this wrong are avoided on purpose. The wrapped and
+  bare runs are **interleaved** rather than measured in blocks, because
+  a machine's mood drifts and a block of one followed by a block of the
+  other measures the drift as faithfully as the difference. And the
+  detached path is **not timed at all**: a command that outlasts thirty
+  seconds is dominated by itself by four orders of magnitude, so an
+  overhead percentage against it would be arithmetic designed to look
+  good.
+
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**, which opens on the
+  report that dominates every other: *nothing is being detached*. All
+  three usual causes are jbx working as designed — a terminal is
+  attached, so it steps aside for the human watching; `JBX_WRAPPED` is
+  set, so something outside already holds the job; or the hook is
+  declared as a bare `jbx hook` and therefore answers as Claude under a
+  client that is not Claude, which looks exactly like being correctly
+  installed. Each with the command that says which one it is.
+
+- **[MACOS.md](MACOS.md)**. Gatekeeper's warning comes from a quarantine
+  flag written by whatever downloaded the file — a browser sets it,
+  `curl` does not — so **the documented install path never trips it**,
+  and `install.sh` proves that by running `jbx --version` once the
+  binary is in place. The page also says why the binaries are not
+  notarised, what that would cost, and what would change the answer.
+
+- **Issue templates**, asking for `jbx config`, `jbx health` and
+  `--version`, because those three answer most of what anyone would ask
+  next. And a map of the source in `CONTRIBUTING.md`: eight files, two
+  doors, and the note that adding an agent CLI means editing the dialect
+  table *and* the hardcoded copy in the tests.
+
+### Changed
+
+- **The README shows the thing instead of describing it** — a recording
+  of a long command being taken off an agent's hands, made with
+  [simai-cli](https://github.com/quazardous/simai-cli) from a scenario
+  that lives here, so the picture can be remade rather than only looked
+  at.
+
+### Fixed
+
+- Two tests set `HOME` where Windows reads `USERPROFILE`, so they wrote
+  to the real profile and looked for the result in a temporary one. They
+  set both now, and the Windows CI is green again.
+
 ## [0.13.0] - 2026-09-08
 
 ### Added
