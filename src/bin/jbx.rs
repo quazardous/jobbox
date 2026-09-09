@@ -159,6 +159,7 @@ fn dispatch(args: Vec<String>) -> i32 {
         "watch" => with("watch", rest, |how| jobbox::watch::watch(how.all, how.json)),
         "list" => with("list", rest, |how| listing(false, how)),
         "ps" => with("ps", rest, |how| listing(true, how)),
+        "top" => with("top", rest, top),
         "status" => with("status", rest, |how| match how.free.first() {
             Some(id) => status(id, how),
             None => usage_error("status needs an id"),
@@ -214,6 +215,7 @@ fn usage() -> String {
          \n\
          \x20 jbx ps [--all] [--full] [--json] [--width <n>]\n\
          \x20                       what is happening right now, here\n\
+         \x20 jbx top [--all]       the same, redrawn, until you stop it\n\
          \x20 jbx list              … and what has finished, for a day\n\
          \x20 jbx watch             one line per job event, until nothing runs\n\
          \x20 jbx status <id>       state, exit code, where its log is\n\
@@ -492,6 +494,41 @@ fn terminal_columns() -> Option<usize> {
         return None;
     }
     String::from_utf8_lossy(&out.stdout).split_whitespace().nth(1)?.parse().ok()
+}
+
+/// `jbx top` — `jbx ps`, REDRAWN, FOR SOMEBODY WATCHING.
+///
+/// The same table as `ps`, and deliberately the same code drawing it: a
+/// second renderer would drift from the first, and the day it did the
+/// live view would be the one nobody trusts.
+///
+/// IT DOES NOT TAKE THE ALTERNATE SCREEN, and that is a constraint
+/// rather than a preference. Restoring it on Ctrl-C needs a signal
+/// handler, this project carries no dependency for one, and a `top`
+/// that leaves the alternate buffer up has broken the terminal of
+/// whoever just wanted to look. Clearing the normal buffer costs a
+/// leftover frame on exit — which is what `watch(1)` leaves too, and
+/// nobody has ever minded.
+///
+/// WITHOUT A TERMINAL IT IS ONE SNAPSHOT. There is nothing to redraw
+/// into, and a loop that never ends is how a pipe becomes a hang.
+fn top(how: &Flags) -> i32 {
+    use std::io::IsTerminal;
+    if !std::io::stdout().is_terminal() {
+        return listing(true, how);
+    }
+    loop {
+        // HOME, THEN ERASE WHAT IS BELOW — not a full clear, which
+        // blanks the screen for one frame and reads as a flicker.
+        print!("\x1b[H\x1b[J");
+        let code = listing(true, how);
+        if code != 0 {
+            return code;
+        }
+        jobbox::outln!("\n\x1b[2mrefreshing every second — Ctrl-C to stop\x1b[0m");
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
 }
 
 fn listing(only_alive: bool, how: &Flags) -> i32 {

@@ -2671,3 +2671,16 @@ fn the_hook_knows_itself_however_it_is_spelled() {
     assert!(!jobbox::hook::is_us("jbxtra ps", binary), "claimed a different tool");
     assert!(!jobbox::hook::is_us("cargo build", binary), "claimed somebody else's command");
 }
+
+#[test]
+fn top_is_one_snapshot_when_nothing_can_be_redrawn() {
+    // A LOOP THAT NEVER ENDS IS HOW A PIPE BECOMES A HANG. `top` redraws
+    // for somebody watching; with no terminal there is nothing to redraw
+    // into, so it answers once and leaves — which is also what keeps it
+    // safe for anything that captures output, an agent included.
+    let s = Scratch::new("top");
+    let out = s.run(&["top"]);
+    assert_eq!(out.status.code(), Some(0), "`top` did not come back");
+    // The same table as `ps`, from the same renderer.
+    assert_eq!(text(&out), text(&s.run(&["ps"])), "`top` and `ps` drew different tables");
+}

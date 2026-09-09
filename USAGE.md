@@ -360,6 +360,33 @@ this one run.
 `jbx config` prints every value, where it came from, and which files it
 would be edited in.
 
+## Watching it happen
+
+`jbx ps` is a snapshot. `jbx top` is the same table redrawn every
+second, for when you want to sit and watch — `--all` widens it to every
+project on the machine, exactly as it does for `ps`.
+
+```console
+$ jbx top --all
+id           age state                intent              line
+ja38f854      8s background 8s                            sleep 25
+
+refreshing every second — Ctrl-C to stop
+```
+
+It is the same code drawing both, on purpose: a second renderer drifts
+from the first, and the day it does the live view is the one nobody
+trusts.
+
+**It does not take the alternate screen.** Giving it back on Ctrl-C
+needs a signal handler and this carries no dependency for one — a `top`
+that leaves the alternate buffer up has broken the terminal of whoever
+just wanted to look. So it clears the normal buffer and leaves its last
+frame behind on exit, which is what `watch(1)` does too.
+
+**Piped, it is one snapshot.** There is nothing to redraw into, and a
+loop that never ends is how a pipe becomes a hang.
+
 ## `jbx wait` is Monitor's
 
 Waiting is a good gesture in one place. **Handed to Monitor**, `jbx wait

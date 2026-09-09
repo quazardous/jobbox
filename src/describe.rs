@@ -125,6 +125,13 @@ pub const VERBS: &[Verb] = &[
         tags: &["read", "configure"],
         effect: "reads, and writes the threshold into this project's settings",
         flags: JSON_ONLY },
+    Verb { name: "top", summary: "what is happening right now, redrawn until you stop it",
+        tags: &["read", "block"],
+        effect: "reads, and keeps drawing until interrupted",
+        // THE SAME FLAGS AS `ps`, from the same constant: it is the same
+        // table, and two lists of flags for one renderer is two lists to
+        // forget to update.
+        flags: LISTING },
     Verb { name: "wait", summary: "block until a job ends, and exit with its code",
         tags: &["read", "block"], effect: "reads, and blocks until the job ends",
         // WRITTEN BY THE HOOK, NOT BY A CALLER. It marks a `jbx wait`
