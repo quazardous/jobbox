@@ -63,16 +63,6 @@ two it deliberately does not support and why.
 
 ## Install
 
-As a Claude Code plugin — the hooks, the binary and a background watch in
-one thing:
-
-```console
-$ claude plugin marketplace add quazardous/jobbox
-$ claude plugin install jbx@jobbox
-```
-
-Or as a command, anywhere:
-
 ```console
 $ curl -fsSL https://raw.githubusercontent.com/quazardous/jobbox/main/install.sh | sh
 ```
@@ -82,6 +72,21 @@ it on your `PATH`, and **asks** before declaring its hooks — they go in a
 settings file other tools share. On Windows, `irm
 https://raw.githubusercontent.com/quazardous/jobbox/main/install.ps1 |
 iex`, and [WINDOWS.md](WINDOWS.md) has the rest.
+
+Then, on Claude Code, the plugin declares the announcing hooks as well —
+the ones that make an ending report itself unasked — along with the
+skills and the background watch:
+
+```console
+$ claude plugin marketplace add quazardous/jobbox
+$ claude plugin install jbx@jobbox
+```
+
+**The plugin does not carry the binary**, and the order above is the
+reason. A marketplace installs from the repository, and binaries do not
+live in a repository; the release archives carry them, a `git` checkout
+does not. So the plugin uses the jbx you already have, and says so
+plainly if there is none.
 
 **Run `jbx init` as well if you have [rtk](https://github.com/rtk-ai/rtk).**
 A plugin declares hooks; it cannot displace somebody else's, and two
