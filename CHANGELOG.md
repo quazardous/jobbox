@@ -18,6 +18,61 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-09-09
+
+### Added
+
+- **`jbx top [--all]`** — `jbx ps` redrawn every second, for when you
+  want to sit and watch. Drawn by the same code as `ps`, on purpose: a
+  second renderer drifts from the first, and the day it does the live
+  view is the one nobody trusts. Piped, it is one snapshot, because a
+  loop that never ends is how a pipe becomes a hang.
+
+- **`jbx prune [--all]`** — forget what is over, and what cannot be true.
+  Two kinds of record deserve removing and **nothing else does**: one
+  that has an exit code, and one whose record claims a job is running
+  while no process answers to its pid. The second earns the verb —
+  nobody is waiting on it, nothing will ever write its code, and it sits
+  in every listing looking like work in progress until the six-hour
+  sweep reaches it.
+
+  **It stops nothing.** Age is not a fault and silence is not either.
+  Each removal is named as it happens, because a destructive verb that
+  prints a count has told you nothing you can check.
+
+- **`held` — a name for the silence somebody chose.** A line the harness
+  is already running in the background is wrapped with an infinite
+  threshold: detaching underneath it would make the wrapper exit at the
+  cut, and the harness would announce the work finished when it had
+  barely started. Those jobs read `foreground … MUTE` — which is a
+  thirty-five-minute hang to anybody scanning a listing, and was in fact
+  an `until` loop with nothing to say until it is over. They show as
+  **`held`** now, and are never called mute.
+
+### Changed
+
+- **`jbx gain` says what its percentage is a percentage of.** "last hour
+  · 25m24s saved (21%)" was read as a share of the hour, by the person
+  who wrote it. It is a share of the **command** time, which on a
+  machine running several agents at once is routinely more than the
+  window — two hours of commands inside one hour of clock is ordinary.
+  The row prints the denominator now: *26m39s saved of 2h07m (21%)*.
+
+- **`jbx -v`** works, and anything beginning with a dash is told it is a
+  flag rather than an unknown verb. Being told you invented a verb sends
+  you looking for the right verb, when what you needed was to put the
+  flag after one.
+
+### Fixed
+
+- **The README promised a binary the plugin does not carry.** A
+  marketplace installs from the repository, and binaries do not live in
+  a repository — the release archives carry them, a `git` checkout does
+  not. Following the two documented commands with nothing installed gave
+  hooks that could not run. Found by running them in a throwaway HOME
+  rather than reading them; the install order is reversed and the reason
+  is stated.
+
 ## [0.15.0] - 2026-09-09
 
 ### Changed
