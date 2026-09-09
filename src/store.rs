@@ -635,6 +635,15 @@ pub fn forget(id: &str) -> bool {
     any
 }
 
+/// HOW LONG A RECORD WITH NO EXIT CODE IS GIVEN THE BENEFIT OF THE
+/// DOUBT.
+///
+/// Twice the day a finished record gets, and deliberately so: this one
+/// may still be a job that is running, and mistaking that for a corpse
+/// deletes the only trace of live work. Nothing is lost by waiting —
+/// `jbx prune` is there for anybody who wants it gone now.
+const UNRECOVERABLE_AFTER: f64 = 48.0 * 3600.0;
+
 /// DROP THE TRACES OF LINES THAT ENDED LONG AGO.
 ///
 /// A wrapper that wraps every command leaves files every time, so this
@@ -645,7 +654,31 @@ pub fn forget_older_than(hours: f64) -> usize {
     let cut = now() - hours * 3600.0;
     let mut gone = 0;
     for r in all() {
-        if r.started > cut || !code_path(&r.id).exists() {
+        if r.started > cut {
+            continue;
+        }
+        // A RECORD WITH NO EXIT CODE IS EITHER STILL RUNNING OR A LIE,
+        // and until now both were kept for ever: the sweep skipped
+        // anything without a code file, so a job whose process died
+        // without recording one sat in every listing looking like work
+        // in progress until somebody ran `prune`.
+        //
+        // TWO HORIZONS, BECAUSE THEY ANSWER TO DIFFERENT THINGS. A
+        // finished record goes after the caller's `hours` — `list`
+        // promises a day of them, and that promise is what sets it. A
+        // record with NO exit code is only considered at forty-eight,
+        // twice as long: it might still be a job that is genuinely
+        // running, and being wrong there means deleting the only trace
+        // of live work.
+        //
+        // ASKING COSTS A PROCESS ON MACOS, which is the other reason to
+        // ask late — a handful of records at most, and never the ones a
+        // session is looking at. A pid that has since been reused
+        // answers "alive" and the record is kept, which is the safe way
+        // to be wrong.
+        if !code_path(&r.id).exists()
+            && (r.started > now() - UNRECOVERABLE_AFTER || alive(r.pid))
+        {
             continue;
         }
         for path in [

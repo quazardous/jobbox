@@ -386,6 +386,15 @@ prune that killed by age would have killed it first.
 Each removal is named as it happens, because a destructive verb that
 prints a count has told you nothing you can check.
 
+**Most of this happens on its own.** Every wrapped command sweeps:
+finished records go after a day — the day `jbx list` promises — and a
+record with no exit code goes after **two**, once nothing answers to its
+pid. Two horizons rather than one, because a codeless record might still
+be a job that is genuinely running, and mistaking that for a corpse
+deletes the only trace of live work.
+
+`prune` is for wanting it gone now rather than in two days.
+
 ### Stopping what has gone on too long
 
 The age threshold belongs to `kill`, not to `prune`: `prune` forgets,

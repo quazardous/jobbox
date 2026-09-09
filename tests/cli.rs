@@ -2827,3 +2827,41 @@ fn a_bulk_kill_spares_the_command_running_it() {
     assert!(mine.contains(&std::process::id()), "we are not in our own ancestry");
     assert!(mine.len() > 1, "the chain stopped at ourselves: {mine:?}");
 }
+
+#[test]
+fn a_two_day_old_record_whose_process_is_gone_is_collected_by_itself() {
+    // THE ONE THING `prune` EXISTED FOR THAT NOTHING DID AUTOMATICALLY.
+    // The daily sweep skipped every record without an exit code, so a
+    // job whose process died without writing one sat in every listing
+    // looking like work in progress, for ever.
+    //
+    // Bounded to records already two days old: asking whether a process is
+    // alive costs a spawned `ps` on macOS, and doing that for every
+    // record on every wrapped command would be a tax on the healthy to
+    // catch the rare.
+    let s = Scratch::new("selfcollect");
+    s.run(&["run", "--after", "0", "--", "true"]);
+    until("the job to finish", || text(&s.run(&["list"])).contains("finished"));
+    let id = text(&s.run(&["list"]))
+        .lines()
+        .find_map(|l| l.split_whitespace().next().filter(|w| w.starts_with('j')).map(str::to_string))
+        .expect("a job");
+
+    // Make it look like a day-old record of a job that never landed: no
+    // exit code, and a pid nothing answers to.
+    let record = s.jobs().join(format!("{id}.json"));
+    let mut v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&record).unwrap()).unwrap();
+    // FIFTY HOURS: past the forty-eight a codeless record is given, which
+    // is twice the day a finished one gets — being wrong about a job
+    // that is still running deletes the only trace of live work.
+    v["started"] = serde_json::json!(v["started"].as_f64().unwrap() - 50.0 * 3600.0);
+    v["pid"] = serde_json::json!(4_000_000_000u64);
+    std::fs::write(&record, v.to_string()).unwrap();
+    std::fs::remove_file(s.jobs().join(format!("{id}.code"))).unwrap();
+    assert!(record.exists());
+
+    // Any wrapped command sweeps; nothing has to be asked for.
+    s.run(&["run", "--after", "0", "--", "true"]);
+    assert!(!record.exists(), "the two-day-old record with no process survived the sweep");
+}

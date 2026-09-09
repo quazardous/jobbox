@@ -28,6 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   view is the one nobody trusts. Piped, it is one snapshot, because a
   loop that never ends is how a pipe becomes a hang.
 
+- **A record whose process is gone now collects itself.** The daily
+  sweep skipped every record without an exit code, so a job whose
+  process died without writing one sat in every listing looking like
+  work in progress — for ever, until somebody ran `prune`.
+
+  It goes after **forty-eight hours**, twice the day a finished record
+  gets: a codeless record might still be a job that is genuinely
+  running, and mistaking that for a corpse deletes the only trace of
+  live work. Asking whether a process is alive costs a spawned `ps` on
+  macOS, which is the other reason to ask late — a handful of records at
+  most, and never the ones a session is looking at.
+
 - **`jbx kill --too-old`, `--older-than <age>`** — stop what has gone on
   too long, without naming each one. The age threshold belongs here
   rather than on `prune`: `prune` forgets and `kill` stops, and a flag
