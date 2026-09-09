@@ -18,6 +18,65 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-09-09
+
+### Changed
+
+- **`jbx wait` is Monitor's now, and the agent's own is refused.** Handed
+  to Monitor, `jbx wait <id>` ends the moment the job does, so the
+  ending wakes the session — that is the fastest an ending can arrive
+  and it is why the verb exists. Typed by the agent into its own shell
+  it is the opposite: the turn stands still until the job finishes,
+  which is the waiting the detachment had just removed. Reported as
+  agents calling it on **every single detachment**.
+
+  `allow_wait` is therefore **off by default**, and off means *for the
+  agent*. The discrimination is the hook's: it sees every command the
+  agent types and marks a bare `jbx wait` with `--via-agent`. What
+  Monitor launches is not a tool call, never reaches the hook, is never
+  marked, and is never refused.
+
+  Two refusals it deliberately does not make. **A compound line is left
+  alone** — appending a flag to `jbx wait x && deploy` would change what
+  the shell runs, and this guards against a habit rather than against
+  somebody working around it. And **a client with no backgrounder is
+  never marked**: on Cursor, which has no end-of-turn hook either,
+  `jbx wait` is the only way an ending reaches anybody, so refusing it
+  would silence the mechanism rather than the habit.
+
+  `allow_wait: true` hands it back to projects that want it.
+
+- **The detachment message no longer hands over the command that undoes
+  it.** It said "DO NOT WAIT FOR IT, DO SOMETHING ELSE" and then gave
+  the exact line that waits; an agent resolves that contradiction the
+  easy way, by pasting what it was given.
+
+  Where there IS somewhere to put the waiting, the message says so and
+  names it — under Claude Code, *"hand `jbx wait <id>` to Monitor — it
+  ends when the job does, and that ending wakes you. Do not run it in
+  front of you."* Elsewhere it says neither, because a facility an agent
+  cannot find is worse than no advice. `jbx help <id>` lists everything
+  in both cases.
+
+- **The refusal does not name the setting that refused.** Telling an
+  agent which knob forbade something is telling it where to go and
+  switch the guardrail off, and editing a config file is what it does
+  all day. `jbx config` still says so, to whoever asks.
+
+### Added
+
+- **`src/harness.rs` — which agent CLI we are running inside, asked in
+  one place.** Three things needed the answer and each read the
+  environment for itself, which is how they come to disagree: one learns
+  a new client and the others do not. A row carries the dialect name,
+  the variable that proves we are inside it, the mailbox prefix, and
+  what that client calls the thing that backgrounds a command — the
+  name, not a boolean, because the announcement prints it.
+
+  There is one row today because one has been observed. Adding a client
+  is that row and nothing else, and a test walks the source to keep it
+  that way.
+
 ## [0.14.0] - 2026-09-09
 
 ### Added
