@@ -74,6 +74,7 @@ pub mod paint;
 pub mod dialect;
 pub mod gain;
 pub mod bench;
+pub mod harness;
 pub mod watch;
 pub mod store;
 

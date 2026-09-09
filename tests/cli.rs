@@ -2626,3 +2626,33 @@ fn the_hook_marks_only_a_bare_wait_and_only_where_monitor_exists() {
     let elsewhere = hook_as(&s, "cursor", "preToolUse", "Shell", "jbx wait j123abc");
     assert!(!elsewhere.contains("--via-agent"), "cursor lost its only channel:\n{elsewhere}");
 }
+
+#[test]
+fn recognising_a_client_happens_in_one_place() {
+    // THREE THINGS NEED TO KNOW WHICH HARNESS THIS IS — the mailbox
+    // name, the wording of the detachment, and whether `allow_wait` has
+    // anything to refuse — and each used to read the environment for
+    // itself. Three readings of one fact is how they come to disagree:
+    // one learns a new client and the others do not.
+    //
+    // So the environment is read in `harness.rs` and nowhere else. This
+    // guard is the only thing that keeps it that way, because the next
+    // person needing the answer will reach for `std::env::var` first.
+    let mut elsewhere = Vec::new();
+    for file in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/src")).unwrap() {
+        let path = file.unwrap().path();
+        if path.file_name().is_some_and(|n| n == "harness.rs") {
+            continue;
+        }
+        if path.extension().is_some_and(|e| e == "rs") {
+            let text = std::fs::read_to_string(&path).unwrap();
+            // In code, not in prose: a comment may name the variable.
+            for line in text.lines().filter(|l| !l.trim_start().starts_with("//")) {
+                if line.contains("CLAUDE_CODE_SESSION_ID") {
+                    elsewhere.push(format!("{}: {}", path.display(), line.trim()));
+                }
+            }
+        }
+    }
+    assert!(elsewhere.is_empty(), "the environment is read outside harness.rs:\n{elsewhere:#?}");
+}

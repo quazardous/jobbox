@@ -197,7 +197,7 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect) -> i32 {
         // punctuation is left exactly as it was — the guardrail is
         // against a habit, not against somebody working around it.
         if !crate::config::allow_wait().0
-            && crate::dialect::has_monitor(dialect.name)
+            && crate::harness::backgrounder_of(dialect.name).is_some()
             && !line.contains(|c| "&|;><`$()\n".contains(c))
         {
             let mut words = line.split_whitespace();

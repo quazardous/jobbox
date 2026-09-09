@@ -89,7 +89,10 @@ fn roots_dir() -> PathBuf {
 }
 
 fn session_id() -> Option<String> {
-    let raw = std::env::var("CLAUDE_CODE_SESSION_ID").ok()?;
+    // LONGER THAN THE MAILBOX NAME, and deliberately: this one names a
+    // directory, where a collision costs more than a few characters.
+    // Same reading of the environment, rendered differently.
+    let raw = crate::harness::session_raw()?;
     let clean: String = raw.chars().take(16).filter(|c| c.is_ascii_alphanumeric()).collect();
     (!clean.is_empty()).then_some(clean)
 }
@@ -124,14 +127,10 @@ pub fn client() -> String {
             return pinned;
         }
     }
-    let session: String = std::env::var("CLAUDE_CODE_SESSION_ID")
-        .unwrap_or_default()
-        .chars()
-        .take(8)
-        .filter(|c| c.is_ascii_alphanumeric())
-        .collect();
-    if !session.is_empty() {
-        return format!("cc-{session}");
+    // WHICH HARNESS, AND ITS SESSION — asked in one place, so a client
+    // added there gets its own mailbox without anybody editing this.
+    if let Some(name) = crate::harness::session() {
+        return name;
     }
     // NO SESSION: a plain shell. Two terminals in one project then share
     // a mailbox, which is right — the person wants every ending, and the

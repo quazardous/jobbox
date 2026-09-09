@@ -247,45 +247,10 @@ pub const DIALECTS: &[Dialect] = &[
     },
 ];
 
-/// WHICH HARNESS IS RUNNING US, when that can be known from here.
+/// The dialect with this name, if it is one we speak.
 ///
-/// Not the same question as `jbx hook <client>`, which is told. This is
-/// asked by a `jbx run` deep inside a wrapped command, with nobody to
-/// tell it — so the answer has to be read off the environment the
-/// harness left behind.
-///
-/// ONE ROW, BECAUSE ONE IS OBSERVED. `CLAUDE_CODE_SESSION_ID` is
-/// verified: this project has been reading it for the mailbox identity
-/// since before this function existed. The others are not here because
-/// nobody has watched what they set, and a guessed variable would make
-/// jbx advise a gesture that does not exist in the tool it thinks it is
-/// talking to — which is worse than saying nothing.
-///
-/// To add one: run the client, print its environment, and put what you
-/// SAW here.
-/// WHETHER THIS CLIENT HAS SOMETHING THAT BACKGROUNDS A COMMAND.
-///
-/// Claude Code has Monitor. Nothing else here is known to, and that is
-/// not a small detail: `allow_wait` refuses the agent's own `jbx wait`,
-/// and refusing it on a client with no Monitor would remove the only
-/// way an ending ever reaches anyone there. So the refusal is only ever
-/// armed where there is somewhere else to put the waiting.
-///
-/// Same rule as `harness()`: a row appears when somebody has watched
-/// the client, never because it seems likely.
-pub fn has_monitor(client: &str) -> bool {
-    client == "claude"
-}
-
-pub fn harness() -> Option<&'static str> {
-    // NON-EMPTY, because an empty variable is how a caller says "not
-    // this" — and a test that cannot unset one has no other way to.
-    if std::env::var("CLAUDE_CODE_SESSION_ID").is_ok_and(|v| !v.trim().is_empty()) {
-        return Some("claude");
-    }
-    None
-}
-
+/// Recognising which harness we are INSIDE is a different question, and
+/// it lives in `harness.rs` — one place, so a new client is one row.
 pub fn of(name: &str) -> Option<&'static Dialect> {
     DIALECTS.iter().find(|d| d.name == name)
 }

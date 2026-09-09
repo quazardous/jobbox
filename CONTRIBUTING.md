@@ -16,6 +16,7 @@ One binary, one crate. The whole of it fits in a morning.
 | `init.rs` | declare and withdraw the hook, per client |
 | `signals.rs` | endings not yet read, and the sweep for stranded ones |
 | `describe.rs` | every verb as JSON, with what it does to the world |
+| `harness.rs` | **which agent CLI we are inside** — one table, add a row there |
 
 **Two doors, and only two.** `run` wraps a line that was going to run
 anyway and lets go if it turns out to be long. `queue` takes work that

@@ -722,10 +722,10 @@ fn announce(id: &str, after: f64, seen: Observation) -> i32 {
     // agent with an instruction and no way to obey it. Everywhere else
     // the word means nothing, and `jbx help <id>` says what to do
     // instead.
-    if crate::dialect::harness() == Some("claude") {
+    if let Some(into) = crate::harness::here().and_then(|h| h.backgrounder) {
         let _ = writeln!(
             out,
-            "With nothing else: hand `jbx wait {id}` to Monitor — it ends when the job\n             does, and that ending wakes you. Do not run it in front of you."
+            "With nothing else: hand `jbx wait {id}` to {into} — it ends when the job\n             does, and that ending wakes you. Do not run it in front of you."
         );
     }
     if seen.reading_for >= WORTH_MENTIONING && seen.quiet_for >= WORTH_MENTIONING {
