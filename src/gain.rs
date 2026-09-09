@@ -939,8 +939,15 @@ pub fn render(v: &Value, full_path: bool, thresholds: bool) {
             // eighty calls saving four minutes looks broken until you
             // see that five of them ever detached: the rest finished
             // before the cut and were never candidates to save anything.
+            // AND THE DENOMINATOR, SAID OUT LOUD. This row is labelled by
+            // a stretch of clock — "last hour" — so a percentage sitting
+            // beside a duration reads as a share of that hour. It is
+            // not: it is a share of the COMMAND time, which on a machine
+            // running several agents at once is routinely more than the
+            // window. Two hours of commands in one hour of clock is
+            // normal here, and nobody can guess that from "(21%)".
             outln!(
-                "{}  {:>6} calls · {:>4} detached · {:>7} saved {}",
+                "{}  {:>6} calls · {:>4} detached · {:>7} saved of {:>7} {}",
                 crate::paint::dim(match s["span"].as_str().unwrap_or("") {
                     "hour" => "last hour",
                     "day" => "last day ",
@@ -953,12 +960,15 @@ pub fn render(v: &Value, full_path: bool, thresholds: bool) {
                 s["calls"].as_u64().unwrap_or(0),
                 s["detached"].as_u64().unwrap_or(0),
                 human(num(s, "saved")),
+                human(num(s, "elapsed")),
                 crate::paint::by_ratio(ratio, &format!("({:.0}%)", ratio * 100.0))
             );
         }
         outln!();
         outln!("{}", crate::paint::dim(
-            "`waited` is what you actually stood still for, and `saved` is the rest"));
+            "`waited` is what you actually stood still for, and `saved` is the rest —"));
+        outln!("{}", crate::paint::dim(
+            "both out of the COMMAND time above, never out of the clock"));
         outln!("{}", crate::paint::dim(
             "of `elapsed` — it already subtracts the time you gave back to `jbx wait`."));
         outln!("{}", crate::paint::dim(

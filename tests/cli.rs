@@ -2684,3 +2684,31 @@ fn top_is_one_snapshot_when_nothing_can_be_redrawn() {
     // The same table as `ps`, from the same renderer.
     assert_eq!(text(&out), text(&s.run(&["ps"])), "`top` and `ps` drew different tables");
 }
+
+#[test]
+fn the_spans_say_what_the_percentage_is_a_percentage_of() {
+    // "last hour … 25m24s saved (21%)" was read as a share of the hour,
+    // by the person who wrote the tool. It is a share of the COMMAND
+    // time — which on a machine running several agents at once is
+    // routinely MORE than the window: two hours of commands inside one
+    // hour of clock is ordinary here.
+    //
+    // A percentage next to a duration, on a row labelled by a stretch of
+    // clock, cannot be read any other way unless its denominator is
+    // printed beside it.
+    // A DETACHED LINE, so there is something to report. A run that never
+    // detaches leaves the table empty and this asserts nothing.
+    // A DETACHED LINE, AND ITS ENDING WAITED FOR. Asking `gain` before
+    // the reading is written answers "nothing measured yet", which is
+    // true and tests nothing.
+    let s = Scratch::new("gainspan");
+    let said = text(&s.run(&["run", "--after", "1", "--", "sleep 3"]));
+    let id = announced(&said);
+    s.run(&["wait", &id]);
+    let shown = text(&s.run(&["gain"]));
+    // ANY OF THE THREE SPANS: which ones have something to say depends
+    // on how long the store has existed, and the claim here is about the
+    // shape of the row, not about the window.
+    assert!(shown.contains(" saved of "), "no span row names its denominator:\n{shown}");
+    assert!(shown.contains("never out of the clock"), "and nothing rules out the wrong reading");
+}
