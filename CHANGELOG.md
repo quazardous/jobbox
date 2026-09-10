@@ -18,6 +18,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-09-10
+
+### Added
+
+- **`jbx gain --reset` starts the count again.** It forgets this
+  project's measurements — matched by its path, so two checkouts with
+  the same name stay apart — and keeps every other project's; `--all`
+  forgets everything. It says how many readings went and the dates they
+  spanned, so what was deleted can be checked rather than trusted.
+
+### Fixed
+
+- **`jbx gain` counted background work as time you stood still.** A
+  line your agent had already sent to the background — a long build, a
+  polling loop, a CI watch — was filed as waited in full, so a busy hour
+  could read 3% saved. On the store this was found on, that was four and
+  a half hours of standing still that never happened. Those lines are
+  now counted apart, as neither waited nor saved: jbx did not make you
+  wait for them, and it was not jbx that freed you either. `gain` says
+  how many there were, and `--thresholds` no longer credits any cut with
+  them. A deliberate `jbx fg` still counts as waited, because it was.
+
 ## [0.17.0] - 2026-09-09
 
 ### Added
