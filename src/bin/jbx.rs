@@ -143,7 +143,9 @@ fn dispatch(args: Vec<String>) -> i32 {
             Some(audience) => signals::signals(audience, how.json, how.client.as_deref()),
             None => usage_error("signals needs an audience: agent or user"),
         }),
-        "gain" => with("gain", rest, |how| match gain::measure(
+        "gain" => with("gain", rest, |how| if how.reset {
+            gain_reset(how)
+        } else { match gain::measure(
             how.free.first().map(String::as_str),
             how.since,
         ) {
@@ -151,7 +153,7 @@ fn dispatch(args: Vec<String>) -> i32 {
             Ok(v) => Answer(v, 0).show(how, |v| {
                 gain::render(v, how.project_path, how.thresholds)
             }),
-        }),
+        } }),
         "init" => with("init", rest, |how| match dialect_named(how.cli.as_deref()) {
             Some(d) => init::init(how.undo, how.global_only, how.core, how.announce, d),
             None => 2,
@@ -368,6 +370,8 @@ pub struct Flags {
     list: bool,
     cli: Option<String>,
     follow: bool,
+    /// `jbx gain --reset`: forget the readings instead of reading them.
+    reset: bool,
     /// Seconds past which a still-running job is stopped by `prune`.
     older_than: Option<f64>,
     /// Written by the hook onto a `jbx wait` the AGENT typed, never onto
@@ -419,6 +423,7 @@ impl Flags {
                 "--full" => flags.full = true,
                 "--json" => flags.json = true,
                 "--via-agent" => flags.via_agent = true,
+                "--reset" => flags.reset = true,
                 // AN HOUR, SPELLED AS A WORD because that is the case
                 // people arrive with: something has been sitting there
                 // far too long and they want it gone.
@@ -555,6 +560,52 @@ fn parse_age(text: &str) -> Option<f64> {
     };
     let n: f64 = number.trim().parse().ok()?;
     (n > 0.0).then_some(n * scale)
+}
+
+/// `jbx gain --reset [--all]` — SAY WHAT WAS FORGOTTEN, CHECKABLY.
+///
+/// A PROJECT NAMED ALONGSIDE IT IS REFUSED rather than ignored. `jbx gain
+/// other --reset` reads as "reset `other`", and quietly resetting this
+/// project instead is how somebody erases the history they meant to keep.
+fn gain_reset(how: &Flags) -> i32 {
+    if let Some(named) = how.free.first() {
+        return usage_error(&format!(
+            "`--reset` forgets this project, or every one with `--all` — not `{named}`. \
+             Run it from that project's directory."
+        ));
+    }
+    let (gone, kept, span) = gain::reset(how.all);
+    if gone == 0 {
+        jobbox::outln!("nothing to forget — no readings here.");
+        return 0;
+    }
+    let day = |t: f64| {
+        let secs = t as i64;
+        let days = secs.div_euclid(86400);
+        // Civil date from days since the epoch — no dependency for one line.
+        let z = days + 719_468;
+        let era = z.div_euclid(146_097);
+        let doe = z - era * 146_097;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 };
+        format!("{d:02}/{m:02}")
+    };
+    let whose = if how.all { "every project".to_string() } else { jobbox::gain::project().0 };
+    let when = span
+        .map(|(a, b)| format!(" from {} to {}", day(a), day(b)))
+        .unwrap_or_default();
+    let readings = |n: usize| if n == 1 { "1 reading".to_string() } else { format!("{n} readings") };
+    jobbox::outln!("forgot {} for {whose}{when}.", readings(gone));
+    if kept > 0 {
+        let were = if kept == 1 { "was" } else { "were" };
+        jobbox::outln!("{}", jobbox::paint::dim(&format!(
+            "{} from other projects {were} kept.", readings(kept)
+        )));
+    }
+    0
 }
 
 /// `jbx prune` — FORGET WHAT IS OVER, AND WHAT CANNOT BE TRUE.

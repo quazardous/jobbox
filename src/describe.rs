@@ -197,9 +197,15 @@ pub const VERBS: &[Verb] = &[
     Verb { name: "tail", notes: "", summary: "what a job printed", tags: &["read"],
         effect: "reads; `-f` blocks until the job ends",
         flags: &[("-f", "keep printing until the job ends")] },
-    Verb { name: "gain", notes: "", summary: "what the wrapping bought, and what it cost", tags: &["read"],
-        effect: "reads",
-        flags: &[("--json", "answer as JSON rather than as a table"),
+    Verb { name: "gain", notes: "", summary: "what the wrapping bought, and what it cost",
+        // `forget` BECAUSE OF `--reset`: without it this only reads, and
+        // an agent deciding what to allow should know which flag erases
+        // the only history jbx keeps.
+        tags: &["read", "forget"],
+        effect: "reads; with --reset, deletes this project's measurements",
+        flags: &[("--reset", "forget this project's readings — or every project's with --all"),
+                 ("--all", "with --reset, every project rather than this one"),
+                 ("--json", "answer as JSON rather than as a table"),
                  ("--project-path", "full paths instead of names"),
                  ("--thresholds", "what another `after` would have cost, replayed"),
                  ("--since", "how far back to look: 1h, 24h, 7d, or all")] },

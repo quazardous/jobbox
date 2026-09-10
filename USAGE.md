@@ -498,6 +498,24 @@ The detachment message follows the same rule: under Claude Code it names
 Monitor and says not to run the wait in front of you; elsewhere it says
 neither, and `jbx help <id>` lists what can be done instead.
 
+## Starting the count again
+
+```console
+$ jbx gain --reset          # this project's readings
+$ jbx gain --reset --all    # every project's
+forgot 1204 readings for jobbox from 31/08 to 10/09.
+```
+
+Runs, waits and the gestures counted as *reached for* all live in one
+file, so this empties everything `gain` shows rather than half of it.
+It is chosen **by path, not by name**: two repositories can both be
+called `bms`, and a reset aimed at one must not take the other's history.
+
+It says what it forgot and over which days, because a bare count is a
+number nobody can check. And `jbx gain other --reset` is refused rather
+than quietly resetting this project instead — run it from the project
+you mean.
+
 ## What the wrapping costs
 
 `jbx gain` says what the detaching bought. Saying that without saying

@@ -1070,6 +1070,50 @@ fn num(v: &Value, key: &str) -> f64 {
 /// REWRITING A FILE THAT EVERY COMMAND APPENDS TO IS THE ONE RACE HERE,
 /// so it is done rarely and never on a small table: below a megabyte
 /// there is nothing to gain and a concurrent append to lose.
+/// `jbx gain --reset` — FORGET WHAT THE WRAPPING HAS BEEN MEASURED DOING.
+///
+/// This project's readings, or with `all` every project's. Runs, waits
+/// and the gestures counted as "reached for" all live in the one file,
+/// so this empties everything `gain` shows rather than half of it.
+///
+/// BY PATH, NOT BY NAME. Two repositories can both be called `bms`, and a
+/// reset aimed at one of them must not take the other's history with it.
+///
+/// Returns how many readings went, how many stayed, and the span the
+/// removed ones covered — because "forgot 1204" is a number nobody can
+/// check, and "forgot 1204 readings from 31/08 to 10/09" is one you can.
+///
+/// A RACE IT DOES NOT CLOSE: every wrapped command appends to this file,
+/// and a reading written between the read and the rename is lost with
+/// the rest. For a reset that is the reset doing its job one reading
+/// early, and not worth a lock on the hottest file jbx has.
+pub fn reset(all: bool) -> (usize, usize, Option<(f64, f64)>) {
+    let path = table_path();
+    let Ok(text) = std::fs::read_to_string(&path) else { return (0, 0, None) };
+    let mine = project().1;
+    let (mut kept, mut gone) = (Vec::new(), Vec::new());
+    for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        let v = serde_json::from_str::<Value>(line).ok();
+        let ours = all || v.as_ref().and_then(|v| v["path"].as_str()) == Some(mine.as_str());
+        if ours {
+            gone.push(v.and_then(|v| v["at"].as_f64()));
+        } else {
+            kept.push(line);
+        }
+    }
+    if gone.is_empty() {
+        return (0, kept.len(), None);
+    }
+    let times: Vec<f64> = gone.iter().flatten().copied().collect();
+    let span = times.iter().copied().reduce(f64::min).zip(times.iter().copied().reduce(f64::max));
+    let body = if kept.is_empty() { String::new() } else { kept.join("\n") + "\n" };
+    let tmp = path.with_extension("jsonl.part");
+    if std::fs::write(&tmp, body).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
+    }
+    (gone.len(), kept.len(), span)
+}
+
 pub fn forget_older_than(days: f64) {
     let path = table_path();
     let Ok(meta) = std::fs::metadata(&path) else { return };

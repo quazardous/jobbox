@@ -2891,3 +2891,37 @@ fn the_listing_verbs_explain_their_state_column() {
     // AND NOT EVERYWHERE. A note on every verb is a note the eye skips.
     assert!(!text(&s.run(&["kill", "--help"])).contains("the state column"));
 }
+
+#[test]
+fn gain_reset_forgets_this_project_by_path_and_keeps_the_others() {
+    // BY PATH, NOT BY NAME: two repositories can both be called `bms`,
+    // and a reset aimed at one must not take the other's history.
+    let s = Scratch::new("gainreset");
+    s.run(&["run", "--after", "0", "--", "true"]);
+    until("a reading to be written", || !readings(&s).is_empty());
+
+    let foreign = r#"{"at":1788000000,"kind":"run","project":"other","path":"/somewhere/else","secs":3,"code":0}"#;
+    let file = s.home().join("readings.jsonl");
+    // NOT `text`: that name is the harness's helper, and a local binding
+    // shadowing it breaks every `text(&...)` call below it.
+    let mut content = std::fs::read_to_string(&file).unwrap();
+    content.push_str(foreign);
+    content.push('\n');
+    std::fs::write(&file, content).unwrap();
+
+    // A PROJECT NAMED ALONGSIDE IT IS REFUSED, not ignored — quietly
+    // resetting this one instead erases the history somebody meant to keep.
+    let named = s.run(&["gain", "other", "--reset"]);
+    assert_eq!(named.status.code(), Some(2), "a named project was not refused");
+    assert_eq!(readings(&s).len(), 2, "the refused reset touched the file anyway");
+
+    let said = text(&s.run(&["gain", "--reset"]));
+    assert!(said.contains("forgot 1 reading "), "it did not say what it forgot:\n{said}");
+    let left = readings(&s);
+    assert_eq!(left.len(), 1, "this project's reading survived, or the other's went");
+    assert_eq!(left[0]["path"], "/somewhere/else", "the wrong project's history was kept");
+
+    // AND `--all` IS EVERYTHING.
+    s.run(&["gain", "--reset", "--all"]);
+    assert!(readings(&s).is_empty(), "`--all` left readings behind");
+}
