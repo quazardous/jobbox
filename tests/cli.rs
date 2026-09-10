@@ -2893,6 +2893,52 @@ fn the_listing_verbs_explain_their_state_column() {
 }
 
 #[test]
+fn a_line_the_harness_backgrounded_is_neither_stood_through_nor_saved() {
+    // IT WAS FILED AS STOOD STILL. A line the harness already runs in its
+    // own background reaches jbx as `--after inf`; JSON writes that cut as
+    // `null`, and `gain` read it back as no cut at all — so every second
+    // of a background loop went into `waited`, and an hour of polling read
+    // as an hour of the caller standing still. Through the real command,
+    // because the `null` only exists on the way through the file.
+    let s = Scratch::new("heldgain");
+    s.run(&["run", "--after", "inf", "--", "sleep 3"]);
+    s.run(&["run", "--", "echo quick"]);
+    // AND A DELIBERATE FOREGROUND, whose cut is infinite as well. The first
+    // version of this fix told the two apart by the cut alone, and the
+    // count of foregrounds chosen on purpose went quietly to zero.
+    s.run(&["fg", "--", "echo chosen"]);
+    let seen = readings(&s);
+    assert_eq!(
+        seen.iter().filter(|r| r["kind"] == "run" && r["after"].is_null()).count(), 2,
+        "the held line and the foreground were not both written with an infinite cut: {seen:?}"
+    );
+
+    let doc: serde_json::Value =
+        serde_json::from_str(&text(&s.run(&["gain", "--json"]))).expect("gain is JSON");
+    let total = &doc["total"];
+    assert_eq!(total["calls"], 3, "every line is a call: {total}");
+    assert_eq!(total["held"], 1, "{total}");
+    assert_eq!(total["chosen"], 1, "the deliberate foreground was taken for a held line: {total}");
+    assert!(total["held_secs"].as_f64().unwrap() >= 3.0, "{total}");
+    assert!(total["waited"].as_f64().unwrap() < 2.0,
+            "the background line was counted as stood through: {total}");
+    assert!(total["elapsed"].as_f64().unwrap() < 2.0,
+            "the background line was counted as jbx's to give back: {total}");
+    // AND NO CUT IS CREDITED WITH IT. Replayed at 2s, three seconds of
+    // `sleep` would read as a detach and a saving that no threshold could
+    // ever have produced for a line that was never going to be cut.
+    for row in doc["thresholds"].as_array().expect("thresholds replayed") {
+        assert_eq!(row["would_detach"], 0, "a held line was replayed as cut: {row}");
+    }
+
+    let shown = text(&s.run(&["gain"]));
+    assert!(shown.contains("1 of 3 calls already ran in the harness's background"),
+            "the held line is not accounted for anywhere visible:\n{shown}");
+    assert!(shown.contains("1 of 3 calls asked for the foreground on purpose"),
+            "the deliberate foreground is no longer counted:\n{shown}");
+}
+
+#[test]
 fn gain_reset_forgets_this_project_by_path_and_keeps_the_others() {
     // BY PATH, NOT BY NAME: two repositories can both be called `bms`,
     // and a reset aimed at one must not take the other's history.

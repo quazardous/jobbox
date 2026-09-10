@@ -282,6 +282,10 @@ struct Reading {
     after: f64,
     /// `true` when the caller asked for the foreground on purpose.
     fg: bool,
+    /// `true` for a line the harness already ran in its own background,
+    /// which jbx then held for ever: `--after inf`, written as `null`
+    /// because JSON has no infinity.
+    held: bool,
     /// `true` for a line that ran, `false` for time spent waited on one
     /// that had already been detached. Readings written before this
     /// existed have no `kind` and are runs, which is what they were.
@@ -304,6 +308,12 @@ fn read_all() -> Vec<Reading> {
             shape: v["shape"].as_str().unwrap_or("?").into(),
             secs: v["secs"].as_f64().unwrap_or(0.0),
             after: v["after"].as_f64().unwrap_or(f64::MAX),
+            // `jbx fg` HAS AN INFINITE CUT TOO, and it is the opposite
+            // case: the caller asked to stand still, so it stays waited.
+            // Telling them apart by the cut alone emptied the count of
+            // deliberate foregrounds into this one.
+            held: !v["fg"].as_bool().unwrap_or(false)
+                && v["after"].as_f64().is_none_or(f64::is_infinite),
             ran: v["kind"].as_str().unwrap_or("run") == "run",
             fg: v["fg"].as_bool().unwrap_or(false),
         })
@@ -317,6 +327,10 @@ struct Tally {
     /// Calls that chose to stand still, and what that came to.
     chosen: usize,
     chosen_secs: f64,
+    /// Calls the harness had already put in its background, and what
+    /// they took — counted apart, in neither `elapsed` nor `waited`.
+    held: usize,
+    held_secs: f64,
     /// Everything the lines really took, end to end.
     elapsed: f64,
     /// What the caller actually stood still for.
@@ -335,6 +349,21 @@ impl Tally {
             return;
         }
         self.calls += 1;
+        // A HELD LINE WAS NEITHER STOOD THROUGH NOR GIVEN BACK. The
+        // harness ran it in its own background, so the caller was free
+        // from the first second — and it was the harness that freed them,
+        // not jbx. Its cut is infinite, so `secs.min(after)` below used to
+        // file every second of it as stood still: seven background loops
+        // were 22 minutes of a 39-minute hour, and the hour read 3% saved.
+        // Counting it as saved instead would claim work jbx did not do.
+        if r.held {
+            self.held += 1;
+            self.held_secs += r.secs;
+            if !r.path.is_empty() {
+                self.paths.insert(r.path.clone());
+            }
+            return;
+        }
         self.elapsed += r.secs;
         if r.fg {
             self.chosen += 1;
@@ -675,6 +704,7 @@ pub fn measure(only: Option<&str>, since: Option<f64>) -> Result<Value, i32> {
             "elapsed": all.elapsed, "waited": all.waited,
             "saved": all.saved(), "ratio": all.ratio(),
             "chosen": all.chosen, "chosen_secs": all.chosen_secs,
+            "held": all.held, "held_secs": all.held_secs,
         },
         "grips": grips(since),
         "durations": spread(&readings),
@@ -746,9 +776,11 @@ fn spread(readings: &[Reading]) -> Value {
 ///
 /// Deliberate foregrounds are left out: `jbx fg` detaches at no
 /// threshold, so counting it would credit every candidate with a saving
-/// none of them could have made.
+/// none of them could have made. Held lines are left out for the same
+/// reason — they were never going to be cut, at 2s or at 300s.
 fn replay(readings: &[Reading]) -> Value {
-    let lines: Vec<f64> = readings.iter().filter(|r| r.ran && !r.fg).map(|r| r.secs).collect();
+    let lines: Vec<f64> =
+        readings.iter().filter(|r| r.ran && !r.fg && !r.held).map(|r| r.secs).collect();
     if lines.is_empty() {
         return Value::Null;
     }
@@ -925,6 +957,18 @@ pub fn render(v: &Value, full_path: bool, thresholds: bool) {
                 total["chosen"],
                 total["calls"],
                 human(num(total, "chosen_secs"))
+            );
+        }
+        if total["held"].as_u64().unwrap_or(0) > 0 {
+            // THE HARNESS'S OWN BACKGROUND, COUNTED APART. Those lines
+            // left the caller free without jbx's help, so they are in
+            // neither figure above; saying how many keeps the gap visible
+            // instead of letting it pass for time nobody measured.
+            outln!(
+                "{} of {} calls already ran in the harness's background ({}), counted as neither waited nor saved.",
+                total["held"],
+                total["calls"],
+                human(num(total, "held_secs"))
             );
         }
         // THE SAME QUESTION AT THREE DISTANCES. "Am I saving time" and
