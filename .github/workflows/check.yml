@@ -1,7 +1,7 @@
-# Every push and every pull request. Two jobs, and the split is
-# deliberate: the SUITE runs where its assumptions hold, and the BUILD
+# Every push and every pull request. The first two jobs split
+# deliberately: the SUITE runs where its assumptions hold, and the BUILD
 # runs everywhere so that a platform breaking is noticed here rather than
-# by whoever downloads it.
+# by whoever downloads it. The third, MUTATION, checks the suite itself.
 name: check
 
 on:
@@ -200,3 +200,82 @@ jobs:
       - uses: actions/checkout@v5
       - run: cargo clippy --release --all-targets -- -D warnings
       - run: cargo build --release
+
+  # BREAK A GUARD ON PURPOSE AND DEMAND THAT A TEST NOTICES. A green suite
+  # says the guards hold; it says nothing about whether anything would go
+  # red if one of them went away. Each entry puts one line back the way it
+  # was before its defect was fixed, and passes only if the named test fails.
+  #
+  # Three things keep it from passing by accident:
+  # - the old line must be found EXACTLY ONCE, so a guard that was reworded
+  #   fails here instead of mutating nothing and going green;
+  # - the mutant must COMPILE, so a broken build is not taken for a test
+  #   that caught something;
+  # - the failure must be THE NAMED TEST's, run with `--exact`, so a renamed
+  #   test matches nothing and fails the job as well.
+  #
+  # EACH ON THE PLATFORM ITS DEFECT LIVED ON. Measured before this was
+  # written (#2204): putting `file_name()` back in `is_us` leaves all 86
+  # tests green on Linux, where `jbx` has no extension to strip.
+  #
+  # NOT HERE, AND MEASURED TOO: `watch` reading a state once instead of
+  # through `settled_state`. The suite stays green without that second look
+  # — no test provokes the race it closes, an exit code written just after
+  # the process is gone. It is a guard nothing guards, and it is written
+  # down so that nobody adds the entry and then calls this job broken.
+  mutation:
+    name: mutation (${{ matrix.guard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - guard: a held job is not called MUTE
+            os: ubuntu-latest
+            file: src/bin/jbx.rs
+            old: 'secs > store::mute_after() && !r.held'
+            new: 'secs > store::mute_after()'
+            test: a_job_held_on_purpose_is_not_called_mute
+          - guard: the hook knows itself as jbx.exe
+            os: windows-latest
+            file: src/hook.rs
+            old: '.file_stem()'
+            new: '.file_name()'
+            test: the_hook_knows_itself_however_it_is_spelled
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: put the old line back
+        shell: bash
+        env:
+          FILE: ${{ matrix.file }}
+          OLD: ${{ matrix.old }}
+          NEW: ${{ matrix.new }}
+        run: |
+          # FIXED STRINGS, NOT A PATTERN: `(`, `.` and `&` are ordinary
+          # characters in a line of Rust. The trailing `x` keeps the file's
+          # final newline, which command substitution would strip.
+          source=$(cat "$FILE"; printf x)
+          source=${source%x}
+          rest=${source//"$OLD"/}
+          found=$(( (${#source} - ${#rest}) / ${#OLD} ))
+          if [ "$found" -ne 1 ]; then
+            echo "::error file=$FILE::the guard was found $found times, not once — update this entry"
+            exit 1
+          fi
+          printf '%s' "${source/"$OLD"/"$NEW"}" > "$FILE"
+          git diff
+      - name: the mutant compiles
+        run: cargo test --release --test cli --no-run
+      - name: and its test fails
+        shell: bash
+        env:
+          TEST: ${{ matrix.test }}
+        run: |
+          set +e
+          cargo test --release --test cli -- --exact "$TEST" --color never 2>&1 | tee run.txt
+          if grep -qF "test $TEST ... FAILED" run.txt; then
+            echo "caught: $TEST went red without its guard"
+            exit 0
+          fi
+          echo "::error::$TEST stayed green with its guard removed"
+          exit 1

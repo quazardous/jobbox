@@ -45,6 +45,13 @@ They need nothing installed. `rtk` is deliberately kept off the `PATH`
 inside the hook tests: what it rewrites is its business and its version's,
 and a test that depended on it would fail the day it learns a new command.
 
+**CI also breaks guards on purpose.** The `mutation` jobs put a fixed
+defect back, one line each, and pass only if the test written for it
+fails. Reword a guarded line and its entry fails with *found 0 times*:
+update `old` to the new wording rather than deleting the entry. A guard
+whose removal leaves the suite green is untested, whatever its comment
+says.
+
 ## What belongs in a test
 
 The suite covers the places that can be wrong **in silence** — where a
