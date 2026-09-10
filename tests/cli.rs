@@ -2939,6 +2939,63 @@ fn a_line_the_harness_backgrounded_is_neither_stood_through_nor_saved() {
 }
 
 #[test]
+fn a_window_counts_only_the_part_of_a_line_that_fell_inside_it() {
+    // A READING IS WRITTEN WHEN ITS LINE ENDS, and the windows used to be
+    // chosen by that end alone — so a long line that merely finished in
+    // the last hour brought all of its duration into it. Replayed on a
+    // real store, the hour after a long detached build read 48% saved
+    // where the hour itself held 13%.
+    //
+    // WRITTEN BY HAND, because the case needs a line two hours long.
+    let s = Scratch::new("gainclip");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64();
+    // Two hours, detached at 30s, finished a minute ago: it began 7260s
+    // ago, so the last hour holds its final 3540s, every one given back.
+    // And a `jbx wait` of ten minutes that ended 55 minutes ago: five of
+    // its minutes fall inside the hour.
+    let seeded = format!(
+        "{{\"at\":{a},\"kind\":\"run\",\"fg\":false,\"project\":\"clip\",\"path\":\"/clip\",\"shape\":\"make\",\"secs\":7200.0,\"after\":30.0,\"code\":0}}\n\
+         {{\"at\":{w},\"kind\":\"wait\",\"project\":\"clip\",\"path\":\"/clip\",\"secs\":600.0}}\n",
+        a = now - 60.0,
+        w = now - 3300.0,
+    );
+    std::fs::create_dir_all(s.home()).unwrap();
+    std::fs::write(s.home().join("readings.jsonl"), seeded).unwrap();
+
+    let doc: serde_json::Value =
+        serde_json::from_str(&text(&s.run(&["gain", "--json"]))).expect("gain is JSON");
+    let span = |name: &str| {
+        doc["spans"].as_array().unwrap().iter().find(|x| x["span"] == name).unwrap().clone()
+    };
+    let near = |v: &serde_json::Value, key: &str, want: f64| {
+        let got = v[key].as_f64().unwrap();
+        assert!((got - want).abs() < 5.0, "{key} was {got}, not about {want}: {v}");
+    };
+
+    let hour = span("hour");
+    near(&hour, "elapsed", 3540.0);
+    // None of the line's first thirty seconds, five minutes of the wait.
+    near(&hour, "waited", 300.0);
+    assert_eq!(hour["calls"], 1, "the call is counted whole, where it ended: {hour}");
+    assert_eq!(hour["detached"], 1, "{hour}");
+
+    // A DAY HOLDS ALL OF IT, so nothing is cut there.
+    let day = span("day");
+    near(&day, "elapsed", 7200.0);
+    near(&day, "waited", 630.0);
+
+    // AND `--since` IS THE SAME WINDOW, cut the same way.
+    let since: serde_json::Value =
+        serde_json::from_str(&text(&s.run(&["gain", "--since", "1h", "--json"])))
+            .expect("gain is JSON");
+    near(&since["total"], "elapsed", 3540.0);
+    near(&since["total"], "waited", 300.0);
+}
+
+#[test]
 fn gain_reset_forgets_this_project_by_path_and_keeps_the_others() {
     // BY PATH, NOT BY NAME: two repositories can both be called `bms`,
     // and a reset aimed at one must not take the other's history.

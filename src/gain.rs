@@ -340,12 +340,25 @@ struct Tally {
 }
 
 impl Tally {
-    fn add(&mut self, r: &Reading) {
+    /// ONLY WHAT FELL AFTER `from` IS COUNTED. A reading is written when
+    /// its line ENDS, so a window chosen by that end alone took in the
+    /// whole of a long line that merely finished inside it: replayed on a
+    /// real store, the hour after a long detached build read 48% saved
+    /// where the hour itself held 13%. The start is `at - secs`, so every
+    /// part of a duration is cut exactly where the window opens.
+    ///
+    /// THE COUNTS STAY WHOLE, filed where the line ended: a call is an
+    /// event, and half of one means nothing. `f64::NEG_INFINITY` is no
+    /// window at all.
+    fn add(&mut self, r: &Reading, from: f64) {
+        let start = r.at - r.secs;
+        // The part of `[a, b]` that lies after `from`.
+        let within = |a: f64, b: f64| (b - a.max(from)).max(0.0);
         if !r.ran {
             // A BLOCK IS NOT A CALL. It adds to what was stood through
             // and to nothing else — counting it as a call would inflate
             // the denominator with time that was already counted once.
-            self.waited += r.secs;
+            self.waited += within(start, r.at);
             return;
         }
         self.calls += 1;
@@ -358,21 +371,22 @@ impl Tally {
         // Counting it as saved instead would claim work jbx did not do.
         if r.held {
             self.held += 1;
-            self.held_secs += r.secs;
+            self.held_secs += within(start, r.at);
             if !r.path.is_empty() {
                 self.paths.insert(r.path.clone());
             }
             return;
         }
-        self.elapsed += r.secs;
+        self.elapsed += within(start, r.at);
         if r.fg {
             self.chosen += 1;
-            self.chosen_secs += r.secs;
+            self.chosen_secs += within(start, r.at);
         }
         // WHAT WAS STOOD THROUGH IS NOT WHAT IT TOOK. A detached line
         // costs the caller the threshold and not a second more; the rest
         // of its duration happened while they were free.
-        self.waited += r.secs.min(r.after);
+        // They are its FIRST seconds, so that is where the window cuts.
+        self.waited += within(start, start + r.secs.min(r.after));
         if r.secs > r.after {
             self.detached += 1;
         }
@@ -631,7 +645,7 @@ pub fn measure(only: Option<&str>, since: Option<f64>) -> Result<Value, i32> {
         .map(|(name, span)| {
             let mut t = Tally::default();
             for r in everything.iter().filter(|r| now - r.at <= *span) {
-                t.add(r);
+                t.add(r, now - span);
             }
             serde_json::json!({
                 "span": name, "calls": t.calls, "detached": t.detached,
@@ -644,9 +658,11 @@ pub fn measure(only: Option<&str>, since: Option<f64>) -> Result<Value, i32> {
         None => everything,
         Some(span) => everything.into_iter().filter(|r| now - r.at <= span).collect(),
     };
+    // `--since` IS A WINDOW LIKE THE OTHERS, and cut the same way.
+    let from = since.map_or(f64::NEG_INFINITY, |span| now - span);
     let mut all = Tally::default();
     for r in &readings {
-        all.add(r);
+        all.add(r, from);
     }
 
     let rows = match only {
@@ -658,7 +674,7 @@ pub fn measure(only: Option<&str>, since: Option<f64>) -> Result<Value, i32> {
             let mut names: BTreeMap<String, String> = BTreeMap::new();
             for r in &readings {
                 let key = if r.path.is_empty() { r.project.clone() } else { r.path.clone() };
-                by.entry(key.clone()).or_default().add(r);
+                by.entry(key.clone()).or_default().add(r, from);
                 names.entry(key).or_insert_with(|| r.project.clone());
             }
             arrange(&by, &names)
@@ -674,7 +690,7 @@ pub fn measure(only: Option<&str>, since: Option<f64>) -> Result<Value, i32> {
             };
             let mut by: BTreeMap<String, Tally> = BTreeMap::new();
             for r in readings.iter().filter(|r| matches(r)) {
-                by.entry(r.shape.clone()).or_default().add(r);
+                by.entry(r.shape.clone()).or_default().add(r, from);
             }
             if by.is_empty() && !readings.is_empty() {
                 eprintln!("jbx: nothing measured for {want:?}");
