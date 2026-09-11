@@ -534,6 +534,18 @@ pub fn silence(r: &Record) -> Option<f64> {
     Some(age.as_secs_f64())
 }
 
+/// WHETHER THIS JOB HAS NOT WRITTEN A SINGLE BYTE since it started.
+///
+/// A log never written keeps the date it was created, so by freshness
+/// alone a job that has said nothing yet looks exactly like one that
+/// spoke and then went quiet. They are not the same: the first is most
+/// often a filter that prints only at the end (`| tail`) or output held
+/// in a buffer — a testbox worker was read as dead for forty minutes
+/// that way — and the second is the one that may really be stuck.
+pub fn wrote_nothing(r: &Record) -> bool {
+    fs::metadata(log_path(&r.id)).map(|m| m.len() == 0).unwrap_or(false)
+}
+
 /// WHICH OF THESE ARE STILL THERE — asked once for all of them.
 ///
 /// `alive` is a `stat` on Linux and a PROCESS on Windows, where it shells

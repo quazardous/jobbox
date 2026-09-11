@@ -749,20 +749,47 @@ fn queue_refuses_to_run_something_nobody_named() {
 fn health_names_a_job_that_runs_without_saying_anything() {
     let s = Scratch::new("mute");
     let quiet = [("JBX_MUTE_AFTER", "1")];
-    let said = text(&s.run_with(&quiet, &["run", "--after", "1", "--", "sleep 6"]));
-    let id = announced(&said);
+    // TWO SILENCES THAT ARE NOT THE SAME. One job has not written a byte;
+    // the other said one line and went quiet. By the freshness of the log
+    // alone they looked identical, and a testbox worker whose output went
+    // through `| tail` was read as dead for forty minutes while it worked.
+    let never = announced(&text(&s.run_with(&quiet, &["run", "--after", "1", "--", "sleep 6"])));
+    let quieted = announced(&text(&s.run_with(&quiet, &["run", "--after", "1", "--", "echo started; sleep 6"])));
     std::thread::sleep(std::time::Duration::from_secs(2));
 
     let out = s.run_with(&quiet, &["health"]);
     let shown = text(&out);
     // RUNNING IS NOT MAKING PROGRESS, and the two look identical from
-    // outside. Freshness of the log is what separates them, and a job
-    // that says nothing is NAMED rather than counted — a number here
-    // would send the reader to `list` to find out which one.
-    assert!(shown.contains(&id), "the mute job was not named:\n{shown}");
-    assert!(shown.contains("MUTE"), "muteness was not said:\n{shown}");
+    // outside. A job that says nothing is NAMED rather than counted — a
+    // number here would send the reader to `list` to find out which one —
+    // and it is named under the section that says which silence it is.
+    let mut section = "";
+    let mut under = std::collections::HashMap::new();
+    for line in shown.lines() {
+        if line.trim_start().starts_with("NO OUTPUT —") {
+            section = "NO OUTPUT";
+        } else if line.trim_start().starts_with("MUTE —") {
+            section = "MUTE";
+        }
+        for id in [&never, &quieted] {
+            if line.contains(id.as_str()) {
+                under.insert(id.clone(), section);
+            }
+        }
+    }
+    assert_eq!(under.get(&never).copied(), Some("NO OUTPUT"),
+               "a job that never wrote was not said to have no output:\n{shown}");
+    assert_eq!(under.get(&quieted).copied(), Some("MUTE"),
+               "a job that wrote and went quiet was not said to be mute:\n{shown}");
     assert_eq!(out.status.code(), Some(1), "health said all is well");
-    s.run(&["kill", &id]);
+
+    // AND THE LISTING SAYS THE SAME, in the column people actually read.
+    let listed = text(&s.run_with(&quiet, &["list", "--width", "200"]));
+    let row = |id: &str| listed.lines().find(|l| l.starts_with(id)).unwrap_or("").to_string();
+    assert!(row(&never).contains("NO OUTPUT"), "`list` called it something else:\n{listed}");
+    assert!(row(&quieted).contains("MUTE"), "`list` called it something else:\n{listed}");
+    s.run(&["kill", &never]);
+    s.run(&["kill", &quieted]);
 }
 
 #[test]
@@ -2780,7 +2807,12 @@ fn a_job_held_on_purpose_is_not_called_mute() {
     let _ = held.kill();
     let _ = held.wait();
     assert!(shown.contains("held"), "a held job did not say so:\n{shown}");
-    assert!(!shown.contains("MUTE"), "a deliberate silence was called mute:\n{shown}");
+    // NEITHER WORD: a held job that has printed nothing would otherwise be
+    // called `NO OUTPUT`, and a guard that only looked for `MUTE` would stay
+    // green with the `!r.held` exception gone — which the CI's mutation job
+    // exists to catch.
+    assert!(!shown.contains("MUTE") && !shown.contains("NO OUTPUT"),
+            "a deliberate silence was called mute:\n{shown}");
 }
 
 #[test]
@@ -2892,7 +2924,7 @@ fn the_listing_verbs_explain_their_state_column() {
     let s = Scratch::new("stateshelp");
     for verb in ["ps", "top", "list"] {
         let said = text(&s.run(&[verb, "--help"]));
-        for state in ["queued", "foreground", "background", "held", "gone", "MUTE"] {
+        for state in ["queued", "foreground", "background", "held", "gone", "MUTE", "NO OUTPUT"] {
             assert!(said.contains(state), "`jbx {verb} --help` never mentions `{state}`:\n{said}");
         }
         // SAID ONCE, FROM ONE PLACE. Three copies of an explanation is

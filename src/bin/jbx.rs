@@ -834,7 +834,9 @@ fn listing(only_alive: bool, how: &Flags) -> i32 {
             // silence somebody chose.
             let mute = match store::silence(r) {
                 Some(secs) if secs > store::mute_after() && !r.held => {
-                    format!("MUTE {}s", secs as i64)
+                    // NEVER A BYTE IS NOT GONE QUIET — see `store::wrote_nothing`.
+                    let word = if store::wrote_nothing(r) { "NO OUTPUT" } else { "MUTE" };
+                    format!("{word} {}s", secs as i64)
                 }
                 _ => String::new(),
             };
@@ -1299,6 +1301,7 @@ fn health(how: &Flags) -> i32 {
     let mut running = 0;
     let mut finished = 0;
     let mut mute: Vec<(String, i64)> = Vec::new();
+    let mut no_output: Vec<(String, i64, String)> = Vec::new();
     for r in &records {
         match store::state_of(r) {
             store::State::Queued => queued += 1,
@@ -1306,7 +1309,11 @@ fn health(how: &Flags) -> i32 {
                 running += 1;
                 if let Some(secs) = store::silence(r) {
                     if secs > store::mute_after() {
-                        mute.push((r.id.clone(), secs as i64));
+                        if store::wrote_nothing(r) {
+                            no_output.push((r.id.clone(), secs as i64, line_end(&r.command)));
+                        } else {
+                            mute.push((r.id.clone(), secs as i64));
+                        }
                     }
                 }
             }
@@ -1315,7 +1322,7 @@ fn health(how: &Flags) -> i32 {
     }
     let (busy, cap) = jobbox::slots::busy();
     let stranded = jobbox::signals::stranded(&store::client());
-    let code = if mute.is_empty() && stranded.is_empty() { 0 } else { 1 };
+    let code = if mute.is_empty() && no_output.is_empty() && stranded.is_empty() { 0 } else { 1 };
     Answer(
         serde_json::json!({
             "running": running,
@@ -1325,6 +1332,9 @@ fn health(how: &Flags) -> i32 {
             "slots_cap": cap,
             "mute": mute.iter().map(|(id, secs)| serde_json::json!({
                 "id": id, "silent_for": secs,
+            })).collect::<Vec<_>>(),
+            "no_output": no_output.iter().map(|(id, secs, end)| serde_json::json!({
+                "id": id, "silent_for": secs, "line_end": end,
             })).collect::<Vec<_>>(),
             "stranded": stranded.iter().map(|(who, held)| serde_json::json!({
                 "client": who, "waiting": held,
@@ -1344,9 +1354,24 @@ fn health(how: &Flags) -> i32 {
             None => jobbox::outln!("  {} slots held, no cap", v["slots_busy"]),
         }
         let mute = v["mute"].as_array().map(Vec::as_slice).unwrap_or_default();
-        if mute.is_empty() {
+        let no_output = v["no_output"].as_array().map(Vec::as_slice).unwrap_or_default();
+        if mute.is_empty() && no_output.is_empty() {
             jobbox::outln!("  nothing is mute.");
-        } else {
+        }
+        if !no_output.is_empty() {
+            // NEVER A BYTE, SAID APART FROM GONE QUIET, because the two ask
+            // for different gestures. The end of each line is shown AS
+            // WRITTEN, not read for meaning — jbx guesses nothing about what
+            // a command will do — so the reader can see a `| tail` for
+            // themselves, and the likely causes are named once below.
+            jobbox::outln!("  NO OUTPUT — running, and nothing ever written to their log:");
+            for m in no_output {
+                jobbox::outln!("    {}  for {}s   {}", text(m, "id"), m["silent_for"], text(m, "line_end"));
+            }
+            jobbox::outln!("    a filter that prints only at the end (`| tail`, `| sort`), or output kept");
+            jobbox::outln!("    in a buffer (`stdbuf -oL`, `PYTHONUNBUFFERED=1`), keeps a log empty while the work goes on.");
+        }
+        if !mute.is_empty() {
             // NAMED, NOT COUNTED. A number here would send somebody to
             // `list` to find out which one, and the point is to answer
             // that now.
@@ -1365,6 +1390,19 @@ fn health(how: &Flags) -> i32 {
             }
         }
     })
+}
+
+/// THE LAST WORDS OF A LINE, AS WRITTEN — what `health` shows beside a job
+/// that has printed nothing, so a `| tail` at its end can be seen rather
+/// than guessed at.
+fn line_end(command: &str) -> String {
+    let flat = command.replace('\n', " ");
+    let n = flat.chars().count();
+    if n <= 40 {
+        flat
+    } else {
+        format!("…{}", flat.chars().skip(n - 39).collect::<String>())
+    }
 }
 
 fn clients(how: &Flags) -> i32 {

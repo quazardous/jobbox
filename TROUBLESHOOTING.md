@@ -53,12 +53,23 @@ The column is elided from the **front** when it does not fit, so
 whole line. The intent column beside it elides from the end, which is
 why the two look inconsistent.
 
-## A job is `MUTE`, or `stranded`
+## A job is `NO OUTPUT`, `MUTE`, or `stranded`
 
-`MUTE` means nothing has been printed for ten minutes — often ordinary
-for a long compile, and worth a look if it was supposed to be chatty.
-`jbx health` lists both, and stranded records are swept once they are
-six hours past their last sign of life.
+`NO OUTPUT` means the job has not written a single byte to its log since
+it started. The work may be going perfectly well. A filter that prints
+only at the end of its input — `| tail`, `| sort` — keeps the log empty
+for as long as the job runs, and so does output a program keeps in a
+buffer (`stdbuf -oL`, `PYTHONUNBUFFERED=1`). A job that never ends never
+reaches that end: `… | tail -3` on an endless worker stays empty for
+ever. `jbx health` shows the end of each such line, so the pipe can be
+seen.
+
+`MUTE` means the job did write, and has printed nothing for ten minutes
+since — often ordinary for a long compile, and worth a look if it was
+supposed to be chatty.
+
+`jbx health` lists all three, and stranded records are swept once they
+are six hours past their last sign of life.
 
 ## On macOS
 
