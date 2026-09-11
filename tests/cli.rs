@@ -2941,6 +2941,34 @@ fn a_line_the_harness_backgrounded_is_neither_stood_through_nor_saved() {
 }
 
 #[test]
+fn every_verb_answers_help_with_its_own_usage() {
+    // TWO OF TWENTY-SIX DID NOT. `hook` took `--help` for a client's name
+    // and `queue` for an intent with no line: both read their arguments by
+    // hand, past the one place that answers help for every other verb. A
+    // new verb parsed the same way would fail the same way, and nobody
+    // would know until somebody asked it — so every verb in the table is
+    // asked, from a HOME of the test's own.
+    let s = Scratch::new("help-all");
+    let home = s.0.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let home = home.to_str().unwrap();
+    let env = [("HOME", home), ("USERPROFILE", home)];
+    for v in jobbox::describe::VERBS {
+        let out = s.run_with(&env, &[v.name, "--help"]);
+        let said = text(&out);
+        assert_eq!(out.status.code(), Some(0),
+                   "`jbx {} --help` failed:\n{said}{}", v.name, String::from_utf8_lossy(&out.stderr));
+        assert!(said.starts_with(&format!("jbx {} —", v.name)),
+                "`jbx {} --help` did not print its usage:\n{said}", v.name);
+    }
+    // AND ASKING DID NOTHING ELSE: no job was queued or run on the way.
+    let left: Vec<_> = std::fs::read_dir(s.jobs())
+        .map(|d| d.flatten().filter(|e| e.path().is_file()).map(|e| e.file_name()).collect())
+        .unwrap_or_default();
+    assert!(left.is_empty(), "asking for help left jobs behind: {left:?}");
+}
+
+#[test]
 fn no_listing_row_outruns_its_width_when_the_cells_grow_long() {
     // THE WIDTHS WERE WRITTEN DOWN AND THE CELLS WERE NOT. `held
     // 12177s` is seventeen characters in a sixteen-character column,

@@ -97,6 +97,10 @@ fn dispatch(args: Vec<String>) -> i32 {
             // guard reads these arms to check that every verb answered is
             // a declared one, and it took the string literals of an
             // inlined body for verbs. A thin arm is what makes it legible.
+            if asks_for_help(rest) {
+                print!("{}", verb_usage("hook"));
+                return 0;
+            }
             if rest.iter().any(|a| a == "--list") {
                 return with("hook", rest, list_dialects);
             }
@@ -124,6 +128,10 @@ fn dispatch(args: Vec<String>) -> i32 {
                 None => usage_error("fg needs a line or a job id"),
             },
         },
+        "queue" if asks_for_help(rest) => {
+            print!("{}", verb_usage("queue"));
+            0
+        }
         "queue" => match rest.first() {
             Some(intent) if intent != "--" && rest.len() > 1 => {
                 run::queue(intent, &tail(&rest[1..]))
@@ -492,6 +500,15 @@ impl Flags {
         }
         Ok(flags)
     }
+}
+
+/// `-h` OR `--help`, BEFORE THE `--`, for the verbs that read their own
+/// arguments instead of going through `Flags::of` — where every other verb
+/// gets this for free. `hook` took it for a client's name and `queue` for
+/// an intent with no line, and both answered with an error. After the `--`
+/// it belongs to the command line, not to us.
+fn asks_for_help(rest: &[String]) -> bool {
+    rest.iter().take_while(|a| a.as_str() != "--").any(|a| a == "-h" || a == "--help")
 }
 
 /// What ONE verb takes, printed from the table that accepts it.
