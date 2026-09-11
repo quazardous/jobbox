@@ -18,6 +18,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.1] - 2026-09-11
+
+### Fixed
+
+- **A queued job could wait for ever, and sometimes spin the CPU doing
+  it.** When the directory a queued job waits in disappeared — `cache/`
+  deleted, which USAGE says is safe — its supervisor never gave up: one
+  was found at 94% CPU for twenty minutes, retrying a write that could not
+  succeed. A queued job now stops waiting when it cannot take its place in
+  line, or when its log is gone.
+
 ## [0.20.0] - 2026-09-11
 
 ### Added
