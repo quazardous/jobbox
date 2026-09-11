@@ -2508,8 +2508,10 @@ fn a_job_is_named_by_whoever_ran_it_when_they_said() {
     let listed = text(&s.run(&["ps", "--width", "200"]));
     assert!(listed.contains("replay the DAG simulation"), "the name was dropped:\n{listed}");
     // AND IT IS CUT TO THE COLUMN, not to a number written years ago.
-    let narrow = text(&s.run(&["ps", "--width", "100"]));
-    assert!(!narrow.contains("replay the DAG simulation"), "100 columns drew 200:\n{narrow}");
+    // NINETY, NOT A HUNDRED: an empty mute column no longer reserves ten
+    // blanks, and at a hundred those ten columns let this name fit whole.
+    let narrow = text(&s.run(&["ps", "--width", "90"]));
+    assert!(!narrow.contains("replay the DAG simulation"), "90 columns drew 200:\n{narrow}");
     assert!(narrow.contains("replay the"), "the name went missing entirely:\n{narrow}");
 
     // AND NO ROW OUTRUNS THE WIDTH IT WAS GIVEN. One character over is
@@ -2936,6 +2938,79 @@ fn a_line_the_harness_backgrounded_is_neither_stood_through_nor_saved() {
             "the held line is not accounted for anywhere visible:\n{shown}");
     assert!(shown.contains("1 of 3 calls asked for the foreground on purpose"),
             "the deliberate foreground is no longer counted:\n{shown}");
+}
+
+#[test]
+fn no_listing_row_outruns_its_width_when_the_cells_grow_long() {
+    // THE WIDTHS WERE WRITTEN DOWN AND THE CELLS WERE NOT. `held
+    // 12177s` is seventeen characters in a sixteen-character column,
+    // `finished  exit 127` eighteen, and a project named past fourteen
+    // letters adds the rest; `format!` cuts none of them. A job held for
+    // three hours drew every row of `ps` one character past the terminal,
+    // and measured with a long project name, thirteen. The width guard
+    // in `a_job_is_named_by_whoever_ran_it_when_they_said` never saw it:
+    // its jobs are seconds old and run from a short-named directory.
+    let s = Scratch::new("pscells");
+    let project = s.0.join("a-project-with-a-long-name");
+    std::fs::create_dir_all(&project).unwrap();
+    let jbx_in_project = |args: &[&str]| {
+        Command::new(JBX)
+            .env_remove("JBX_WRAPPED")
+            .env("JBX_DIR", &s.0)
+            .env("JBX_CONFIG", s.0.join("global.yaml"))
+            .env("JBX_CLIENT", "me")
+            .current_dir(&project)
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap()
+    };
+    let long_line = format!("sleep 60; echo {}", "x".repeat(200));
+    let mut held = jbx_in_project(&["run", "--after", "inf", "--intent", "held for hours", "--", &long_line]);
+    let mut failed = jbx_in_project(&["run", "--after", "0", "--", "exit 127"]);
+    let _ = failed.wait();
+    let records = || -> Vec<std::path::PathBuf> {
+        std::fs::read_dir(s.jobs())
+            .map(|d| d.flatten().map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|x| x == "json")).collect())
+            .unwrap_or_default()
+    };
+    let codes = || {
+        std::fs::read_dir(s.jobs())
+            .map(|d| d.flatten().filter(|e| e.path().extension().is_some_and(|x| x == "code")).count())
+            .unwrap_or(0)
+    };
+    until("both jobs to be recorded, and the failing one to end", || records().len() == 2 && codes() == 1);
+
+    // THREE HOURS OLD, without waiting three hours.
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64();
+    for path in records() {
+        let mut record: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        if record["held"] == true {
+            record["started"] = serde_json::json!(now - 12177.0);
+            std::fs::write(&path, record.to_string()).unwrap();
+        }
+    }
+
+    for verb in ["ps", "list"] {
+        for wide in [80usize, 100, 137, 200] {
+            let drawn = text(&s.run(&[verb, "--all", "--width", &wide.to_string()]));
+            // `121`, NOT `12177`: the age keeps ticking between the edit and the listing.
+            assert!(drawn.contains("held       121") || verb == "list",
+                    "the aged held job is not listed:\n{drawn}");
+            for row in drawn.lines() {
+                assert!(row.chars().count() <= wide,
+                        "`{verb}` drew a row {} past a {wide}-column table:\n{row}",
+                        row.chars().count() - wide);
+            }
+        }
+    }
+    let _ = held.kill();
+    let _ = held.wait();
+    s.stop_everything();
 }
 
 /// `jbx hook --list` against a HOME of the test's making. The client's own

@@ -792,8 +792,61 @@ fn listing(only_alive: bool, how: &Flags) -> i32 {
     // others are as wide as what they hold and no wider; these two take
     // the room the terminal gives, because a full-screen window cutting
     // a line at 46 characters is the tool wasting what it was given.
-    let fixed = 10 + 1 + 5 + 1 + if all { 14 + 1 } else { 0 } + 16 + 1 + 10 + 1;
-    let free = table_width(how).saturating_sub(fixed).max(20);
+    // THE CELLS ARE MEASURED BEFORE THE ROOM IS SHARED. These widths used
+    // to be written down — 14 for the project, 16 for the state, 10 for
+    // the mute mark — and `format!` never cuts a cell that runs past its
+    // width: it pushes the rest of the row along. `held       12177s` is
+    // 17, `finished  exit 127` is 18, and a project named past fourteen
+    // letters added the rest, so a job held for three hours drew every
+    // row one character past the terminal. Each state is read once, here,
+    // so the row cannot say something other than what was measured.
+    let rows: Vec<_> = records
+        .iter()
+        .map(|r| {
+            let project = std::path::Path::new(&r.project)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "?".into());
+            // MUTENESS IS ONLY SAID WHEN IT MATTERS. On every line it would
+            // be a column people stop reading — and it is precisely the one
+            // that must be seen the day it speaks.
+            // AND NEVER ON A HELD JOB. The harness runs those in the
+            // background itself and they print nothing for minutes at a
+            // time by design — an `until` loop has nothing to say until it
+            // is over. Calling that mute is raising an alarm about a
+            // silence somebody chose.
+            let mute = match store::silence(r) {
+                Some(secs) if secs > store::mute_after() && !r.held => {
+                    format!("MUTE {}s", secs as i64)
+                }
+                _ => String::new(),
+            };
+            (r, project, held_or(r, &store::state_of(r)), mute)
+        })
+        .collect();
+    // THE STATE AND THE MUTE MARK GROW, AND ARE NEVER CUT: what they say is
+    // what the row is for. A project name grows to 24 and is cut after
+    // that, since a path's last word past that length is rarely the part
+    // that tells two projects apart.
+    let state_width = rows.iter().map(|(_, _, s, _)| s.chars().count()).max().unwrap_or(0).max(16);
+    // THE MUTE MARK TAKES NO ROOM WHEN NOTHING IS MUTE, which is nearly
+    // always: ten reserved blanks were ten columns the line never got.
+    let mute_width = rows.iter().map(|(_, _, _, m)| m.chars().count()).max().unwrap_or(0);
+    let width = table_width(how);
+    let base = 10 + 1 + 5 + 1 + state_width + 1 + mute_width + 1;
+    // AND THE PROJECT YIELDS FIRST IN A NARROW WINDOW. It keeps fourteen,
+    // and gives up anything past that before the intent and the line fall
+    // below the twenty they need to say anything — measured: at eighty
+    // columns a 24-wide project pushed every row eleven characters over.
+    let project_width = rows
+        .iter()
+        .map(|(_, p, _, _)| p.chars().count())
+        .max()
+        .unwrap_or(0)
+        .clamp(14, 24)
+        .min(width.saturating_sub(base + 1 + 20).max(14));
+    let fixed = base + if all { project_width + 1 } else { 0 };
+    let free = width.saturating_sub(fixed).max(20);
     // AND THE NAME COLUMN ONLY WHEN SOMEBODY NAMED SOMETHING. A derived
     // name is the first four words of the line printed beside the line —
     // thirty columns that repeat what is already there. It appears when
@@ -821,7 +874,7 @@ fn listing(only_alive: bool, how: &Flags) -> i32 {
     let wide = free - name_width - usize::from(name_width > 0);
     if all {
         jobbox::outln!(
-            "{:<10} {:>5} {:<14} {:<16} {:<10} {}line",
+            "{:<10} {:>5} {:<project_width$} {:<state_width$} {:<mute_width$} {}line",
             "id",
             "age",
             "project",
@@ -831,46 +884,28 @@ fn listing(only_alive: bool, how: &Flags) -> i32 {
         );
     } else {
         jobbox::outln!(
-            "{:<10} {:>5} {:<16} {:<10} {}line",
+            "{:<10} {:>5} {:<state_width$} {:<mute_width$} {}line",
             "id", "age", "state", "", cell("intent")
         );
     }
-    for r in &records {
-        // MUTENESS IS ONLY SAID WHEN IT MATTERS. On every line it would
-        // be a column people stop reading — and it is precisely the one
-        // that must be seen the day it speaks.
-        // AND NEVER ON A HELD JOB. The harness runs those in the
-        // background itself and they print nothing for minutes at a
-        // time by design — an `until` loop has nothing to say until it
-        // is over. Calling that mute is raising an alarm about a
-        // silence somebody chose.
-        let mute = match store::silence(r) {
-            Some(secs) if secs > store::mute_after() && !r.held => {
-                format!("MUTE {}s", secs as i64)
-            }
-            _ => String::new(),
-        };
+    for (r, project, state, mute) in &rows {
         if all {
-            let project = std::path::Path::new(&r.project)
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "?".into());
             jobbox::outln!(
-                "{:<10} {:>5} {:<14} {:<16} {:<10} {}{}",
+                "{:<10} {:>5} {:<project_width$} {:<state_width$} {:<mute_width$} {}{}",
                 r.id,
                 age(r),
-                project,
-                held_or(r, &store::state_of(r)),
+                cut(project, project_width),
+                state,
                 mute,
                 cell(given_name(r)),
                 shown_line(r, how, wide)
             );
         } else {
             jobbox::outln!(
-                "{:<10} {:>5} {:<16} {:<10} {}{}",
+                "{:<10} {:>5} {:<state_width$} {:<mute_width$} {}{}",
                 r.id,
                 age(r),
-                held_or(r, &store::state_of(r)),
+                state,
                 mute,
                 cell(given_name(r)),
                 shown_line(r, how, wide)
