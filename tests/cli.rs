@@ -2938,6 +2938,108 @@ fn a_line_the_harness_backgrounded_is_neither_stood_through_nor_saved() {
             "the deliberate foreground is no longer counted:\n{shown}");
 }
 
+/// `jbx hook --list` against a HOME of the test's making. The client's own
+/// override is removed as well: `CLAUDE_CONFIG_DIR` set on the machine
+/// running the suite would send the listing to its real settings.
+fn hook_list_with_home(home: &std::path::Path, s: &Scratch, args: &[&str]) -> Output {
+    Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
+        .env_remove("CLAUDE_CONFIG_DIR")
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .args(["hook", "--list"])
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap()
+}
+
+fn listed_client<'a>(list: &'a serde_json::Value, name: &str) -> &'a serde_json::Value {
+    list.as_array().unwrap().iter().find(|c| c["name"] == name).unwrap()
+}
+
+fn declare_hook_in(home: &std::path::Path, dir: &str, event: &str, command: &str) {
+    std::fs::create_dir_all(home.join(dir)).unwrap();
+    let settings = serde_json::json!({
+        "hooks": { event: [{ "matcher": "", "hooks": [{ "type": "command", "command": command }] }] }
+    });
+    std::fs::write(home.join(dir).join("settings.json"), settings.to_string()).unwrap();
+}
+
+#[test]
+fn hook_list_says_whether_the_hook_is_declared_and_where_it_points() {
+    // IT NAMED THE FILE AND SAID NOTHING OF WHAT WAS IN IT. On 10/09 the
+    // hook pointed at a jbx two versions behind the published one, and
+    // nothing said so — "gain looks broken" is what found it.
+    let s = Scratch::new("hooklist");
+    let home = s.0.join("home");
+    declare_hook_in(&home, ".claude", "PreToolUse", &format!("{JBX} hook claude"));
+    std::fs::create_dir_all(home.join(".gemini")).unwrap();
+
+    let list: serde_json::Value =
+        serde_json::from_str(&text(&hook_list_with_home(&home, &s, &["--json"])))
+            .expect("hook --list --json is JSON");
+    let claude = &listed_client(&list, "claude")["hook"];
+    assert_eq!(claude["declared"], true, "{claude}");
+    assert_eq!(claude["is_this_binary"], true, "{claude}");
+    assert_eq!(claude["version"], env!("CARGO_PKG_VERSION"), "{claude}");
+    assert_eq!(listed_client(&list, "gemini")["hook"]["declared"], false, "{list}");
+    // NOT CHECKABLE IS SAID, not guessed: jbx knows no file for cursor.
+    assert_eq!(listed_client(&list, "cursor")["hook"]["checkable"], false, "{list}");
+
+    // A HOOK POINTING AT NOTHING fails on every command the agent runs.
+    let gone = s.0.join("gone").join("jbx");
+    declare_hook_in(&home, ".gemini", "BeforeTool", &format!("{} hook gemini", gone.display()));
+    let list: serde_json::Value =
+        serde_json::from_str(&text(&hook_list_with_home(&home, &s, &["--json"]))).unwrap();
+    let gemini = &listed_client(&list, "gemini")["hook"];
+    assert_eq!(gemini["declared"], true, "{gemini}");
+    assert_eq!(gemini["exists"], false, "{gemini}");
+}
+
+#[test]
+#[cfg(unix)]
+fn hook_list_names_another_version_and_does_not_wait_on_a_binary_that_hangs() {
+    // THE TWO CASES A REAL INSTALL PRODUCES: an older copy still declared,
+    // and a binary that never answers — which is what a half-written one
+    // did to a whole session once. The listing must say both, and must not
+    // hang on the second.
+    use std::os::unix::fs::PermissionsExt;
+    let s = Scratch::new("hooklist-other");
+    let home = s.0.join("home");
+    let fake = |dir: &str, body: &str| {
+        let path = s.0.join(dir).join("jbx");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    };
+    let older = fake("older", "echo 'jbx 0.0.1'");
+    let stuck = fake("stuck", "sleep 30");
+    declare_hook_in(&home, ".claude", "PreToolUse", &format!("{} hook claude", older.display()));
+    declare_hook_in(&home, ".gemini", "BeforeTool", &format!("{} hook gemini", stuck.display()));
+
+    let began = std::time::Instant::now();
+    let list: serde_json::Value =
+        serde_json::from_str(&text(&hook_list_with_home(&home, &s, &["--json"]))).unwrap();
+    assert!(began.elapsed() < std::time::Duration::from_secs(15),
+            "--list waited on a binary that never answers: {:?}", began.elapsed());
+    let claude = &listed_client(&list, "claude")["hook"];
+    assert_eq!(claude["version"], "0.0.1", "{claude}");
+    assert_eq!(claude["same_version"], false, "{claude}");
+    assert_eq!(claude["is_this_binary"], false, "{claude}");
+    let gemini = &listed_client(&list, "gemini")["hook"];
+    assert_eq!(gemini["exists"], true, "{gemini}");
+    assert!(gemini["version"].is_null(), "a binary that never answered got a version: {gemini}");
+
+    // AND THE PERSON READING IT IS TOLD, in words.
+    let said = text(&hook_list_with_home(&home, &s, &[]));
+    assert!(said.contains("answers jbx 0.0.1, not this binary"), "{said}");
+    assert!(said.contains("did not answer --version"), "{said}");
+}
+
 #[test]
 fn the_hook_gives_the_lines_it_rewrites_no_input() {
     // AN AGENT NEVER TYPES INTO A COMMAND, and the input a harness hands

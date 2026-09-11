@@ -182,7 +182,7 @@ pub const VERBS: &[Verb] = &[
                  ("--global-only", "the hooks and the global file; no project file")] },
     Verb { name: "hook", notes: "", summary: "answer an agent CLI; `init` declares this one",
         tags: &["rewrite"], effect: "rewrites the command the harness is about to run",
-        flags: &[("--list", "name every client this binary can answer"),
+        flags: &[("--list", "name every client this binary can answer, and check its declared hook"),
                  ("--json", "as JSON")] },
     Verb { name: "list", notes: STATES, summary: "what is detached, and how it went",
         tags: &["read"], effect: "reads", flags: LISTING },

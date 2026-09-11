@@ -1508,6 +1508,8 @@ fn which_rtk() -> bool {
 /// EVERY CLIENT THIS BINARY CAN ANSWER, read off the same table the hook
 /// consumes — so a name printed here is a name that works.
 fn list_dialects(how: &Flags) -> i32 {
+    let this_binary = std::env::current_exe().ok().and_then(|p| std::fs::canonicalize(p).ok());
+    let this_version = env!("CARGO_PKG_VERSION");
     let rows: Vec<serde_json::Value> = jobbox::dialect::DIALECTS
         .iter()
         .map(|d| {
@@ -1517,6 +1519,7 @@ fn list_dialects(how: &Flags) -> i32 {
                 "before_tool": d.before_tool,
                 "settings": d.home_dir,
                 "reports_unasked": d.turn_end.is_some(),
+                "hook": declared_hook(d, this_binary.as_deref(), this_version),
             })
         })
         .collect();
@@ -1538,8 +1541,103 @@ fn list_dialects(how: &Flags) -> i32 {
                 },
                 if quiet { "  (no unasked endings)" } else { "" },
             );
+            let h = &d["hook"];
+            let at = |key: &str| h[key].as_str().unwrap_or("?").to_string();
+            let said = if h["checkable"] != true {
+                "not checkable here: jbx does not know where this client keeps its hooks".to_string()
+            } else if h["declared"] != true {
+                format!("not declared in {}", at("file"))
+            } else if h["exists"] != true {
+                format!("declared, but {} does not exist", at("binary"))
+            } else if h["version"].is_null() {
+                format!("declared, but {} did not answer --version within 3s", at("binary"))
+            } else {
+                let mut s = format!("declared: {} answers jbx {}", at("binary"), at("version"));
+                if h["is_this_binary"] != true {
+                    s.push_str(", not this binary");
+                }
+                if h["same_version"] != true {
+                    s.push_str(&format!(" — this one is {}", at("this_version")));
+                }
+                s
+            };
+            jobbox::outln!("         {said}");
         }
     })
+}
+
+/// WHAT IS REALLY DECLARED FOR ONE CLIENT, and whether it answers.
+///
+/// The listing used to name the file a hook belongs in and say nothing of
+/// what was in it. On 10/09 the hook pointed at a jbx two versions behind
+/// the published one, and nothing said so: "gain looks broken" found it.
+/// So this reads the file, follows the declared command to its binary, and
+/// asks that binary its version. It never writes.
+fn declared_hook(
+    d: &jobbox::dialect::Dialect,
+    this_binary: Option<&std::path::Path>,
+    this_version: &str,
+) -> serde_json::Value {
+    let Some((file, commands)) = init::declared_hooks(d) else {
+        return serde_json::json!({ "checkable": false });
+    };
+    let Some(command) = commands.first() else {
+        return serde_json::json!({
+            "checkable": true, "file": file.display().to_string(), "declared": false,
+        });
+    };
+    let binary = command.split_whitespace().next().unwrap_or("");
+    let exists = std::path::Path::new(binary).is_file();
+    let version = if exists { version_of(binary) } else { None };
+    let is_this = this_binary.is_some()
+        && std::fs::canonicalize(binary).ok().as_deref() == this_binary;
+    serde_json::json!({
+        "checkable": true,
+        "file": file.display().to_string(),
+        "declared": true,
+        "declarations": commands.len(),
+        "command": command,
+        "binary": binary,
+        "exists": exists,
+        "version": version,
+        "is_this_binary": is_this,
+        "this_version": this_version,
+        "same_version": version.as_deref() == Some(this_version),
+    })
+}
+
+/// THE VERSION A DECLARED BINARY ANSWERS, or nothing within three seconds.
+///
+/// A half-written binary once froze every command of a session. The one
+/// being listed may be exactly that, and the listing must not freeze with
+/// it: past the deadline it is stopped, and said not to have answered.
+fn version_of(binary: &str) -> Option<String> {
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(binary)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    let mut out = String::new();
+    std::io::Read::read_to_string(&mut child.stdout.take()?, &mut out).ok()?;
+    // `jbx 0.18.0` — the second word is the version.
+    out.split_whitespace().nth(1).map(str::to_string)
 }
 
 fn dialect_named(want: Option<&str>) -> Option<&'static jobbox::dialect::Dialect> {

@@ -53,6 +53,39 @@ pub fn settings_path() -> Option<PathBuf> {
     settings_path_for(crate::dialect::of("claude")?)
 }
 
+/// WHAT ONE CLIENT'S SETTINGS ACTUALLY DECLARE — read, never written.
+///
+/// The file, and every command under the client's before-tool event that
+/// calls `jbx … hook`. `None` when jbx does not know where this client
+/// keeps its hooks. An empty list is a file that declares nothing of
+/// ours, a file that does not exist included.
+///
+/// RECOGNISED BY NAME, NOT BY PATH. `is_ours` asks whether an entry is
+/// THIS binary; the question here is whether it is ANY jbx, since a hook
+/// pointing at another copy is exactly what `hook --list` exists to show.
+pub fn declared_hooks(d: &crate::dialect::Dialect) -> Option<(PathBuf, Vec<String>)> {
+    let path = settings_path_for(d)?;
+    let settings = read(&path);
+    let commands = settings["hooks"][d.before_tool]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|m| m["hooks"].as_array().into_iter().flatten())
+        .filter_map(|e| e["command"].as_str())
+        .filter(|c| {
+            let mut words = c.split_whitespace();
+            let first = words.next().unwrap_or("");
+            Path::new(first)
+                .file_stem()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.eq_ignore_ascii_case("jbx"))
+                && words.next() == Some("hook")
+        })
+        .map(str::to_string)
+        .collect();
+    Some((path, commands))
+}
+
 fn saved_path() -> PathBuf {
     crate::store::home().join("displaced-hooks.json")
 }
