@@ -3322,9 +3322,11 @@ fn a_window_counts_only_the_part_of_a_line_that_fell_inside_it() {
     // its minutes fall inside the hour.
     let seeded = format!(
         "{{\"at\":{a},\"kind\":\"run\",\"fg\":false,\"project\":\"clip\",\"path\":\"/clip\",\"shape\":\"make\",\"secs\":7200.0,\"after\":30.0,\"code\":0}}\n\
-         {{\"at\":{w},\"kind\":\"wait\",\"project\":\"clip\",\"path\":\"/clip\",\"secs\":600.0}}\n",
+         {{\"at\":{w},\"kind\":\"wait\",\"project\":\"clip\",\"path\":\"/clip\",\"secs\":600.0}}\n\
+         {{\"at\":{t},\"kind\":\"run\",\"fg\":false,\"project\":\"clip\",\"path\":\"/clip\",\"shape\":\"make\",\"secs\":100.0,\"after\":30.0,\"code\":0}}\n",
         a = now - 60.0,
         w = now - 3300.0,
+        t = now - 3.0 * 86400.0,
     );
     std::fs::create_dir_all(s.home()).unwrap();
     std::fs::write(s.home().join("readings.jsonl"), seeded).unwrap();
@@ -3350,6 +3352,13 @@ fn a_window_counts_only_the_part_of_a_line_that_fell_inside_it() {
     let day = span("day");
     near(&day, "elapsed", 7200.0);
     near(&day, "waited", 630.0);
+
+    // A WEEK HOLDS WHAT A DAY DOES NOT: a line that ended three days ago,
+    // whole, next to the two above.
+    let week = span("week");
+    near(&week, "elapsed", 7300.0);
+    near(&week, "waited", 660.0);
+    assert_eq!(week["calls"], 2, "{week}");
 
     // AND `--since` IS THE SAME WINDOW, cut the same way.
     let since: serde_json::Value =

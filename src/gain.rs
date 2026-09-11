@@ -633,12 +633,14 @@ pub fn measure(only: Option<&str>, since: Option<f64>) -> Result<Value, i32> {
     // wrapper.
     crate::signals::sweep();
     let everything = read_all();
-    // THE THREE WINDOWS, ALWAYS, whichever one the table is drawn for.
+    // THE FOUR WINDOWS, ALWAYS, whichever one the table is drawn for. The
+    // week is the span a habit shows over: a day is one piece of work, and
+    // everything kept blurs what changed this week into what did not.
     // "Am I saving time" and "am I saving time TODAY" are different
     // questions, and a figure covering ninety days answers the first
     // while looking like an answer to the second.
     let now = store::now();
-    let spans: Vec<Value> = [("hour", 3600.0), ("day", 86400.0), ("all", f64::MAX)]
+    let spans: Vec<Value> = [("hour", 3600.0), ("day", 86400.0), ("week", 604800.0), ("all", f64::MAX)]
         .iter()
         .map(|(name, span)| {
             let mut t = Tally::default();
@@ -985,7 +987,7 @@ pub fn render(v: &Value, full_path: bool, thresholds: bool) {
                 human(num(total, "held_secs"))
             );
         }
-        // THE SAME QUESTION AT THREE DISTANCES. "Am I saving time" and
+        // THE SAME QUESTION AT FOUR DISTANCES. "Am I saving time" and
         // "am I saving time TODAY" are different questions, and a figure
         // covering everything kept answers the first while looking like
         // an answer to the second.
@@ -1009,6 +1011,7 @@ pub fn render(v: &Value, full_path: bool, thresholds: bool) {
                 crate::paint::dim(match s["span"].as_str().unwrap_or("") {
                     "hour" => "last hour",
                     "day" => "last day ",
+                    "week" => "last week",
                     _ => "all      ",
                 }),
                 // AS NUMBERS, NOT AS VALUES. A `serde_json::Value`

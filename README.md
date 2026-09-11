@@ -26,6 +26,7 @@ acme     142    11        3h04m    35m12s  2h29m (81%)   ███████�
 
 last hour       6 calls ·    1 detached ·   8m12s saved (73%)
 last day       38 calls ·    4 detached ·  40m05s saved (77%)
+last week     142 calls ·   11 detached ·   2h29m saved (81%)
 all           142 calls ·   11 detached ·   2h29m saved (81%)
 ```
 
