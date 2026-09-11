@@ -316,6 +316,16 @@ weeks of measurement and the ability to uninstall depended on nobody
 tidying up. An older layout is moved here by itself, once, the first
 time jbx runs.
 
+**`cache/` empties itself, and nothing in it is capped.** Every line jbx
+wraps starts by sweeping it: a record that started more than a day ago
+and has its exit code goes, log and all; one with no exit code is given
+forty-eight hours, and kept past that for as long as its process is
+alive. `jbx prune` does not wait: this project's finished and dead
+records go at once, whatever their age — `--all`, every project's. A
+log is never truncated or rotated — a line that writes two gigabytes
+leaves two gigabytes until its record goes. `readings.jsonl` keeps
+ninety days.
+
 `JBX_DIR` moves the whole house; the settings file stays where it is,
 since the setting that says where things go cannot live where it points.
 

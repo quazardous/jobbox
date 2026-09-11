@@ -42,7 +42,8 @@ Nobody judges in advance which is which. That judgement is the thing
 everybody gets wrong, so JobBox does not make it: it runs the line and
 finds out.
 
-One binary. Rust, `serde_json`, nothing else. Linux, macOS, Windows.
+JobBox is the project; `jbx` is the command. One binary — Rust,
+`serde_json`, nothing else. Linux, macOS, Windows.
 
 ## Five agent CLIs
 
@@ -71,7 +72,9 @@ It checks the download against the sums published with the release, puts
 it on your `PATH`, and **asks** before declaring its hooks — they go in a
 settings file other tools share. On Windows, `irm
 https://raw.githubusercontent.com/quazardous/jobbox/main/install.ps1 |
-iex`, and [WINDOWS.md](WINDOWS.md) has the rest.
+iex`, and [WINDOWS.md](WINDOWS.md) has the rest. No script at all:
+`cargo install --git https://github.com/quazardous/jobbox`, then
+`jbx init` — that builds `main`, and `--tag` builds a release.
 
 Then, on Claude Code, the plugin declares the announcing hooks as well —
 the ones that make an ending report itself unasked — along with the
