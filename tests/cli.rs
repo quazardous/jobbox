@@ -107,7 +107,11 @@ impl Scratch {
     /// runner that costs nothing, and on somebody's machine it is a
     /// handful of `sleep 30` left behind by `cargo test`.
     fn stop_everything(&self) {
-        let listed = text(&self.run(&["list", "--json"]));
+        // `--all`, BECAUSE A TEST CAN RUN A JOB FROM ANOTHER PROJECT: the
+        // width test does, from a long-named directory, and a scoped list
+        // never showed that job — so it was never stopped, and outlived the
+        // suite. The store is this test's own, so `--all` reaches nothing else.
+        let listed = text(&self.run(&["list", "--all", "--json"]));
         let Ok(rows) = serde_json::from_str::<serde_json::Value>(listed.trim()) else { return };
         for row in rows.as_array().map(Vec::as_slice).unwrap_or_default() {
             if let Some(id) = row["id"].as_str() {
@@ -3027,7 +3031,21 @@ fn a_queued_job_stops_waiting_when_its_cache_is_deleted() {
     let holder_pid = supervisor_pid(&s, &holder);
     let waiter_pid = supervisor_pid(&s, &waiter);
 
-    std::fs::remove_dir_all(s.jobs()).unwrap();
+    // DELETED UNTIL IT IS GONE, not once. A supervisor can create a file in
+    // it while it is being removed — the ticket of the waiter, the start of
+    // the holder — and a single `remove_dir_all` then fails with "Directory
+    // not empty", which is how this test first failed, on nothing to do with
+    // what it checks.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while s.jobs().exists() && std::time::Instant::now() < deadline {
+        let _ = std::fs::remove_dir_all(s.jobs());
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    if s.jobs().exists() {
+        let _ = Command::new("kill").args(["-9", &holder_pid.to_string()]).status();
+        let _ = Command::new("kill").args(["-9", &waiter_pid.to_string()]).status();
+        panic!("the cache could not be deleted within 2s");
+    }
     let gone = gone_within(waiter_pid, 10);
     let _ = Command::new("kill").args(["-9", &holder_pid.to_string()]).status();
     assert!(gone, "the waiting supervisor of {waiter} outlived its deleted cache by 10s");
