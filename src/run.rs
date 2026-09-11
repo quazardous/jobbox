@@ -287,7 +287,16 @@ pub fn supervise(id: &str, after: f64, queued: bool, fg: bool, line: &str, no_in
     // theirs. The slot is released when `held` falls out of scope, so it
     // is released whichever way this function ends.
     let _held = if queued {
-        let held = crate::slots::wait_for_one();
+        // A JOB NOBODY CAN FIND ANY MORE IS NOT WAITED FOR. Its log is
+        // made by `queue` before this process exists — the record is
+        // written only after — and it goes with the record when the job
+        // is forgotten, or with `cache/` when that is deleted. Without
+        // this, a supervisor whose store was deleted waited for a slot
+        // for ever. There is nowhere left to write an ending, so it
+        // simply stops.
+        let Some(held) = crate::slots::wait_for_one(|| store::log_path(id).exists()) else {
+            return 1;
+        };
         let _ = std::fs::write(store::started_path(id), "");
         Some(held)
     } else {

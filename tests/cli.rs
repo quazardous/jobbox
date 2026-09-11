@@ -1422,6 +1422,9 @@ fn stopping_a_job_before_it_starts_leaves_a_state_that_says_so() {
     assert!(!after.contains("waiting for a slot"), "it still claims to be waiting:\n{after}");
     assert_eq!(s.run_with(&one, &["wait", &victim]).status.code(), Some(1),
                "`wait` did not come back");
+    // AND NOTHING LEFT WAITING when the scratch directory goes: queued jobs
+    // outliving their store is how this suite left orphans on a machine.
+    s.stop_everything();
 }
 
 #[test]
@@ -1447,6 +1450,8 @@ fn queue_says_out_loud_when_a_job_does_not_start() {
     // AND THE ID IS STILL THE FIRST LINE, ALONE, because that is what a
     // script reads; the rest is for a person.
     assert!(first.lines().next().unwrap().trim().starts_with('j'));
+    // AND THE SECOND ONE IS NOT LEFT WAITING for a store that is about to go.
+    s.stop_everything();
 }
 
 #[test]
@@ -2938,6 +2943,94 @@ fn a_line_the_harness_backgrounded_is_neither_stood_through_nor_saved() {
             "the held line is not accounted for anywhere visible:\n{shown}");
     assert!(shown.contains("1 of 3 calls asked for the foreground on purpose"),
             "the deliberate foreground is no longer counted:\n{shown}");
+}
+
+/// THE SUPERVISOR OF A JOB, from the record `queue` wrote for it.
+#[cfg(unix)]
+fn supervisor_pid(s: &Scratch, id: &str) -> u32 {
+    let raw = std::fs::read_to_string(s.jobs().join(format!("{id}.json")))
+        .unwrap_or_else(|e| panic!("no record for {id:?}: {e}"));
+    let record: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    record["pid"].as_u64().expect("a record with a pid") as u32
+}
+
+#[cfg(unix)]
+fn pid_alive(pid: u32) -> bool {
+    Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// GONE WITHIN THE DEADLINE — or stopped by force, so that a failing test
+/// does not leave a supervisor spinning on the machine running the suite.
+#[cfg(unix)]
+fn gone_within(pid: u32, secs: u64) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    while std::time::Instant::now() < deadline {
+        if !pid_alive(pid) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
+    false
+}
+
+#[test]
+#[cfg(unix)]
+fn a_queued_job_that_cannot_take_a_ticket_gives_up_instead_of_spinning() {
+    // FOUND AT 94% CPU FOR TWENTY MINUTES on a machine busy with other
+    // work, and reproduced at 77%: `take_ticket` retried the same
+    // impossible write with no pause and no end once its directory was
+    // gone. Here a file sits where that directory must be, so no ticket
+    // can ever be written.
+    let s = Scratch::new("ticketless");
+    let slots = s.jobs().join("slots");
+    std::fs::create_dir_all(&slots).unwrap();
+    std::fs::write(slots.join("tickets"), "not a directory").unwrap();
+    let one = [("JBX_SLOTS", "1")];
+    let said = text(&s.run_with(&one, &["queue", "no-ticket", "--", "sleep 3"]));
+    let id = said.lines().next().unwrap_or("").trim().to_string();
+    let pid = supervisor_pid(&s, &id);
+    assert!(gone_within(pid, 10),
+            "the supervisor of {id} was still running 10s after it could not queue");
+}
+
+#[test]
+#[cfg(unix)]
+fn a_queued_job_stops_waiting_when_its_cache_is_deleted() {
+    // USAGE SAYS `cache/` IS SAFE TO DELETE. Deleted while a job waited its
+    // turn, the supervisor waited for ever for a slot in a directory that
+    // was no longer there — reproduced alive twelve seconds after the job
+    // ahead of it had finished. It is also how this suite left orphans on
+    // a machine: a test's scratch directory went while its queued jobs
+    // still waited.
+    let s = Scratch::new("cache-gone");
+    let one = [("JBX_SLOTS", "1")];
+    let first_line = |out: &Output| text(out).lines().next().unwrap_or("").trim().to_string();
+    let holder = first_line(&s.run_with(&one, &["queue", "holder", "--", "sleep 6"]));
+    // THE HOLDER MUST REALLY HOLD THE SLOT, or the waiter could take it
+    // first, run its second, and exit — passing this test without waiting.
+    until("the holder to start", || {
+        std::fs::read_dir(s.jobs())
+            .map(|d| d.flatten().any(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                name.starts_with(&holder) && name.contains("start")
+            }))
+            .unwrap_or(false)
+    });
+    let waiter = first_line(&s.run_with(&one, &["queue", "waiter", "--", "sleep 1"]));
+    let holder_pid = supervisor_pid(&s, &holder);
+    let waiter_pid = supervisor_pid(&s, &waiter);
+
+    std::fs::remove_dir_all(s.jobs()).unwrap();
+    let gone = gone_within(waiter_pid, 10);
+    let _ = Command::new("kill").args(["-9", &holder_pid.to_string()]).status();
+    assert!(gone, "the waiting supervisor of {waiter} outlived its deleted cache by 10s");
 }
 
 #[test]

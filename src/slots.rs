@@ -182,16 +182,30 @@ fn reclaim_dead_tickets() {
 /// Take the next number. ATOMIC, because `create_new` is: two waiters
 /// racing for the same number cannot both have it, and the loser simply
 /// tries the next one.
-fn take_ticket() -> Ticket {
+/// A PLACE IN LINE, OR NONE IF THERE IS NO LINE TO STAND IN.
+///
+/// A number somebody else holds moves us to the next one. Any other
+/// failure means the directory is not there to write in — deleted with
+/// `cache/`, or never creatable — and this used to retry that same
+/// impossible write with no pause and no end: found at 94% CPU for
+/// twenty minutes, on a supervisor whose store had been deleted under
+/// it. The directory is made again once; after that we give up.
+fn take_ticket() -> Option<Ticket> {
     let _ = fs::create_dir_all(tickets_dir());
     let mut candidate = outstanding().last().map(|(n, _)| n + 1).unwrap_or(1);
     let pid = std::process::id();
+    let mut made_again = false;
     loop {
         let path = tickets_dir().join(format!("{candidate}.{pid}"));
-        if fs::OpenOptions::new().write(true).create_new(true).open(&path).is_ok() {
-            return Ticket { number: candidate, path: Some(path) };
+        match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(_) => return Some(Ticket { number: candidate, path: Some(path) }),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => candidate += 1,
+            Err(_) if !made_again => {
+                made_again = true;
+                let _ = fs::create_dir_all(tickets_dir());
+            }
+            Err(_) => return None,
         }
-        candidate += 1;
     }
 }
 
@@ -206,19 +220,29 @@ fn take_ticket() -> Ticket {
 /// what turns "whoever asks at the right moment" into a queue — and it
 /// costs one directory listing per turn, on a path that is already
 /// sleeping.
-pub fn wait_for_one() -> Held {
+///
+/// `None` WHEN THE WAIT IS OVER WITHOUT A SLOT: no ticket could be taken,
+/// or `still_wanted` says the job is gone. Both used to mean waiting for
+/// ever — a supervisor outliving its deleted `cache/` sat there idle, or
+/// spinning, until somebody killed it.
+pub fn wait_for_one(still_wanted: impl Fn() -> bool) -> Option<Held> {
     // NO CAP MEANS NO LINE. Taking a number to stand in a queue nobody
     // is holding would be ceremony, and one more file to clean up.
     if cap().is_none() {
-        return Held(None);
+        return Some(Held(None));
     }
-    let ticket = take_ticket();
+    let ticket = take_ticket()?;
     loop {
+        // ASKED FIRST, before anything below recreates a directory for a
+        // job that nobody can find any more.
+        if !still_wanted() {
+            return None;
+        }
         reclaim_dead_tickets();
         let head = outstanding().first().map(|(n, _)| *n);
         if head == Some(ticket.number) {
             if let Some(held) = try_take() {
-                return held; // the ticket is dropped with us, releasing our place
+                return Some(held); // the ticket is dropped with us, releasing our place
             }
         }
         reclaim_dead();
