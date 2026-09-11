@@ -18,6 +18,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-09-11
+
+### Added
+
+- **`jbx hook --list` checks the hook it lists.** For each client whose
+  settings jbx can read, it says whether the hook is declared, which
+  binary it calls and which version that binary answers — or that the
+  binary is missing, or did not answer within three seconds. It exists
+  for the case nothing reported: a hook still pointing at an installed
+  copy two versions behind. It never writes. Two builds sharing one
+  version number still look the same.
+
+- **Installing without a script, and how long the cache keeps things.**
+  The README gives `cargo install --git`, then `jbx init`. USAGE says
+  when a job's record and log go, and that no log is ever capped.
+
+### Fixed
+
+- **A command an agent ran could wait for ever for input.** Claude Code
+  hands its shell tool a standard input that never closes, so a line
+  that read it blocked — and once detached, nothing was left to time it
+  out. The hook now writes `jbx run --no-input`, and those lines get an
+  empty input. A pipeline typed by a person is unchanged.
+
+- **Endings and measurements were lost when jobs finished together.**
+  Appends to shared files went out in several writes and interleaved:
+  twenty jobs ending at once lost 5 endings in 160 and garbled 17
+  measurements in 200. Each line now goes out in one write.
+
+- **`jbx gain`'s last hour and last day counted all of a long line that
+  merely ended inside them.** Durations are now cut where the window
+  opens, and `--since` likewise. Just after a long detached build, an
+  hour could read 48% saved where the hour itself held 13%.
+
+- **`jbx ps` and `jbx list` rows ran past the terminal.** The columns had
+  fixed widths, and a job held for hours (`held 12177s`), a three-digit
+  exit code or a long project name pushed every row over. The widths are
+  now measured from the rows.
+
 ## [0.18.0] - 2026-09-10
 
 ### Added

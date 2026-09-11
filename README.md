@@ -43,7 +43,7 @@ everybody gets wrong, so JobBox does not make it: it runs the line and
 finds out.
 
 JobBox is the project; `jbx` is the command. One binary — Rust,
-`serde_json`, nothing else. Linux, macOS, Windows.
+`serde_json` and `yaml-rust2`, nothing else. Linux, macOS, Windows.
 
 ## Five agent CLIs
 
