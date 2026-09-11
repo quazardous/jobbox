@@ -18,6 +18,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-09-11
+
+### Added
+
+- **`NO OUTPUT`, told apart from `MUTE`.** A job whose log has not
+  received a single byte since it started is now listed as `NO OUTPUT`,
+  and `MUTE` is kept for a job that wrote and then went quiet. They were
+  one word before, because both were judged by how long ago the log was
+  touched — and a worker whose output went through `| tail -3` was read
+  as dead for forty minutes while it worked. `jbx health` lists the two
+  apart, shows the end of each silent line as written, and names the
+  usual causes: a filter that prints only at the end, or output kept in a
+  buffer (`stdbuf -oL`, `PYTHONUNBUFFERED=1`). `health --json` gains a
+  `no_output` list.
+
 ## [0.20.1] - 2026-09-11
 
 ### Fixed
