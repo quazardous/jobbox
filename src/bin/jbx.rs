@@ -51,6 +51,7 @@ fn dispatch(args: Vec<String>) -> i32 {
                 how.after.unwrap_or_else(default_after),
                 &tail(rest),
                 how.intent.as_deref(),
+                how.no_input,
             ),
             Err(code) => code,
         },
@@ -71,6 +72,9 @@ fn dispatch(args: Vec<String>) -> i32 {
                     rest.iter().any(|a| a == "--queued"),
                     rest.iter().any(|a| a == "--fg"),
                     &tail(&rest[1..]),
+                    // BEFORE THE `--` ONLY: after it is the line, and a line
+                    // that happens to say `--no-input` is not asking for it.
+                    rest.iter().take_while(|a| a.as_str() != "--").any(|a| a == "--no-input"),
                 )
             }
             None => 2,
@@ -384,6 +388,9 @@ pub struct Flags {
     client: Option<String>,
     after: Option<f64>,
     intent: Option<String>,
+    /// Written by the hook onto every line it rewrites: the line gets no
+    /// standard input. See `run::supervise`.
+    no_input: bool,
     /// Positional arguments in order — an id, a project name, a number.
     free: Vec<String>,
 }
@@ -461,6 +468,7 @@ impl Flags {
                 "-f" => flags.follow = true,
                 "--client" => flags.client = value(),
                 "--intent" => flags.intent = value(),
+                "--no-input" => flags.no_input = true,
                 "--after" => match value().as_deref().map(str::trim).map(str::parse::<f64>) {
                     Some(Ok(n)) => flags.after = Some(n),
                     _ => return Err(usage_error("`--after` wants a number of seconds")),

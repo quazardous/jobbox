@@ -2939,6 +2939,76 @@ fn a_line_the_harness_backgrounded_is_neither_stood_through_nor_saved() {
 }
 
 #[test]
+fn the_hook_gives_the_lines_it_rewrites_no_input() {
+    // AN AGENT NEVER TYPES INTO A COMMAND, and the input a harness hands
+    // its shell tool is not at end of file: under Claude Code it is a
+    // socket that never closes. The hook says so on every line it rewrites.
+    let s = Scratch::new("noinput-hook");
+    let plain = s.project(None, "src");
+    let rewritten = ask_hook(&plain, &s, "");
+    assert!(rewritten.contains("run --no-input "),
+            "the rewrite leaves the line an input to wait on: {rewritten}");
+}
+
+#[test]
+fn a_line_given_no_input_does_not_wait_for_input_that_never_comes() {
+    // MEASURED UNDER CLAUDE CODE (#2271): the shell tool's standard input
+    // is a socket nobody closes, so `read` waited for ever — and once the
+    // line detached, nothing was left to time it out. A pipe this test
+    // holds open and never writes to is the same situation.
+    use std::io::Read;
+    let s = Scratch::new("noinput");
+    let mut child = Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .args(["run", "--no-input", "--after", "30", "--", "read -r x; echo read-exit=$?"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    // HELD, NEVER WRITTEN, NEVER CLOSED — until the test is over.
+    let open = child.stdin.take();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while child.try_wait().unwrap().is_none() {
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            drop(open);
+            panic!("the line waited 20s for input nobody will ever type");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    drop(open);
+    let mut out = String::new();
+    child.stdout.take().unwrap().read_to_string(&mut out).unwrap();
+    assert!(out.contains("read-exit=1"), "the line did not find its input closed: {out}");
+}
+
+#[test]
+fn a_line_run_by_hand_still_reads_what_is_piped_into_it() {
+    // WITHOUT THE FLAG NOTHING CHANGES. `cat f | jbx run -- sort` is a
+    // person's pipeline, and a wrapper closing its input would be a
+    // wrapper altering the command it wraps.
+    use std::io::Write;
+    let s = Scratch::new("pipein");
+    let mut child = Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .args(["run", "--", "cat"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"piped through\n").unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(text(&out).contains("piped through"),
+            "the piped input never reached the line: {}", text(&out));
+}
+
+#[test]
 fn lines_appended_by_many_writers_at_once_all_come_back_whole() {
     // TWO ENDINGS FINISHING TOGETHER CAME OUT AS ONE UNREADABLE LINE.
     // `writeln!` on a file is one write per formatted piece — per JSON

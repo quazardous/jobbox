@@ -268,10 +268,16 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect) -> i32 {
     } else {
         ""
     };
+    // NO INPUT FOR A LINE AN AGENT RUNS. Nobody types into it, and the
+    // input a harness hands its shell tool is not at end of file: under
+    // Claude Code it is a socket that never closes, so a line reading it
+    // waited for ever, and a detached one could not even be timed out
+    // (#2271). Written into the command, where it can be seen, like
+    // everything else jbx adds.
     updated.insert(
         "command".into(),
         Value::String(format!(
-            "{} run {held}{described}-- {}",
+            "{} run --no-input {held}{described}-- {}",
             shell_word(binary),
             quote(&through_rtk(line))
         )),

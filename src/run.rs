@@ -234,7 +234,7 @@ fn detach(cmd: &mut Command) {
 /// It is the same binary re-invoked rather than a shell trap, because a
 /// trap is a shell feature and `cmd.exe` has no equivalent. One
 /// mechanism on both platforms beats two that drift apart.
-pub fn supervise(id: &str, after: f64, queued: bool, fg: bool, line: &str) -> i32 {
+pub fn supervise(id: &str, after: f64, queued: bool, fg: bool, line: &str, no_input: bool) -> i32 {
     // OPENED FOR WRITING AND SEEKED, NOT APPENDED — and on Windows that
     // is the difference between a working program and twenty silent
     // failures.
@@ -295,14 +295,20 @@ pub fn supervise(id: &str, after: f64, queued: bool, fg: bool, line: &str) -> i3
     };
 
     let mut cmd = shell(line);
-    // THE LINE KEEPS THE CALLER'S OWN STANDARD INPUT.
+    // THE LINE KEEPS THE CALLER'S OWN STANDARD INPUT — unless the hook
+    // wrote `--no-input`.
     //
-    // Closing it would be a wrapper deciding, for every command it
-    // wraps, that none of them reads anything — and `sort`, `cat` and
-    // every filter in a pipeline read. Under a harness this changes
-    // nothing (the input is already at end of file); everywhere else it
-    // is the difference between wrapping a command and altering it.
-    cmd.stdin(Stdio::inherit()).stdout(Stdio::from(log)).stderr(Stdio::from(err_side));
+    // Closing it for everyone would be a wrapper deciding that no command
+    // it wraps reads anything, and `cat f | jbx run -- sort` reads.
+    //
+    // BUT AN AGENT NEVER TYPES INTO ONE. This comment used to say that
+    // under a harness the input "is already at end of file". Measured
+    // under Claude Code, foreground and background alike (#2271): it is a
+    // socket nobody closes. A line reading it waited for ever, and once
+    // detached nothing was left to time it out. So the hook marks the
+    // lines it rewrites, and those get nothing to wait on.
+    let input = if no_input { Stdio::null() } else { Stdio::inherit() };
+    cmd.stdin(input).stdout(Stdio::from(log)).stderr(Stdio::from(err_side));
     // THE LINE IS TOLD IT IS ALREADY WRAPPED, so that a `jbx run` inside
     // it steps aside instead of making a second job. See `run_inner`.
     cmd.env("JBX_WRAPPED", id);
@@ -388,11 +394,11 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 /// there is nothing to return YET — so we return 0, which is the truth
 /// about what THIS process did, and the real code is written where
 /// `status` and `wait` read it.
-pub fn run(after: f64, line: &str, intent: Option<&str>) -> i32 {
-    run_inner(after, line, false, intent)
+pub fn run(after: f64, line: &str, intent: Option<&str>, no_input: bool) -> i32 {
+    run_inner(after, line, false, intent, no_input)
 }
 
-fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>) -> i32 {
+fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>, no_input: bool) -> i32 {
     if line.trim().is_empty() {
         eprintln!("jbx: nothing to run. `jbx run -- '<command line>'`");
         return 2;
@@ -465,6 +471,9 @@ fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>) -> i32 {
     if fg {
         cmd.arg("--fg");
     }
+    if no_input {
+        cmd.arg("--no-input");
+    }
     cmd.arg("--").arg(line);
     // THE SUPERVISOR GETS NEITHER OF OUR OUTPUT STREAMS, AND THIS IS
     // LOAD-BEARING.
@@ -476,7 +485,11 @@ fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>) -> i32 {
     // inheritance. Its streams are closed; the line's output goes to the
     // log, which is where it can still be written from after we are
     // gone.
-    cmd.stdin(Stdio::inherit()).stdout(Stdio::null()).stderr(Stdio::null());
+    // AND NO INPUT EITHER, when the hook said so: the line inherits the
+    // supervisor's, so this is where an agent's line stops waiting on the
+    // harness's never-closed socket. See `supervise`.
+    let input = if no_input { Stdio::null() } else { Stdio::inherit() };
+    cmd.stdin(input).stdout(Stdio::null()).stderr(Stdio::null());
     stop_lending_our_output();
     detach(&mut cmd);
     let child = match cmd.spawn() {
@@ -886,7 +899,7 @@ pub fn queue(intent: &str, line: &str) -> i32 {
 /// loud is the point: `jbx gain` counts what it cost, so a habit of
 /// reaching for it shows up as time that was never saved.
 pub fn foreground(line: &str, intent: Option<&str>) -> i32 {
-    run_inner(f64::INFINITY, line, true, intent)
+    run_inner(f64::INFINITY, line, true, intent, false)
 }
 
 /// `jbx fg <id>` — BRING A DETACHED JOB BACK.
