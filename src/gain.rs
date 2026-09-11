@@ -12,8 +12,6 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -261,13 +259,13 @@ pub fn record_wait(secs: f64) {
 
 /// IT NEVER FAILS OUT LOUD. This runs after every command on the
 /// machine; a measurement that can break a command is not worth taking.
-/// One `write` of a short line to a file opened for append is atomic on
-/// both platforms, which is what lets a hundred of these run at once
-/// without a lock.
+///
+/// ONE WRITE PER LINE is what lets a hundred of these run at once without
+/// a lock. This comment used to say so while the code did not: `writeln!`
+/// of a `Value` wrote one JSON token at a time, and two commands ending
+/// together interleaved mid-token. See `store::append_line`.
 fn append(line: Value) {
-    if let Ok(mut file) = OpenOptions::new().append(true).create(true).open(table_path()) {
-        let _ = writeln!(file, "{line}");
-    }
+    store::append_line(&table_path(), &line.to_string());
 }
 
 struct Reading {

@@ -2939,6 +2939,95 @@ fn a_line_the_harness_backgrounded_is_neither_stood_through_nor_saved() {
 }
 
 #[test]
+fn lines_appended_by_many_writers_at_once_all_come_back_whole() {
+    // TWO ENDINGS FINISHING TOGETHER CAME OUT AS ONE UNREADABLE LINE.
+    // `writeln!` on a file is one write per formatted piece — per JSON
+    // token for a `serde_json::Value` — and appends interleave between
+    // writes. Twenty jobs ending at once lost 5 endings in 160 and left 17
+    // measurements in 200 unreadable. Sixteen writers hammering one file is
+    // the same race, made likely enough to be caught every time.
+    let s = Scratch::new("append");
+    std::fs::create_dir_all(s.home()).unwrap();
+    let file = s.home().join("many.jsonl");
+    let writers: Vec<_> = (0..16)
+        .map(|w| {
+            let file = file.clone();
+            std::thread::spawn(move || {
+                for i in 0..200 {
+                    let line = serde_json::json!({ "writer": w, "i": i, "pad": "x".repeat(120) });
+                    jobbox::store::append_line(&file, &line.to_string());
+                }
+            })
+        })
+        .collect();
+    for w in writers {
+        w.join().unwrap();
+    }
+    let content = std::fs::read_to_string(&file).unwrap();
+    let lines: Vec<&str> = content.lines().collect();
+    let whole: std::collections::BTreeSet<(u64, u64)> = lines
+        .iter()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter_map(|v| Some((v["writer"].as_u64()?, v["i"].as_u64()?)))
+        .collect();
+    assert_eq!(lines.len(), 3200, "lines were glued together or lost");
+    assert_eq!(whole.len(), 3200, "{} of 3200 lines came back readable", whole.len());
+}
+
+#[test]
+fn jobs_ending_together_leave_every_ending_and_every_measurement_readable() {
+    // THE WIRING, since the race lives between processes. Eight
+    // supervisors finish within the same instant and each appends an
+    // ending and a measurement; a line split across writes comes back
+    // glued to its neighbour and parses as neither. It was found this
+    // way: a CI test that ends two jobs together waited 20s for two
+    // endings and saw one.
+    let s = Scratch::new("together");
+    let jobs: Vec<_> = (0..8)
+        .map(|_| {
+            Command::new(JBX)
+                .env_remove("JBX_WRAPPED")
+                .env("JBX_DIR", &s.0)
+                .env("JBX_CONFIG", s.0.join("global.yaml"))
+                .env("JBX_CLIENT", "me")
+                .args(["run", "--after", "0", "--", "sleep 1"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    for mut job in jobs {
+        let _ = job.wait();
+    }
+    // THE EXIT CODE IS WRITTEN LAST, so once eight are on disk the
+    // endings and the measurements written before them are too.
+    let codes = || {
+        std::fs::read_dir(s.jobs())
+            .map(|d| {
+                d.flatten()
+                    .filter(|e| e.path().extension().is_some_and(|x| x == "code"))
+                    .count()
+            })
+            .unwrap_or(0)
+    };
+    until("the eight jobs to finish", || codes() == 8);
+
+    let endings: std::collections::BTreeSet<String> = signals_of(&s)
+        .iter()
+        .filter_map(|e| e["id"].as_str().map(str::to_string))
+        .collect();
+    assert_eq!(endings.len(), 8, "endings came back unreadable, or not at all");
+    let raw = std::fs::read_to_string(s.home().join("readings.jsonl")).unwrap_or_default();
+    let unreadable: Vec<&str> = raw
+        .lines()
+        .filter(|l| !l.trim().is_empty() && serde_json::from_str::<serde_json::Value>(l).is_err())
+        .collect();
+    assert!(unreadable.is_empty(), "measurements came back glued: {unreadable:?}");
+}
+
+#[test]
 fn a_window_counts_only_the_part_of_a_line_that_fell_inside_it() {
     // A READING IS WRITTEN WHEN ITS LINE ENDS, and the windows used to be
     // chosen by that end alone — so a long line that merely finished in

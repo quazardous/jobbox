@@ -18,7 +18,6 @@
 //! whichever session started it.
 
 use std::fs;
-use std::io::Write;
 use std::path::PathBuf;
 
 use serde_json::Value;
@@ -169,9 +168,9 @@ pub fn deposit(id: &str, code: i32, intent: &str, log: &str, client: &str) {
         if let Some(parent) = box_path.parent() {
             let _ = fs::create_dir_all(parent);
         }
-        if let Ok(mut file) = fs::OpenOptions::new().append(true).create(true).open(&box_path) {
-            let _ = writeln!(file, "{line}");
-        }
+        // ONE WRITE, because the supervisor of every other job ending at
+        // this instant is appending to the same box. See `store::append_line`.
+        store::append_line(&box_path, &line);
     }
 }
 
@@ -278,11 +277,10 @@ pub fn sweep() -> usize {
             .filter(|s| !s["id"].as_str().map(|i| already.contains(i)).unwrap_or(false))
             .collect();
         if !orphans.is_empty() {
-            if let Ok(mut file) = fs::OpenOptions::new().append(true).create(true).open(&shared) {
-                for s in orphans {
-                    let _ = writeln!(file, "{s}");
-                }
-            }
+            // ONE WRITE FOR THE WHOLE BATCH, into a box supervisors may be
+            // appending to at the same moment. See `store::append_line`.
+            let batch: Vec<String> = orphans.iter().map(|s| s.to_string()).collect();
+            store::append_line(&shared, &batch.join("\n"));
         }
         let _ = fs::remove_dir_all(entry.path());
         swept += waiting.len();
@@ -342,11 +340,9 @@ pub fn forget(client: &str, id: &str) -> bool {
         })
         .collect();
     if !kept.is_empty() {
-        if let Ok(mut file) = fs::OpenOptions::new().append(true).create(true).open(&path) {
-            for line in kept {
-                let _ = writeln!(file, "{line}");
-            }
-        }
+        // ONE WRITE FOR THE SURVIVORS, since an ending may be landing in
+        // the fresh file right now. See `store::append_line`.
+        store::append_line(&path, &kept.join("\n"));
     }
     dropped
 }

@@ -228,6 +228,34 @@ fn platform_root() -> PathBuf {
     base.unwrap_or_else(|| PathBuf::from(".jobbox"))
 }
 
+/// ADD ONE LINE TO A SHARED FILE, IN ONE WRITE.
+///
+/// Several processes append to the same file at once: every supervisor
+/// ending a job, every command leaving its measurement. `writeln!` on a
+/// `File` is not one write but one per formatted piece — per JSON token
+/// for a `serde_json::Value` — and appends from separate processes
+/// interleave between writes. Twenty jobs ending together lost 5 endings
+/// in 160 and left 17 measurements in 200 unreadable, glued mid-token.
+///
+/// So the line is built whole, newline included, and handed over as one
+/// buffer. A single short write to a file opened for append is not
+/// interleaved with another on a local file system — `O_APPEND` on Unix,
+/// `FILE_APPEND_DATA` on Windows — and that is all this promises. No lock:
+/// a lock is one more way for every command to fail.
+///
+/// Several lines joined with `\n` go out the same way, as one batch.
+///
+/// IT NEVER FAILS OUT LOUD: its callers run behind the back of somebody
+/// who has gone to do something else.
+pub fn append_line(path: &Path, line: &str) {
+    let mut whole = String::with_capacity(line.len() + 1);
+    whole.push_str(line);
+    whole.push('\n');
+    if let Ok(mut file) = fs::OpenOptions::new().append(true).create(true).open(path) {
+        let _ = io::Write::write_all(&mut file, whole.as_bytes());
+    }
+}
+
 pub fn log_path(id: &str) -> PathBuf { dir().join(format!("{id}.log")) }
 pub fn code_path(id: &str) -> PathBuf { dir().join(format!("{id}.code")) }
 pub fn record_path(id: &str) -> PathBuf { dir().join(format!("{id}.json")) }
