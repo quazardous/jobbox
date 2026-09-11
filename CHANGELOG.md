@@ -18,6 +18,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-09-11
+
+### Added
+
+- **`jbx gain` shows the last week**, between the last day and everything
+  kept. A day is one piece of work, and everything kept blurs what changed
+  this week into the weeks before it. Like the hour and the day, the week
+  counts only the part of a line that fell inside it.
+
+### Fixed
+
+- **`jbx hook --help` and `jbx queue --help` answered with an error.** Both
+  took `--help` for an argument — a client's name, an intent — and exited
+  2. They now print their usage like the other twenty-four verbs, and a
+  test asks every verb in the table so a new one cannot regress in silence.
+
 ## [0.19.0] - 2026-09-11
 
 ### Added
