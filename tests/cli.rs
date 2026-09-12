@@ -2990,6 +2990,25 @@ fn supervisor_pid(s: &Scratch, id: &str) -> u32 {
     record["pid"].as_u64().expect("a record with a pid") as u32
 }
 
+/// When this machine came up, or `None` where nothing here asks.
+///
+/// ONLY LINUX GUARDS ON IT, so only Linux needs to respect it: on the
+/// other systems `store::is_ours` cannot read a boot time and says so by
+/// answering yes, and a backdated record stays listed.
+#[cfg(target_os = "linux")]
+fn booted_at() -> Option<f64> {
+    std::fs::read_to_string("/proc/stat")
+        .ok()?
+        .lines()
+        .find_map(|line| line.strip_prefix("btime "))
+        .and_then(|value| value.trim().parse().ok())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn booted_at() -> Option<f64> {
+    None
+}
+
 #[cfg(unix)]
 fn pid_alive(pid: u32) -> bool {
     Command::new("kill")
@@ -3155,13 +3174,22 @@ fn no_listing_row_outruns_its_width_when_the_cells_grow_long() {
     };
     until("both jobs to be recorded, and the failing one to end", || records().len() == 2 && codes() == 1);
 
-    // THREE HOURS OLD, without waiting three hours.
+    // THREE HOURS OLD, without waiting three hours — BUT NEVER OLDER
+    // THAN THE MACHINE. Three hours used to be written here flat, and a
+    // record that predates the boot names a process that cannot exist:
+    // `jbx` reads such a record as `gone` and stops listing it, which on
+    // a runner a few minutes old took this test with it rather than the
+    // widths it is about. The age is borrowed from the uptime when the
+    // uptime is shorter, and the widest state cell in the table —
+    // `finished  exit 127`, eighteen characters against a sixteen-wide
+    // column — belongs to the finished job and does not depend on it.
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs_f64();
+    let aged = (now - 12177.0).max(booted_at().map_or(f64::MIN, |up| up + 1.0));
     for path in records() {
         let mut record: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         if record["held"] == true {
-            record["started"] = serde_json::json!(now - 12177.0);
+            record["started"] = serde_json::json!(aged);
             std::fs::write(&path, record.to_string()).unwrap();
         }
     }
@@ -3169,8 +3197,11 @@ fn no_listing_row_outruns_its_width_when_the_cells_grow_long() {
     for verb in ["ps", "list"] {
         for wide in [80usize, 100, 137, 200] {
             let drawn = text(&s.run(&[verb, "--all", "--width", &wide.to_string()]));
-            // `121`, NOT `12177`: the age keeps ticking between the edit and the listing.
-            assert!(drawn.contains("held       121") || verb == "list",
+            // LISTED AT ALL, which is what the widths are measured on:
+            // a table that drew nothing would pass every check below.
+            // The age itself is not asserted — it is whatever the
+            // machine's uptime allowed above.
+            assert!(drawn.contains("held ") || verb == "list",
                     "the aged held job is not listed:\n{drawn}");
             for row in drawn.lines() {
                 assert!(row.chars().count() <= wide,
