@@ -139,6 +139,7 @@ pub const VERBS: &[Verb] = &[
         tags: &["destroy"], effect: "stops a process tree",
         flags: &[("--too-old", "instead of an id: everything running over an hour"),
                  ("--older-than", "the same, at an age you choose: 30s, 45m, 2h"),
+                 ("--force", "KILL at once, without asking it to stop first"),
                  ("--all", "every project on this machine, not only this one")] },
     Verb { name: "slots", notes: "", summary: "how many queued jobs may run at once",
         tags: &["read", "capacity"],

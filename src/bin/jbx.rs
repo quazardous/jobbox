@@ -194,9 +194,9 @@ fn dispatch(args: Vec<String>) -> i32 {
         "kill" => with("kill", rest, |how| match (how.free.first(), how.older_than) {
             (Some(id), _) => {
                 note_grip(id, "killed");
-                kill(id)
+                kill(id, how.force)
             }
-            (None, Some(age)) => kill_older_than(age, how.all),
+            (None, Some(age)) => kill_older_than(age, how.all, how.force),
             (None, None) => usage_error("kill needs an id, or `--too-old`"),
         }),
         // A FLAG IS NOT A VERB, and saying so is the difference between
@@ -386,6 +386,8 @@ pub struct Flags {
     reset: bool,
     /// Seconds past which a still-running job is stopped by `prune`.
     older_than: Option<f64>,
+    /// `jbx kill --force`: KILL at once, without asking with TERM first.
+    force: bool,
     /// Written by the hook onto a `jbx wait` the AGENT typed, never onto
     /// one the harness backgrounds for it. See `allow_wait`.
     via_agent: bool,
@@ -449,6 +451,7 @@ impl Flags {
                         "`--older-than` wants an age: 30s, 45m, 2h — a bare number means minutes",
                     )),
                 },
+                "--force" => flags.force = true,
                 "--undo" => flags.undo = true,
                 "--global-only" => flags.global_only = true,
                 "--core" => flags.core = true,
@@ -1115,7 +1118,7 @@ fn wait(id: &str) -> i32 {
 /// AND IT DOES NOT FORGET THEM. The record stays, so the log stays with
 /// it — a job you have just stopped is the one whose output you are
 /// most likely to want. `jbx prune` clears them afterwards.
-fn kill_older_than(age: f64, all: bool) -> i32 {
+fn kill_older_than(age: f64, all: bool, force: bool) -> i32 {
     let me = jobbox::gain::project().1;
     // NEVER THE HAND THAT IS DOING THIS. `jbx kill` is itself a wrapped
     // command, so its own wrapper has a record — and with a short age it
@@ -1129,12 +1132,12 @@ fn kill_older_than(age: f64, all: bool) -> i32 {
             continue;
         }
         let ran_for = store::now() - r.started;
-        if ran_for < age || !store::alive(r.pid) || mine.contains(&r.pid) {
+        if ran_for < age || !store::alive_and_ours(&r) || mine.contains(&r.pid) {
             continue;
         }
         note_grip(&r.id, "killed");
         jobbox::outln!("  {} running for {:.0}m — stopping it", r.id, ran_for / 60.0);
-        kill(&r.id);
+        kill(&r.id, force);
         stopped += 1;
     }
     if stopped == 0 {
@@ -1148,33 +1151,47 @@ fn kill_older_than(age: f64, all: bool) -> i32 {
     0
 }
 
-fn kill(id: &str) -> i32 {
+fn kill(id: &str, force: bool) -> i32 {
     let Some(r) = store::read_record(id) else {
         jobbox::outln!("jbx: {id} is unknown");
         return 1;
     };
-    stop(r.pid, "TERM");
-    // ASKED, THEN CHECKED. `kill` reporting success does not mean the
-    // process went — and on one CI runner the group form failed while
-    // reporting nothing useful, leaving a job that read as waiting for a
-    // slot it had been stopped from ever taking. What is reported here
-    // is what was observed, not what was attempted.
-    for _ in 0..20 {
-        if !store::alive(r.pid) {
-            // SAID OUT LOUD, because the code will not say it: a killed
-            // line leaves an interrupt code a later reader would take
-            // for a failure of the command itself.
-            jobbox::outln!("jbx: {id} stopped");
-            return 0;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
+    // LOOKED AT BEFORE ANYTHING IS SIGNALLED. `stop` used to be the
+    // first statement of this function, which made the record's pid an
+    // instruction rather than a claim — and a record outlives the
+    // process it names. One left behind by a reboot pointed at a
+    // container shim the kernel had since given the number to; TERM and
+    // then KILL would have gone to the shim, and `--force` would have
+    // gone straight to the second. See `store::is_ours`.
+    if !store::alive_and_ours(&r) {
+        jobbox::outln!("jbx: {id} is not running — nothing was signalled");
+        return 0;
     }
-    // IT DID NOT GO. Ask harder rather than report a stop that did not
-    // happen — and then check again, for the same reason as before.
+    if !force {
+        stop(r.pid, "TERM");
+        // ASKED, THEN CHECKED. `kill` reporting success does not mean
+        // the process went — and on one CI runner the group form failed
+        // while reporting nothing useful, leaving a job that read as
+        // waiting for a slot it had been stopped from ever taking. What
+        // is reported here is what was observed, not what was attempted.
+        for _ in 0..20 {
+            if !store::alive(r.pid) {
+                // SAID OUT LOUD, because the code will not say it: a
+                // killed line leaves an interrupt code a later reader
+                // would take for a failure of the command itself.
+                jobbox::outln!("jbx: {id} stopped");
+                return 0;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        // IT DID NOT GO. Ask harder rather than report a stop that did
+        // not happen — and then check again, for the same reason.
+    }
     stop(r.pid, "KILL");
     for _ in 0..20 {
         if !store::alive(r.pid) {
-            jobbox::outln!("jbx: {id} stopped (it needed KILL)");
+            let how = if force { "it was not asked first" } else { "it needed KILL" };
+            jobbox::outln!("jbx: {id} stopped ({how})");
             return 0;
         }
         std::thread::sleep(std::time::Duration::from_millis(50));

@@ -440,13 +440,87 @@ pub fn state_of(r: &Record) -> State {
     // that has not started is a legitimate thing to do, and the state it
     // leaves has to say so.
     if r.queued && !started_path(&r.id).exists() {
-        return if alive(r.pid) { State::Queued } else { State::Lost };
+        return if alive_and_ours(r) { State::Queued } else { State::Lost };
     }
-    if alive(r.pid) {
+    if alive_and_ours(r) {
         State::Running { for_secs: now() - r.started, detached: r.detached }
     } else {
         State::Lost
     }
+}
+
+/// WHETHER THAT PID CAN STILL BE THE PROCESS THIS JOB STARTED.
+///
+/// `alive` asks the kernel about a NUMBER, and a number is all a record
+/// keeps. The doc above says pid reuse is survivable because a finished
+/// job is known by its recorded code — and that holds right up until the
+/// machine goes down, which is the one ending that writes no code at
+/// all: the supervisor that would have written one goes with it.
+///
+/// What is left then is a record pointing at a pid the kernel is free to
+/// hand out again, and it does. Seen on 12/09/2026: a job from the
+/// evening before read `background 73785s` twenty hours after its `make`
+/// had finished, because its pid had been given to a container shim that
+/// started seven minutes after the reboot. `kill` on that record would
+/// have signalled the shim — it signalled first and checked afterwards.
+pub fn is_ours(r: &Record) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        // NOTHING SURVIVES A REBOOT. A record older than the boot names
+        // a process that cannot exist, whatever `/proc` says about its
+        // number today.
+        if let Some(booted) = booted_at() {
+            if r.started < booted {
+                return false;
+            }
+        }
+        // AND A THREAD IS NEVER ONE OF OURS. `/proc/<pid>` answers for a
+        // thread as readily as for a process — which is why `ps -p` on
+        // that shim printed nothing while this program read it as live.
+        // Every job jbx starts is its own process, so a pid whose thread
+        // group is led by another number rules itself out.
+        match fs::read_to_string(format!("/proc/{}/status", r.pid)) {
+            Ok(status) => tgid_of(&status).is_none_or(|tgid| tgid == r.pid),
+            // GONE, which `alive` is the one to say.
+            Err(_) => true,
+        }
+    }
+    // THE OTHER SYSTEMS ARE NOT ASKED. Neither has a boot time that can
+    // be read without spending a process, and the safe way to be wrong
+    // is the one that keeps a record `prune` will drop later rather than
+    // dropping one whose work is live.
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = r;
+        true
+    }
+}
+
+/// `alive`, asked about a job rather than about a number.
+///
+/// THIS IS THE ONE TO ASK. Reading `alive(r.pid)` straight is reading
+/// the number, and the number can have moved on.
+pub fn alive_and_ours(r: &Record) -> bool {
+    is_ours(r) && alive(r.pid)
+}
+
+/// When this machine came up, in wall-clock seconds.
+#[cfg(target_os = "linux")]
+fn booted_at() -> Option<f64> {
+    fs::read_to_string("/proc/stat")
+        .ok()?
+        .lines()
+        .find_map(|line| line.strip_prefix("btime "))
+        .and_then(|value| value.trim().parse::<f64>().ok())
+}
+
+/// The process a thread belongs to, read from `/proc/<pid>/status`.
+#[cfg(target_os = "linux")]
+fn tgid_of(status: &str) -> Option<u32> {
+    status
+        .lines()
+        .find_map(|line| line.strip_prefix("Tgid:"))
+        .and_then(|value| value.trim().parse().ok())
 }
 
 /// Whether a detached supervisor is still there.
@@ -730,7 +804,7 @@ pub fn forget_older_than(hours: f64) -> usize {
         // answers "alive" and the record is kept, which is the safe way
         // to be wrong.
         if !code_path(&r.id).exists()
-            && (r.started > now() - UNRECOVERABLE_AFTER || alive(r.pid))
+            && (r.started > now() - UNRECOVERABLE_AFTER || alive_and_ours(&r))
         {
             continue;
         }

@@ -413,7 +413,19 @@ The age threshold belongs to `kill`, not to `prune`: `prune` forgets,
 ```console
 $ jbx kill --too-old              # anything running over an hour
 $ jbx kill --older-than 45m --all # at an age you choose, everywhere
+$ jbx kill --force j7f3a91c       # KILL at once, without asking first
 ```
+
+`kill` asks with TERM, waits a second, and insists with KILL only if it
+has to — the second is there so a line can close what it opened. Use
+`--force` when you already know it will not answer, and the asking is a
+second spent waiting for nothing. It combines with the ages above.
+
+**It will not signal a pid that cannot be the job's.** A record outlives
+the process it names, and a machine that reboots leaves records whose
+pid the kernel is free to hand to something else — so `kill` looks
+before it signals, `--force` included, and says `is not running` rather
+than reaching for a stranger.
 
 An age is written the way people write one — `30s`, `45m`, `2h`, and a
 bare number means minutes. Each job is named as it goes, because

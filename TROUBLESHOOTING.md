@@ -71,6 +71,20 @@ supposed to be chatty.
 `jbx health` lists all three, and stranded records are swept once they
 are six hours past their last sign of life.
 
+## A job says `background` long after it ended
+
+If the machine rebooted, that is what it was. A job's ending is recorded
+by its supervisor, and a supervisor that goes down with the machine
+records nothing — leaving a record with no exit code, whose pid is the
+only thing left to read. The kernel hands that number out again after
+the reboot, and the job it once named reads as running under whatever
+holds it now.
+
+Such a record reads `gone` from 0.22.0 on: a job that started before the
+machine came up cannot be running, and neither can a pid that names a
+thread of another program. `jbx prune` clears it. Before 0.22.0, `jbx
+kill` on one of these signalled whatever had inherited the number.
+
 ## On macOS
 
 If macOS says the developer cannot be verified, the file was downloaded

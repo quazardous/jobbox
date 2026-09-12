@@ -3544,3 +3544,124 @@ fn gain_reset_forgets_this_project_by_path_and_keeps_the_others() {
     s.run(&["gain", "--reset", "--all"]);
     assert!(readings(&s).is_empty(), "`--all` left readings behind");
 }
+
+/// A record whose pid the machine has since handed to somebody else.
+///
+/// FABRICATED FROM A REAL ONE, taking the exit code back out: a job that
+/// died with the machine never wrote one, and it is the absence of a
+/// code that makes the pid the only thing left to read.
+#[cfg(target_os = "linux")]
+fn hand_the_record_to(s: &Scratch, pid: u32, started: f64) -> String {
+    s.run(&["run", "--after", "0", "--", "true"]);
+    until("the job to finish", || text(&s.run(&["list"])).contains("finished"));
+    let id = text(&s.run(&["list"]))
+        .lines()
+        .find_map(|l| l.split_whitespace().next().filter(|w| w.starts_with('j')).map(str::to_string))
+        .expect("a job");
+    let record = s.jobs().join(format!("{id}.json"));
+    let mut v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&record).unwrap()).unwrap();
+    v["pid"] = serde_json::json!(pid);
+    v["started"] = serde_json::json!(started);
+    std::fs::write(&record, v.to_string()).unwrap();
+    let _ = std::fs::remove_file(s.jobs().join(format!("{id}.code")));
+    id
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn a_job_the_machine_outlived_is_gone_and_its_pid_is_left_alone() {
+    // WHAT A REBOOT LEAVES. The supervisor goes down with the machine
+    // without writing an exit code, so the record's pid is all a reader
+    // has — and the kernel is free to hand that number to somebody else,
+    // which it does. Seen for real: a job read `background 73785s`
+    // twenty hours after its work had finished, because its pid had been
+    // given to a container shim that started after the reboot.
+    //
+    // The `sleep` here stands in for the shim. If the guard goes, this
+    // test does not merely fail: the signal lands on it.
+    let s = Scratch::new("rebooted");
+    let mut stranger = Command::new("sleep")
+        .arg("60")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("a process to stand in for the one that got the pid");
+    let taken = stranger.id();
+
+    // BEFORE THE MACHINE CAME UP, which is the whole claim: nothing
+    // running now can be this job's, whatever `/proc` says about the
+    // number it left behind.
+    let id = hand_the_record_to(&s, taken, 1.0);
+
+    let state = text(&s.run(&["status", &id]));
+    assert!(state.contains("gone"),
+            "a job older than the boot still reads as live:\n{state}");
+
+    // AND NOTHING IS SIGNALLED — asking twice, because `--force` skips
+    // the polite half and would otherwise reach the stranger first.
+    for how in [vec!["kill", &id], vec!["kill", "--force", &id]] {
+        let said = text(&s.run(&how));
+        assert!(said.contains("nothing was signalled"),
+                "`jbx {}` claimed to act on a pid that is not ours: {said}", how.join(" "));
+        assert!(pid_alive(taken),
+                "`jbx {}` signalled a process that only inherited the number", how.join(" "));
+    }
+
+    let _ = stranger.kill();
+    let _ = stranger.wait();
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn a_pid_that_names_a_thread_of_something_else_is_not_a_running_job() {
+    // THE OTHER HALF OF THE SAME MISTAKE, and the one that made the
+    // first invisible: `/proc/<pid>` answers for a THREAD as readily as
+    // for a process, so `ps -p` printed nothing for that shim while this
+    // program read it as alive. Every job jbx starts is its own process.
+    //
+    // The thread borrowed here is one of this test binary's own, so the
+    // record points at a number that exists, is not a zombie, and is
+    // still not a job. Nothing is signalled at it — deliberately: if
+    // this guard ever goes, a `kill` here would take the suite with it.
+    let s = Scratch::new("threadpid");
+    let me = std::process::id();
+    let tid: u32 = std::fs::read_dir("/proc/self/task")
+        .expect("this process has threads")
+        .filter_map(|e| e.ok()?.file_name().to_str()?.parse::<u32>().ok())
+        .find(|t| *t != me)
+        .expect("a thread that is not the process itself");
+
+    let id = hand_the_record_to(&s, tid, jobbox_now());
+    let state = text(&s.run(&["status", &id]));
+    assert!(state.contains("gone"),
+            "a pid naming a thread of another program read as a running job:\n{state}");
+}
+
+/// Now, the way a record spells it.
+#[cfg(target_os = "linux")]
+fn jobbox_now() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64()
+}
+
+#[test]
+#[cfg(unix)]
+fn force_stops_a_job_without_asking_it_to_stop_first() {
+    // WHAT `--force` IS FOR: `kill` asks with TERM and waits a second
+    // before insisting. That second is the wrong default for a line that
+    // is never going to answer, and the flag is how somebody says so.
+    let s = Scratch::new("killforce");
+    let out = s.run(&["run", "--after", "0.1", "--", "sleep 30"]);
+    let id = announced(&text(&out));
+    let pid = supervisor_pid(&s, &id);
+
+    let said = text(&s.run(&["kill", "--force", &id]));
+    assert!(said.contains("stopped"), "`kill --force` did not report a stop: {said}");
+    assert!(said.contains("not asked first"),
+            "`kill --force` reported an ordinary stop: {said}");
+    assert!(gone_within(pid, 5), "the supervisor outlived `kill --force`");
+    s.stop_everything();
+}
