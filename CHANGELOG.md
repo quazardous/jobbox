@@ -18,6 +18,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-09-12
+
+### Added
+
+- **`jbx kill --force`** sends KILL at once, without asking with TERM
+  first and without the second spent waiting for an answer. That second
+  is there so a line can close what it opened; when you already know it
+  will not answer, the flag says so. It combines with `--too-old` and
+  `--older-than`.
+
+### Fixed
+
+- **A job the machine outlived could read as running for ever — and
+  `kill` on it signalled a stranger.** A job's ending is recorded by its
+  supervisor, and a supervisor that goes down with the machine records
+  nothing, leaving a record whose pid is the only thing left to read.
+  The kernel hands that number out again after the reboot. Seen here: a
+  job read `background 73785s` twenty hours after its work had finished,
+  because its pid had gone to a thread of a container shim — `/proc`
+  answers for a thread as readily as for a process, so `ps` showed
+  nothing while `jbx` showed live work. A job that started before the
+  machine came up, or whose pid names a thread of another program, now
+  reads `gone`, and `kill` looks before it signals — `--force`
+  included — rather than reaching for whatever inherited the number.
+
 ## [0.21.0] - 2026-09-11
 
 ### Added
