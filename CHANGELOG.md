@@ -18,6 +18,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-09-12
+
+### Added
+
+- **A job still running after two hours is told what jbx does not do.**
+  jbx runs a line and remembers it for a day; it never restarts one, and
+  a reboot ends every job it knows about without recording an ending for
+  any of them — thirty-two records were left that way on 12/09/2026, one
+  of them a worker somebody had restarted through jbx. Nothing said it
+  was the wrong tool until something had already been lost. Past
+  `warn_after` (two hours) a job nobody is holding is named at the start
+  of a turn, where jbx already reports what finished while you were not
+  looking, and `warn_again_after` (thirty minutes) keeps a true sentence
+  from becoming wallpaper. Both are settings, global or per project. A
+  `held` job counts as much as a detached one: who put the line in the
+  background changes nothing about a script that has no end.
+- **`jbx expect <id> 4h`**, and `jbx queue --expect 4h`, for work that is
+  honestly long. It moves the line for that job alone — past the age it
+  was given it is called out like any other — and it stops at 24 hours,
+  because a day is how long jbx keeps a record at all: a longer
+  expectation promises on something it does not keep. The refusal says
+  where something meant to run longer belongs instead.
+- **`jbx health` lists these**, without the cooldown the pushed warning
+  has: it was asked, and a state it hid for half an hour would be a state
+  it got wrong. `health --json` gains a `long_running` list.
+
+### Fixed
+
+- **An age written in days was read as an error.** `3d` — which is how
+  somebody asks for a duration no line should have — answered with a
+  usage dump instead of the refusal that explains why. `--older-than`
+  takes days now too.
+
 ## [0.22.0] - 2026-09-12
 
 ### Added
