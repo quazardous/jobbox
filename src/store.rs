@@ -264,6 +264,66 @@ pub fn record_path(id: &str) -> PathBuf { dir().join(format!("{id}.json")) }
 /// readable from outside, by a `list` that never spoke to the
 /// supervisor holding the job.
 pub fn started_path(id: &str) -> PathBuf { dir().join(format!("{id}.started")) }
+/// WHEN THIS JOB WAS LAST CALLED OUT FOR RUNNING TOO LONG. Its absence
+/// means never. Kept per job rather than per session, because two
+/// runaway lines both deserve naming.
+pub fn warned_path(id: &str) -> PathBuf { dir().join(format!("{id}.warned")) }
+/// HOW LONG SOMEBODY SAID THIS ONE WOULD TAKE — `jbx expect`.
+pub fn expected_path(id: &str) -> PathBuf { dir().join(format!("{id}.expect")) }
+
+/// THE LONGEST A JOB MAY BE EXPECTED TO TAKE.
+///
+/// NOT A ROUND NUMBER: `forget_older_than(24.0)` is called at the start
+/// of every wrapped line, so a day is exactly as long as jbx keeps a
+/// job's record. Expecting more would be promising on something this
+/// program does not keep — and a line meant to run longer than jbx
+/// remembers it is a service, which is a different tool's job.
+pub const LONGEST_EXPECTATION: f64 = 24.0 * 3600.0;
+
+/// Seconds this job was said to take, when somebody said.
+pub fn expected_of(id: &str) -> Option<f64> {
+    fs::read_to_string(expected_path(id)).ok()?.trim().parse().ok()
+}
+
+pub fn write_expected(id: &str, secs: f64) -> io::Result<()> {
+    fs::write(expected_path(id), format!("{secs}"))
+}
+
+/// When this job was last called out, if it has been.
+pub fn warned_at(id: &str) -> Option<f64> {
+    fs::read_to_string(warned_path(id)).ok()?.trim().parse().ok()
+}
+
+pub fn note_warned(id: &str) {
+    let _ = fs::write(warned_path(id), format!("{}", now()));
+}
+
+/// WHETHER NOBODY IS HOLDING THIS ONE.
+///
+/// Both halves count, and david settled it: `held` is the harness
+/// running the line in the background itself, `detached` is jbx letting
+/// go at the cut. Who put it there changes nothing about what is being
+/// said — one does not launch a script that has no end. A record from
+/// before the field existed says `None` and is not claimed either way.
+pub fn nobody_is_watching(r: &Record) -> bool {
+    r.held || r.detached == Some(true)
+}
+
+/// Seconds past which this job is called out — what it was expected to
+/// take when somebody said, and the setting otherwise.
+pub fn allowed_to_run(id: &str) -> f64 {
+    expected_of(id).unwrap_or_else(warn_after)
+}
+
+/// A duration a person reads, not a number of seconds.
+pub fn how_long(secs: f64) -> String {
+    match secs.max(0.0) {
+        s if s < 90.0 => format!("{s:.0}s"),
+        s if s < 5400.0 => format!("{:.0}m", s / 60.0),
+        s if s < 172_800.0 => format!("{:.0}h", s / 3600.0),
+        s => format!("{:.0}d", s / 86400.0),
+    }
+}
 
 /// A NEW ID, SHORT AND UNMISTAKABLE.
 ///
@@ -591,6 +651,16 @@ pub fn mute_after() -> f64 {
     crate::config::mute_after().0
 }
 
+/// BEFORE A LONG-RUNNING JOB IS CALLED OUT. Two hours, and a setting.
+pub fn warn_after() -> f64 {
+    crate::config::warn_after().0
+}
+
+/// BEFORE THE SAME JOB IS CALLED OUT AGAIN. Half an hour, and a setting.
+pub fn warn_again_after() -> f64 {
+    crate::config::warn_again_after().0
+}
+
 /// How many seconds since this job wrote anything, or `None`.
 ///
 /// LIVENESS IS READ FROM FILE FRESHNESS, not from a heartbeat the script
@@ -756,7 +826,14 @@ fn parent_of(_pid: u32) -> Option<u32> {
 /// a leak nobody would notice.
 pub fn forget(id: &str) -> bool {
     let mut any = false;
-    for path in [record_path(id), code_path(id), log_path(id), started_path(id)] {
+    for path in [
+        record_path(id),
+        code_path(id),
+        log_path(id),
+        started_path(id),
+        warned_path(id),
+        expected_path(id),
+    ] {
         any |= fs::remove_file(path).is_ok();
     }
     any
@@ -813,6 +890,8 @@ pub fn forget_older_than(hours: f64) -> usize {
             code_path(&r.id),
             log_path(&r.id),
             started_path(&r.id),
+            warned_path(&r.id),
+            expected_path(&r.id),
         ] {
             let _ = fs::remove_file(path);
         }

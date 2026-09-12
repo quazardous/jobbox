@@ -292,6 +292,15 @@ to call would remove it from the machine outright.
   wrapping safe is a fact about a terminal that is not there.
 - **It is not a scheduler.** No dependencies between jobs, no retries, no
   calendar.
+- **It does not keep anything alive.** jbx runs a line and remembers it
+  for a day. It never restarts one, and a reboot ends every job it knows
+  about without recording an ending for any of them — measured on
+  12/09/2026: thirty-two records left behind at once, one of them a
+  worker somebody had restarted through jbx, which then read as running
+  for twenty hours. **A daemon, a worker, a watcher belongs under
+  `systemd` or `docker`**, which start it again afterwards. A job still
+  running after two hours is told so, and told once every thirty minutes
+  after that.
 - **It does not spend your permissions.** The wrapped line is what the
   harness asks you about, so an existing rule like `Bash(cargo test:*)`
   stops matching and you are asked where you were not before. A hook can
@@ -360,6 +369,8 @@ this one run.
 | `JBX_DIR` | `dir` | where jbx keeps its house (`~/.jobbox`) |
 | `JBX_SLOTS` | `slots` | how many QUEUED jobs run at once (`none` for no cap) |
 | `JBX_MUTE_AFTER` | `mute_after` | seconds of silence before a job is called mute (`600`) |
+| `JBX_WARN_AFTER` | `warn_after` | seconds in the background before a job is called out (`7200`) |
+| `JBX_WARN_AGAIN_AFTER` | `warn_again_after` | seconds before the same job is called out again (`1800`) |
 | `JBX_WIDTH` | `width` | columns a listing draws in (`auto` asks the terminal) |
 | `JBX_RTK` | `integration.rtk.compose` | `auto`, `always`, or `never` |
 | `JBX_COLOR` | `color` | `auto`, `always` or `never` (`auto` = when a terminal reads) |
@@ -369,6 +380,26 @@ this one run.
 
 `jbx config` prints every value, where it came from, and which files it
 would be edited in.
+
+## When one long job is genuinely long
+
+The warning above judges a lifetime, not a silence — a job can be loud
+and still be told, or quiet and left alone. Some work honestly takes
+hours, and raising `warn_after` for that would put the warning out
+everywhere it works. Say it about the one job instead:
+
+```console
+$ jbx expect j7f3a91c 4h        # a job already running: the id comes
+                                # from its detachment
+$ jbx queue --expect 4h build -- make release
+                                # work handed over: its length is
+                                # already known
+```
+
+It moves the line **for that job and no further** — past four hours it
+is called out like any other. And it stops at **24 hours**, refusing
+anything longer with the reason: jbx keeps a job's record for a day, so
+a longer expectation promises on something it does not keep.
 
 ## Forgetting what is over
 

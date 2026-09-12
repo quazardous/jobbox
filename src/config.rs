@@ -320,6 +320,26 @@ pub fn mute_after() -> (f64, Source) {
     number("JBX_MUTE_AFTER", "mute_after", 600.0)
 }
 
+/// Seconds a job may run in the background before it is called out.
+///
+/// TWO HOURS, AND IT IS A PREFERENCE, so it is a setting. It judges a
+/// LIFETIME, not a silence: `mute_after` asks how long a job has said
+/// nothing, this asks how long it has existed. A job can be loud and
+/// deserve this, or silent and not.
+pub fn warn_after() -> (f64, Source) {
+    number("JBX_WARN_AFTER", "warn_after", 2.0 * 3600.0)
+}
+
+/// Seconds before the SAME job is called out a second time.
+///
+/// The warning is pushed at somebody who did not ask for it, so it has
+/// to stop being said. Half an hour: long enough not to be wallpaper,
+/// short enough that a session started after the first one still hears
+/// it.
+pub fn warn_again_after() -> (f64, Source) {
+    number("JBX_WARN_AGAIN_AFTER", "warn_again_after", 30.0 * 60.0)
+}
+
 /// Whether to colour; `None` means decide from the terminal.
 pub fn color() -> (Option<bool>, Source) {
     let read = |text: &str| -> Option<Option<bool>> {

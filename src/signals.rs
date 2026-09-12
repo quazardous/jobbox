@@ -515,8 +515,11 @@ pub fn discipline() -> i32 {
 /// as context rather than as a decision.
 pub fn announce_text() -> i32 {
     let pending = take(&client(), "agent");
+    // SAID EVEN WHEN NOTHING ENDED. This used to return here on an empty
+    // mailbox, and a job running since this morning is precisely the
+    // case where nothing ends: the whole point is that it never will.
     if pending.is_empty() {
-        return 0; // silence is the normal case, and by far
+        return warn_about_the_endless();
     }
     for s in &pending {
         let state = if ok(s) {
@@ -528,6 +531,61 @@ pub fn announce_text() -> i32 {
     }
     if pending.iter().any(|s| !ok(s)) {
         outln!("A background job failed. Look at its log before stacking anything else on top.");
+    }
+    warn_about_the_endless()
+}
+
+/// WHAT JBX IS NOT, SAID TO WHOEVER LEFT SOMETHING RUNNING FOR HOURS.
+///
+/// jbx wraps a LINE. It keeps that line's log and record for a day and
+/// sweeps them after, and a reboot ends every job it knows about without
+/// recording anything — thirty-two records were left that way on
+/// 12/09/2026, one of them a worker somebody had restarted through jbx.
+/// Nothing in the tool says so until something has already been lost.
+///
+/// PUSHED, NOT SHOWN. `jbx health` answers whoever asks, and the person
+/// who needs this is by definition not asking — so it goes out on the
+/// hook, in front of the next command. That is also why it stops: once
+/// per `warn_again_after` per job, marked in the store, or a true
+/// sentence becomes wallpaper by the third repetition.
+fn warn_about_the_endless() -> i32 {
+    let now = store::now();
+    let here = crate::gain::project().1;
+    let again = store::warn_again_after();
+    let mut called_out = Vec::new();
+    for r in store::all() {
+        if r.project != here || !store::nobody_is_watching(&r) {
+            continue;
+        }
+        if !matches!(store::state_of(&r), store::State::Running { .. }) {
+            continue;
+        }
+        let ran_for = now - r.started;
+        if ran_for < store::allowed_to_run(&r.id) {
+            continue;
+        }
+        if store::warned_at(&r.id).is_some_and(|said| now - said < again) {
+            continue;
+        }
+        store::note_warned(&r.id);
+        called_out.push((r.id.clone(), ran_for));
+    }
+    if called_out.is_empty() {
+        return 0;
+    }
+    for (id, ran_for) in &called_out {
+        outln!("[jbx] {id} has been running {}.", store::how_long(*ran_for));
+    }
+    // THE REASON, NOT THE SCOLDING. What is wrong is not the duration —
+    // some work is genuinely long, and there is a verb for saying so.
+    // What is wrong is expecting jbx to keep something alive, because it
+    // is the one thing it does not do.
+    outln!("      jbx runs a line and remembers it for a day. It does not keep one alive:");
+    outln!("      a reboot ends it, records and all. Something with no end of its own — a");
+    outln!("      daemon, a worker, a watcher — belongs under systemd or docker, not here.");
+    outln!("      Genuinely one long piece of work? Say so, and this stops:");
+    for (id, _) in &called_out {
+        outln!("        jbx expect {id} 4h");
     }
     0
 }

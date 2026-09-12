@@ -808,7 +808,7 @@ impl<T: std::io::IsTerminal> TerminalLike for T {
 /// after the fact, from its first words, because nobody chose to
 /// background it. Somebody choosing to has a name in mind, and three
 /// words at that moment are what makes a list readable three hours later.
-pub fn queue(intent: &str, line: &str) -> i32 {
+pub fn queue(intent: &str, line: &str, expect: Option<f64>) -> i32 {
     if intent.trim().is_empty() || line.trim().is_empty() {
         eprintln!("jbx: `jbx queue <intent> -- '<line>'` — both are required");
         return 2;
@@ -822,6 +822,13 @@ pub fn queue(intent: &str, line: &str) -> i32 {
     if File::create(store::log_path(&id)).is_err() {
         eprintln!("jbx: cannot create the log for {id}");
         return 2;
+    }
+    // SAID BEFORE IT STARTS, which is the whole reason this flag exists
+    // here and `jbx expect` exists separately: work handed over on
+    // purpose is work whose length is already known, and there is no
+    // announcement to read an id off yet.
+    if let Some(secs) = expect {
+        let _ = store::write_expected(&id, secs);
     }
     let mut cmd = Command::new(std::env::current_exe().unwrap_or_else(|_| "jbx".into()));
     cmd.arg("supervise")

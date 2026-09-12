@@ -132,12 +132,22 @@ fn dispatch(args: Vec<String>) -> i32 {
             print!("{}", verb_usage("queue"));
             0
         }
-        "queue" => match rest.first() {
-            Some(intent) if intent != "--" && rest.len() > 1 => {
-                run::queue(intent, &tail(&rest[1..]))
-            }
-            _ => usage_error("queue needs an intent and a line: `jbx queue build -- make`"),
+        // THE FLAGS STOP AT `--`, so the intent is the first thing left
+        // that is not one, and the line is everything past it. `--` is
+        // never a free word here for the same reason.
+        "queue" => match Flags::of("queue", rest) {
+            Err(code) => code,
+            Ok(how) => match how.free.first() {
+                Some(intent) => run::queue(intent, &tail(rest), how.expect),
+                None => usage_error("queue needs an intent and a line: `jbx queue build -- make`"),
+            },
         },
+        "expect" => with("expect", rest, |how| {
+            match (how.free.first(), how.free.get(1)) {
+                (Some(id), Some(age)) => expect(id, age),
+                _ => usage_error("expect wants a job and how long it should take: `jbx expect j1a2b3c4 4h`"),
+            }
+        }),
         "slots" => with("slots", rest, |f| slots_cmd(f.free.first().map(String::as_str), f)),
         "after" => with("after", rest, |f| after_cmd(f.free.first().map(String::as_str), f)),
 
@@ -250,6 +260,8 @@ fn usage() -> String {
          \x20                       stop it, and everything it started\n\
          \x20 jbx slots [n|none]    how many queued jobs may run at once\n\
          \x20 jbx after [seconds]   how long a line may hold before detaching\n\
+         \x20 jbx expect <id> <age> how long that job should take, so it is not\n\
+         \x20                       called out for running for hours\n\
          \x20 jbx signals <who>     endings not yet read: agent or user\n\
          \x20 jbx gain [project]   what the wrapping bought, and cost\n\
          \x20 jbx bench [runs]      what the wrapping costs, per command\n\
@@ -388,6 +400,8 @@ pub struct Flags {
     older_than: Option<f64>,
     /// `jbx kill --force`: KILL at once, without asking with TERM first.
     force: bool,
+    /// `jbx queue --expect 4h`: how long this one should take.
+    expect: Option<f64>,
     /// Written by the hook onto a `jbx wait` the AGENT typed, never onto
     /// one the harness backgrounds for it. See `allow_wait`.
     via_agent: bool,
@@ -452,6 +466,12 @@ impl Flags {
                     )),
                 },
                 "--force" => flags.force = true,
+                "--expect" => match value().as_deref().map(str::trim).map(parse_age) {
+                    Some(Some(secs)) => flags.expect = Some(secs),
+                    _ => return Err(usage_error(
+                        "`--expect` wants how long it should take: 30m, 4h — a bare number means minutes",
+                    )),
+                },
                 "--undo" => flags.undo = true,
                 "--global-only" => flags.global_only = true,
                 "--core" => flags.core = true,
@@ -584,6 +604,11 @@ fn parse_age(text: &str) -> Option<f64> {
         's' => (&text[..text.len() - 1], 1.0),
         'm' => (&text[..text.len() - 1], 60.0),
         'h' => (&text[..text.len() - 1], 3600.0),
+        // DAYS, BECAUSE THAT IS HOW SOMEBODY ASKS FOR A DAEMON. `jbx
+        // expect <id> 3d` has to reach the ceiling and be told why it is
+        // refused — spelling it as an unreadable age would answer with a
+        // usage dump instead, which says nothing about services.
+        'd' => (&text[..text.len() - 1], 86400.0),
         _ => (text, 60.0),
     };
     let n: f64 = number.trim().parse().ok()?;
@@ -1200,6 +1225,51 @@ fn kill(id: &str, force: bool) -> i32 {
     1
 }
 
+/// `jbx expect <id> <age>` — SAY HOW LONG IT SHOULD TAKE.
+///
+/// The escape hatch from the warning, and the only one: the alternative
+/// is raising `warn_after` for everything, which puts the warning out
+/// exactly where it works. It moves the line for ONE job and no further
+/// — past the age it was given, that job is called out like any other.
+///
+/// AND IT IS CAPPED. Without a ceiling this verb is the off switch, and
+/// asking for it is precisely what somebody running a daemon through jbx
+/// would do. The ceiling is not a round number: a day is how long jbx
+/// keeps a record at all.
+fn expect(id: &str, age: &str) -> i32 {
+    let Some(secs) = parse_age(age.trim()) else {
+        return usage_error("expect wants how long it should take: 30s, 45m, 4h — a bare number means minutes");
+    };
+    if store::read_record(id).is_none() {
+        jobbox::outln!("jbx: {id} is unknown");
+        return 1;
+    }
+    if secs > store::LONGEST_EXPECTATION {
+        jobbox::outln!(
+            "jbx: {} is the most a job can be expected to take, and this asked for {}.",
+            store::how_long(store::LONGEST_EXPECTATION),
+            store::how_long(secs)
+        );
+        jobbox::outln!("     jbx keeps a job's record for a day and sweeps it after that, so a longer");
+        jobbox::outln!("     expectation promises on something it does not keep. Anything meant to run");
+        jobbox::outln!("     past that is a service — systemd, docker, something that starts it again");
+        jobbox::outln!("     after a reboot. jbx runs a line; it does not keep one alive.");
+        return 2;
+    }
+    if let Err(e) = store::write_expected(id, secs) {
+        eprintln!("jbx: cannot write that down: {e}");
+        return 2;
+    }
+    // THE OLD MARK GOES WITH IT. A job called out at two hours and then
+    // given four would stay silent for half an hour and speak again on
+    // the old cooldown — saying nothing about the four hours it was just
+    // granted.
+    let _ = std::fs::remove_file(store::warned_path(id));
+    jobbox::outln!("jbx: {id} is expected to take {} — it is called out past that, not before.",
+                   store::how_long(secs));
+    0
+}
+
 /// Signal a job: the whole tree, then the supervisor itself.
 ///
 /// BOTH, because neither is enough alone. The group carries everything
@@ -1319,11 +1389,20 @@ fn health(how: &Flags) -> i32 {
     let mut finished = 0;
     let mut mute: Vec<(String, i64)> = Vec::new();
     let mut no_output: Vec<(String, i64, String)> = Vec::new();
+    let mut endless: Vec<(String, i64, bool)> = Vec::new();
     for r in &records {
         match store::state_of(r) {
             store::State::Queued => queued += 1,
             store::State::Running { .. } => {
                 running += 1;
+                // NO COOLDOWN HERE. The pushed warning stops repeating
+                // because nobody asked for it; this verb was asked, and
+                // a state it hid for half an hour would be a state it
+                // got wrong.
+                let ran_for = store::now() - r.started;
+                if store::nobody_is_watching(r) && ran_for >= store::allowed_to_run(&r.id) {
+                    endless.push((r.id.clone(), ran_for as i64, store::expected_of(&r.id).is_some()));
+                }
                 if let Some(secs) = store::silence(r) {
                     if secs > store::mute_after() {
                         if store::wrote_nothing(r) {
@@ -1339,7 +1418,8 @@ fn health(how: &Flags) -> i32 {
     }
     let (busy, cap) = jobbox::slots::busy();
     let stranded = jobbox::signals::stranded(&store::client());
-    let code = if mute.is_empty() && no_output.is_empty() && stranded.is_empty() { 0 } else { 1 };
+    let code = if mute.is_empty() && no_output.is_empty() && stranded.is_empty() && endless.is_empty()
+    { 0 } else { 1 };
     Answer(
         serde_json::json!({
             "running": running,
@@ -1352,6 +1432,9 @@ fn health(how: &Flags) -> i32 {
             })).collect::<Vec<_>>(),
             "no_output": no_output.iter().map(|(id, secs, end)| serde_json::json!({
                 "id": id, "silent_for": secs, "line_end": end,
+            })).collect::<Vec<_>>(),
+            "long_running": endless.iter().map(|(id, secs, said)| serde_json::json!({
+                "id": id, "running_for": secs, "expected": said,
             })).collect::<Vec<_>>(),
             "stranded": stranded.iter().map(|(who, held)| serde_json::json!({
                 "client": who, "waiting": held,
@@ -1397,6 +1480,21 @@ fn health(how: &Flags) -> i32 {
                 let id = text(m, "id");
                 jobbox::outln!("    {id}  silent {}s   jbx tail {id}", m["silent_for"]);
             }
+        }
+        let endless = v["long_running"].as_array().map(Vec::as_slice).unwrap_or_default();
+        if !endless.is_empty() {
+            // WHAT JBX IS NOT, said where somebody is already looking at
+            // what it holds. The same sentence goes out on the hook; here
+            // it is asked for, so it is shorter.
+            jobbox::outln!("  RUNNING FOR HOURS — nobody is holding these, and jbx is not keeping them alive:");
+            for e in endless {
+                let id = text(e, "id");
+                let said = if e["expected"].as_bool() == Some(true) { "  (past what it was expected to take)" } else { "" };
+                jobbox::outln!("    {id}  running {}{said}",
+                               store::how_long(e["running_for"].as_f64().unwrap_or(0.0)));
+            }
+            jobbox::outln!("    a reboot ends them, records and all. Something with no end of its own is a");
+            jobbox::outln!("    service: systemd, docker. One long piece of work? `jbx expect <id> 4h`.");
         }
         let stranded = v["stranded"].as_array().map(Vec::as_slice).unwrap_or_default();
         if !stranded.is_empty() {
@@ -1487,6 +1585,8 @@ fn config(how: &Flags) -> i32 {
     let (on, on_from) = config::enabled();
     let (waiting, waiting_from) = config::allow_wait();
     let (width, width_from) = config::width();
+    let (warn, warn_from) = config::warn_after();
+    let (again, again_from) = config::warn_again_after();
     let (color, color_from) = config::color();
 
     let slots_said = match slots {
@@ -1520,6 +1620,12 @@ fn config(how: &Flags) -> i32 {
                     waiting.into(), waiting_from.as_str()),
                 row("mute_after", format!("{mute:.0}s of silence is mute"), mute.into(),
                     mute_from.as_str()),
+                row("warn_after",
+                    format!("{} in the background is called out", store::how_long(warn)),
+                    warn.into(), warn_from.as_str()),
+                row("warn_again_after",
+                    format!("{} before the same job is called out again", store::how_long(again)),
+                    again.into(), again_from.as_str()),
                 row("slots", slots_said, slots.into(), slots_from.as_str()),
                 row("width",
                     width.map(|w| format!("{w} columns")).unwrap_or_else(|| "auto".into()),
@@ -1999,13 +2105,7 @@ Answer(
 /// carries no calendar to be right about one — `--json` publishes the
 /// instant itself, which is where an exact answer belongs.
 fn age(r: &store::Record) -> String {
-    let secs = (store::now() - r.started).max(0.0);
-    match secs {
-        s if s < 90.0 => format!("{s:.0}s"),
-        s if s < 5400.0 => format!("{:.0}m", s / 60.0),
-        s if s < 172_800.0 => format!("{:.0}h", s / 3600.0),
-        s => format!("{:.0}d", s / 86400.0),
-    }
+    store::how_long(store::now() - r.started)
 }
 
 /// The name a CALLER gave, and nothing when the name was read off the

@@ -3696,3 +3696,174 @@ fn force_stops_a_job_without_asking_it_to_stop_first() {
     assert!(gone_within(pid, 5), "the supervisor outlived `kill --force`");
     s.stop_everything();
 }
+
+/// A turn beginning, in the client's own words — the hook where jbx
+/// tells an agent what has happened while it was not looking.
+fn turn_start(s: &Scratch, env: &[(&str, &str)], from: &std::path::Path) -> String {
+    let mut cmd = Command::new(JBX);
+    cmd.env_remove("JBX_WRAPPED")
+        .args(["hook", "claude"])
+        .current_dir(from)
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .env("JBX_CLIENT", "me")
+        .env("PATH", "/nonexistent");
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    use std::io::Write;
+    child.stdin.take().unwrap()
+        .write_all(br#"{"hook_event_name":"UserPromptSubmit"}"#).unwrap();
+    let out = child.wait_with_output().unwrap();
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+/// A job left running in a project of the test's own, with the warning
+/// set to fire almost at once — SO THE JOB IS REALLY THAT OLD.
+///
+/// Backdating `started` would be quicker and would be a lie: a record
+/// older than the boot names a process that cannot exist, and `is_ours`
+/// reads it as gone. The threshold moves instead of the clock.
+fn a_job_running_for(s: &Scratch, held: bool) -> (std::path::PathBuf, String, std::process::Child) {
+    let project = s.project(None, "");
+    let mut cmd = Command::new(JBX);
+    cmd.env_remove("JBX_WRAPPED")
+        .args(["run", "--after", if held { "inf" } else { "0.2" }, "--", "sleep 45"])
+        .current_dir(&project)
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .env("JBX_CLIENT", "me")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    // HANDED BACK, NOT ABANDONED: the caller ends it, so a held line does
+    // not outlive the test that started it.
+    let running = cmd.spawn().unwrap();
+    let id = {
+        let mut found = None;
+        until("the job to be recorded", || {
+            found = std::fs::read_dir(s.jobs())
+                .map(|d| {
+                    d.flatten()
+                        .filter_map(|e| e.file_name().to_str().map(str::to_string))
+                        .find(|n| n.ends_with(".json"))
+                })
+                .unwrap_or(None);
+            found.is_some()
+        });
+        found.unwrap().trim_end_matches(".json").to_string()
+    };
+    (project, id, running)
+}
+
+#[test]
+fn a_line_left_running_for_hours_is_told_what_jbx_does_not_do() {
+    // THE ONE THING JBX DOES NOT DO, SAID BEFORE SOMETHING IS LOST. It
+    // runs a line and remembers it for a day; it does not keep one
+    // alive. A reboot on 12/09/2026 ended thirty-two jobs at once and
+    // recorded nothing about any of them — among them a worker somebody
+    // had restarted through jbx, which then read as running for twenty
+    // hours. Nothing in the tool had ever said it was the wrong tool.
+    let s = Scratch::new("endless");
+    let env = [("JBX_WARN_AFTER", "1"), ("JBX_WARN_AGAIN_AFTER", "3600")];
+    let (project, id, mut running) = a_job_running_for(&s, false);
+    until("the job to be old enough", || {
+        std::fs::read_to_string(s.jobs().join(format!("{id}.json"))).is_ok()
+    });
+    std::thread::sleep(std::time::Duration::from_millis(1200));
+
+    let said = turn_start(&s, &env, &project);
+    assert!(said.contains(&id) && said.contains("has been running"),
+            "a job running past the threshold went unmentioned:\n{said}");
+    assert!(said.contains("does not keep one alive"),
+            "the warning never says what jbx is not:\n{said}");
+    assert!(said.contains("systemd") && said.contains("docker"),
+            "the warning names nowhere else to put a daemon:\n{said}");
+    assert!(said.contains(&format!("jbx expect {id}")),
+            "the warning offers no way out of itself:\n{said}");
+
+    // AND IT STOPS. A true sentence said at every turn is wallpaper by
+    // the third one, which is what the cooldown is for.
+    let again = turn_start(&s, &env, &project);
+    assert!(!again.contains("has been running"),
+            "the warning came back inside its cooldown:\n{again}");
+
+    let _ = running.kill();
+    let _ = running.wait();
+    s.stop_everything();
+}
+
+#[test]
+fn a_job_said_to_be_long_is_left_alone_until_it_is() {
+    let s = Scratch::new("expected");
+    let env = [("JBX_WARN_AFTER", "1"), ("JBX_WARN_AGAIN_AFTER", "0")];
+    let (project, id, mut running) = a_job_running_for(&s, false);
+    std::thread::sleep(std::time::Duration::from_millis(1200));
+
+    let told = text(&s.run(&["expect", &id, "4h"]));
+    assert!(told.contains("4h"), "`expect` did not say what it recorded: {told}");
+    let said = turn_start(&s, &env, &project);
+    assert!(!said.contains("has been running"),
+            "a job said to take four hours was called out after a second:\n{said}");
+
+    // AND THE WAY OUT HAS A CEILING, or it is the off switch — which is
+    // exactly what somebody running a daemon through jbx would reach
+    // for. The refusal is where the sentence lands hardest.
+    let refused = text(&s.run(&["expect", &id, "3d"]));
+    assert!(refused.contains("24h is the most"), "3d was not refused: {refused}");
+    assert!(refused.contains("service") && refused.contains("does not keep one alive"),
+            "the refusal never says why, or what to use instead: {refused}");
+    assert_eq!(store_expectation(&s, &id), Some(4.0 * 3600.0),
+               "a refused expectation overwrote the one that stood");
+
+    let _ = running.kill();
+    let _ = running.wait();
+    s.stop_everything();
+}
+
+#[test]
+fn a_held_job_is_called_out_like_any_other() {
+    // DAVID SETTLED THIS: `held` counts. Who put the line in the
+    // background — the harness with `--after inf`, or jbx at the cut —
+    // changes nothing about what is being said, because one does not
+    // launch a script that has no end.
+    //
+    // It does NOT contradict the exception `held` already has: `MUTE`
+    // and `NO OUTPUT` spare it because they judge a SILENCE, and a job
+    // the harness holds is silent by design. This judges a lifetime.
+    let s = Scratch::new("heldtoo");
+    let env = [("JBX_WARN_AFTER", "1"), ("JBX_WARN_AGAIN_AFTER", "3600")];
+    let (project, id, mut running) = a_job_running_for(&s, true);
+    std::thread::sleep(std::time::Duration::from_millis(1200));
+
+    // THE JOB IS REALLY HELD, and this test is worth nothing otherwise:
+    // an ordinary detached job would satisfy every assertion below.
+    let listed = text(&s.run(&["ps", "--all"]));
+    assert!(listed.contains("held"), "the job under test is not held:\n{listed}");
+
+    let said = turn_start(&s, &env, &project);
+    assert!(said.contains(&id), "a held job running past the threshold went unmentioned:\n{said}");
+
+    // AND `health` LISTS IT WITHOUT A COOLDOWN — it was asked, and a
+    // state it hid for half an hour would be a state it got wrong.
+    let asked = text(&s.run_with(&env, &["health"]));
+    assert!(asked.contains("RUNNING FOR HOURS") && asked.contains(&id),
+            "`health` does not list a job that has been running too long:\n{asked}");
+    let doc: serde_json::Value =
+        serde_json::from_str(&text(&s.run_with(&env, &["health", "--json"]))).expect("health is JSON");
+    assert_eq!(doc["long_running"][0]["id"], id.as_str());
+
+    let _ = running.kill();
+    let _ = running.wait();
+    s.stop_everything();
+}
+
+/// What the store says this job was expected to take.
+fn store_expectation(s: &Scratch, id: &str) -> Option<f64> {
+    std::fs::read_to_string(s.jobs().join(format!("{id}.expect")))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
