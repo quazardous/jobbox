@@ -199,7 +199,6 @@ fn invocation_path() -> Option<PathBuf> {
 
 /// Rewrite our own entries that name a different path, and say how many.
 fn repoint(settings: &mut Value, binary: &str) -> usize {
-    let wanted = format!("{binary} hook");
     let mut changed = 0;
     let Some(hooks) = settings["hooks"].as_object_mut() else { return 0 };
     for (_event, matchers) in hooks.iter_mut() {
@@ -207,14 +206,72 @@ fn repoint(settings: &mut Value, binary: &str) -> usize {
         for matcher in matchers.iter_mut() {
             let Some(entries) = matcher["hooks"].as_array_mut() else { continue };
             for entry in entries.iter_mut() {
-                if is_ours(entry, binary) && entry["command"].as_str() != Some(wanted.as_str()) {
-                    entry["command"] = Value::String(wanted.clone());
+                if !is_ours(entry, binary) {
+                    continue;
+                }
+                let Some(command) = entry["command"].as_str() else { continue };
+                // ONLY THE BINARY MOVES. This wrote `{binary} hook` over
+                // every declaration, so a second `init` turned `jbx hook
+                // gemini` into `jbx hook` — which answers as Claude, finds
+                // the wrong event name, and returns 0: the silent failure
+                // `declare` names the client to prevent, put back by the
+                // next run. Measured on 13/09/2026 in a scratch home. It
+                // would equally have erased `--no-endings` from `Stop`.
+                let rest = command.split_once(char::is_whitespace).map_or("", |(_, r)| r.trim_start());
+                let wanted = if rest.is_empty() { binary.to_string() } else { format!("{binary} {rest}") };
+                if command != wanted {
+                    entry["command"] = Value::String(wanted);
                     changed += 1;
                 }
             }
         }
     }
     changed
+}
+
+/// Whether our declaration for `event` announces endings too, or only
+/// warns about lines left running — `--no-endings` on its command line.
+fn declared_quietly(settings: &Value, event: &str, binary: &str) -> bool {
+    settings["hooks"][event]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|m| m["hooks"].as_array().into_iter().flatten())
+        .any(|e| is_ours(e, binary) && e["command"].as_str().is_some_and(|c| c.contains(NO_ENDINGS)))
+}
+
+/// WHAT `Stop` CARRIES WHEN NOBODY ASKED FOR ENDINGS.
+///
+/// Written on the declaration itself, not kept in a setting: the hook
+/// reads its own command line, so what a settings file says is exactly
+/// what the hook does, and the plugin — which declares a bare `jbx hook`
+/// and cannot take a flag — stays the announcing install it always was.
+pub const NO_ENDINGS: &str = "--no-endings";
+
+/// Whether this client's settings declare a jbx hook for the event that
+/// ends a turn — the one channel a job left running is reported on.
+/// `None` when the client has no such event, or no settings file jbx
+/// knows how to read.
+pub fn declares_turn_end(d: &crate::dialect::Dialect) -> Option<bool> {
+    let event = d.turn_end?;
+    let path = settings_path_for(d)?;
+    let settings = read(&path);
+    Some(
+        settings["hooks"][event]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|m| m["hooks"].as_array().into_iter().flatten())
+            .filter_map(|e| e["command"].as_str())
+            .any(|c| {
+                let mut words = c.split_whitespace();
+                Path::new(words.next().unwrap_or(""))
+                    .file_stem()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.eq_ignore_ascii_case("jbx"))
+                    && words.next() == Some("hook")
+            }),
+    )
 }
 
 /// Whether this binary is already declared for an event.
@@ -237,7 +294,7 @@ fn declared(settings: &Value, event: &str, binary: &str) -> bool {
 /// A SETTINGS FILE BELONGS TO OTHER TOOLS TOO. Replacing the array would
 /// be simpler and would delete somebody else's hook — the kind of edit
 /// that is noticed a week later, by its absence.
-fn declare(settings: &mut Value, event: &str, matcher: &str, binary: &str, client: &str) {
+fn declare(settings: &mut Value, event: &str, matcher: &str, binary: &str, client: &str, args: &str) {
     // THE CLIENT IS NAMED, ALWAYS — `jbx hook claude` as much as
     // `jbx hook gemini`.
     //
@@ -248,7 +305,7 @@ fn declare(settings: &mut Value, event: &str, matcher: &str, binary: &str, clien
     // Naming it removes the default that can mismatch.
     let entry = json!({
         "matcher": matcher,
-        "hooks": [{ "type": "command", "command": format!("{binary} hook {client}") }],
+        "hooks": [{ "type": "command", "command": format!("{binary} hook {client}{args}") }],
     });
     settings["hooks"][event] = match settings["hooks"][event].take() {
         Value::Array(mut a) => {
@@ -409,7 +466,7 @@ pub fn init(
     // like "nothing to do" and was not.
     let moved = repoint(&mut settings, &binary);
     if !already {
-        declare(&mut settings, d.before_tool, d.tool, &binary, d.name);
+        declare(&mut settings, d.before_tool, d.tool, &binary, d.name, "");
     }
     // THE OTHER THREE ARE NO LONGER PART OF THE DEAL, and measuring is
     // what moved them.
@@ -439,10 +496,20 @@ pub fn init(
         .collect();
     let mut added = Vec::new();
     let mut taken = Vec::new();
+    let mut warns_at = None;
     if announce {
+        // A QUIET `Stop` IS REPLACED, not kept beside a loud one. Left
+        // there, `--announce` would find `Stop` "already declared" and
+        // leave endings unannounced — a flag that did nothing on exactly
+        // the machines this release upgrades.
+        if let Some(end) = d.turn_end {
+            if declared_quietly(&settings, end, &binary) {
+                withdraw(&mut settings, end, &binary);
+            }
+        }
         for event in &unasked {
             if !declared(&settings, event, &binary) {
-                declare(&mut settings, event, "*", &binary, d.name);
+                declare(&mut settings, event, "*", &binary, d.name, "");
                 added.push(*event);
             }
         }
@@ -459,6 +526,25 @@ pub fn init(
             if withdraw(&mut settings, event, &binary) {
                 taken.push(*event);
             }
+        }
+    } else if let Some(end) = d.turn_end {
+        // `Stop` IS PART OF THE DEAL AGAIN, and only for one thing.
+        //
+        // A job left running for hours has to be named to the agent
+        // that left it, and the three hooks above were the only way to
+        // say anything unasked. Without them the warning had no channel
+        // at all: four `until … sleep` loops ran four to seven hours on
+        // 12/09/2026 on a machine with this default, and none was ever
+        // mentioned. `Stop` is the one event whose answer reaches the
+        // model as a decision, which is what makes it worth a line in
+        // somebody else's settings file.
+        //
+        // `--no-endings` keeps the rest of the old bargain: without
+        // `--announce`, endings still come from `jbx wait`, and this
+        // hook never empties the mailbox that `wait` reads.
+        if !declared(&settings, end, &binary) {
+            declare(&mut settings, end, "*", &binary, d.name, &format!(" {NO_ENDINGS}"));
+            warns_at = Some(end);
         }
     }
 
@@ -495,13 +581,16 @@ pub fn init(
     if !added.is_empty() {
         outln!("  also declared {} — endings will now be reported unasked", added.join(", "));
     }
+    if let Some(end) = warns_at {
+        outln!("  also declared {end} — a job left running for hours is named when a turn ends");
+    }
     if !taken.is_empty() {
         outln!("  took back {} — endings now come from `jbx wait`, not a hook", taken.join(", "));
     } else if core {
         outln!("  (only the wrapping hook was there — nothing to take back)");
     }
     if !announce && !core {
-        outln!("  wrapping only. `--announce` adds the hooks that report an ending unasked.");
+        outln!("  endings are not reported unasked. `--announce` adds the hooks that do.");
     }
     if moved > 0 {
         outln!("  {moved} declarations repointed at this binary");

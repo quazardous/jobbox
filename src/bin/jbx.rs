@@ -104,8 +104,13 @@ fn dispatch(args: Vec<String>) -> i32 {
             if rest.iter().any(|a| a == "--list") {
                 return with("hook", rest, list_dialects);
             }
-            match dialect_named(rest.first().map(String::as_str)) {
-                Some(d) => hook::hook(&binary, d),
+            // THE CLIENT IS THE FIRST WORD THAT IS NOT A FLAG. `init`
+            // writes `jbx hook claude --no-endings` onto `Stop`, and the
+            // plugin a bare `jbx hook` — both have to reach a dialect.
+            let endings = !rest.iter().any(|a| a == jobbox::init::NO_ENDINGS);
+            let named = rest.iter().map(String::as_str).find(|a| !a.starts_with('-'));
+            match dialect_named(named) {
+                Some(d) => hook::hook(&binary, d, endings),
                 None => 2,
             }
         }
@@ -466,6 +471,10 @@ impl Flags {
                     )),
                 },
                 "--force" => flags.force = true,
+                // READ BY THE HOOK ARM ITSELF, which never parses flags on
+                // the hot path; accepted here so `--list` beside it is not
+                // refused as a typo.
+                "--no-endings" => {}
                 "--expect" => match value().as_deref().map(str::trim).map(parse_age) {
                     Some(Some(secs)) => flags.expect = Some(secs),
                     _ => return Err(usage_error(
@@ -1495,6 +1504,15 @@ fn health(how: &Flags) -> i32 {
             }
             jobbox::outln!("    a reboot ends them, records and all. Something with no end of its own is a");
             jobbox::outln!("    service: systemd, docker. One long piece of work? `jbx expect <id> 4h`.");
+            // AND WHETHER ANY AGENT WILL HEAR IT. Listed here is not told
+            // there: the agent that left these is only held to them when
+            // a turn ends, and only if that hook is declared somewhere.
+            let told = jobbox::dialect::DIALECTS
+                .iter()
+                .any(|d| jobbox::init::declares_turn_end(d) == Some(true));
+            if !told {
+                jobbox::outln!("    no agent is told about these: no client declares the hook that ends a turn — `jbx init`.");
+            }
         }
         let stranded = v["stranded"].as_array().map(Vec::as_slice).unwrap_or_default();
         if !stranded.is_empty() {
@@ -1732,6 +1750,8 @@ fn list_dialects(how: &Flags) -> i32 {
                 "before_tool": d.before_tool,
                 "settings": d.home_dir,
                 "reports_unasked": d.turn_end.is_some(),
+                "turn_end": d.turn_end,
+                "turn_end_declared": jobbox::init::declares_turn_end(d),
                 "hook": declared_hook(d, this_binary.as_deref(), this_version),
             })
         })
@@ -1775,6 +1795,21 @@ fn list_dialects(how: &Flags) -> i32 {
                 s
             };
             jobbox::outln!("         {said}");
+            // WHETHER ANYTHING WILL NAME A LINE LEFT RUNNING. It rides
+            // one event, and a machine without that event declared used
+            // to look exactly like one with it: installed, wrapping,
+            // and silent about loops that had been polling for hours.
+            if h["declared"] == true {
+                match (d["turn_end"].as_str(), d["turn_end_declared"].as_bool()) {
+                    (Some(end), Some(false)) => jobbox::outln!(
+                        "         {end} is not declared: nothing will name a job left running for hours — `jbx init`"
+                    ),
+                    (None, _) => jobbox::outln!(
+                        "         this client has no event to name a job left running for hours on"
+                    ),
+                    _ => {}
+                }
+            }
         }
     })
 }

@@ -79,8 +79,9 @@ Declared in `~/.claude/settings.json`:
 **Or install the plugin**, which carries the binary, the hooks and a
 background watch in one piece. The plugin is the *announcing* install: it
 declares `Stop`, `UserPromptSubmit` and `SessionStart` as well, where
-`jbx init` alone declares only the hook that wraps. See
-[README.md](README.md).
+`jbx init` alone declares the hook that wraps and a quiet `Stop` — one
+that names a job left running for hours, and leaves endings to
+`jbx wait`. See [README.md](README.md).
 
 ## Gemini CLI
 
@@ -114,9 +115,11 @@ Two differences worth knowing, both handled for you:
   different spelling, and the wrong one is an unknown value rather than
   an error anybody sees.
 
-`jbx init --cli gemini --announce` adds `AfterAgent`, `BeforeAgent` and
-`SessionStart` — Gemini's own names for the three events Claude calls
-`Stop`, `UserPromptSubmit` and `SessionStart`.
+`jbx init --cli gemini` declares `BeforeTool` and a quiet `AfterAgent`,
+which names a job left running for hours. `--announce` adds `BeforeAgent`
+and `SessionStart` and makes `AfterAgent` report endings too — Gemini's
+own names for the three events Claude calls `Stop`, `UserPromptSubmit`
+and `SessionStart`.
 
 ## Factory Droid
 

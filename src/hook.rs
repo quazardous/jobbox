@@ -135,7 +135,10 @@ pub fn is_us(line: &str, binary: &str) -> bool {
 /// all when there is nothing to say. A hook that speaks on every call is
 /// a hook that gets deleted, and one that errors takes the command down
 /// with it.
-pub fn hook(binary: &str, dialect: &crate::dialect::Dialect) -> i32 {
+/// `endings` is false when the declaration carried `--no-endings`: the
+/// hook that ends a turn then reports lines left running, and leaves the
+/// endings to `jbx wait`.
+pub fn hook(binary: &str, dialect: &crate::dialect::Dialect, endings: bool) -> i32 {
     let mut raw = String::new();
     if std::io::stdin().read_to_string(&mut raw).is_err() {
         return 0;
@@ -167,7 +170,7 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect) -> i32 {
     match event["hook_event_name"].as_str() {
         Some(e) if e == dialect.before_tool => {}
         Some(e) if Some(e) == dialect.turn_end => {
-            return crate::signals::announce_stop(dialect.hold)
+            return crate::signals::announce_stop(dialect.hold, endings)
         }
         // THE SESSION'S FIRST HOOK CARRIES THE RULE; every later one
         // carries only what has finished. Saying the rule again each turn

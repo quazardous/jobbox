@@ -33,7 +33,8 @@ jbx help [id]                  the way in: every verb, or one job
 jbx how                        the gestures: what to do, and when
 jbx why                        why it works this way
 jbx init [--undo] [--global-only]
-                               declare the wrapping hook
+                               declare the wrapping hook, and the one that
+                               names a job left running when a turn ends
 jbx init --announce            … and the ones that report an ending unasked
 jbx init --core                … only the wrapping one, taking the rest back
 jbx hook [client]              answers an agent CLI; init declares this one
@@ -248,13 +249,25 @@ published by `jbx describe` under `x-jbx-dialects`, and a test holds
 them still, so changing one without re-measuring fails a build rather
 than a session.
 
-**Only one hook is needed**, and that is why this list can grow cheaply.
-jbx once declared four events: one to wrap a line, three to carry its
-ending back. But `jbx wait <id>` is an ordinary command that exits when
-the job does — run in the background by whatever runs your commands, it
-delivers the ending through no hook at all, and the detachment message
-says so at the moment it matters. What the other three bought was the
-**unasked** announcement, and that is what `jbx init --announce` is for.
+**Two hooks are declared, not four**, and that is why this list can grow
+cheaply. jbx once declared four events: one to wrap a line, three to
+carry its ending back. But `jbx wait <id>` is an ordinary command that
+exits when the job does — run in the background by whatever runs your
+commands, it delivers the ending through no hook at all, and the
+detachment message says so at the moment it matters. What the other
+three bought was the **unasked** announcement, and that is what
+`jbx init --announce` is for.
+
+**The second is the end of a turn — `Stop` — and it carries one thing.**
+A job left running for hours has to be named to the agent that left it,
+and for a while nothing could: on a machine with only the wrapping hook,
+four `until … sleep` loops polled for verdicts that had been overwritten,
+for four to seven hours, and nothing said a word. `Stop` is the one event
+whose answer reaches the model as a decision, so it holds the turn open
+until the agent stops them, moves them to a service, or says they are
+genuinely long. It is declared as `jbx hook claude --no-endings`: on a
+plain install it never touches the endings `jbx wait` is waiting for.
+`--announce` replaces it with the form that announces those too.
 
 `jbx hook --list` names them, with the tool each watches for and the
 file it declares in. `jbx init --cli gemini` writes the entry there —
@@ -299,8 +312,9 @@ to call would remove it from the machine outright.
   worker somebody had restarted through jbx, which then read as running
   for twenty hours. **A daemon, a worker, a watcher belongs under
   `systemd` or `docker`**, which start it again afterwards. A job still
-  running after two hours is told so, and told once every thirty minutes
-  after that.
+  running after two hours holds its session's turn open when the turn
+  ends, until the agent deals with it — and not again for thirty minutes.
+  `jbx hook --list` says when an install has no hook to do that with.
 - **It does not spend your permissions.** The wrapped line is what the
   harness asks you about, so an existing rule like `Bash(cargo test:*)`
   stops matching and you are asked where you were not before. A hook can

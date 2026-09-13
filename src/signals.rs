@@ -515,11 +515,8 @@ pub fn discipline() -> i32 {
 /// as context rather than as a decision.
 pub fn announce_text() -> i32 {
     let pending = take(&client(), "agent");
-    // SAID EVEN WHEN NOTHING ENDED. This used to return here on an empty
-    // mailbox, and a job running since this morning is precisely the
-    // case where nothing ends: the whole point is that it never will.
     if pending.is_empty() {
-        return warn_about_the_endless();
+        return 0; // silence is the normal case, and by far
     }
     for s in &pending {
         let state = if ok(s) {
@@ -532,29 +529,27 @@ pub fn announce_text() -> i32 {
     if pending.iter().any(|s| !ok(s)) {
         outln!("A background job failed. Look at its log before stacking anything else on top.");
     }
-    warn_about_the_endless()
+    0
 }
 
-/// WHAT JBX IS NOT, SAID TO WHOEVER LEFT SOMETHING RUNNING FOR HOURS.
+/// THE LINES THIS SESSION LEFT RUNNING FOR HOURS, and not named lately.
 ///
-/// jbx wraps a LINE. It keeps that line's log and record for a day and
-/// sweeps them after, and a reboot ends every job it knows about without
-/// recording anything — thirty-two records were left that way on
-/// 12/09/2026, one of them a worker somebody had restarted through jbx.
-/// Nothing in the tool says so until something has already been lost.
+/// Marks what it returns: whoever asks is about to say it. See
+/// `store::warn_again_after` for why it stops being said.
 ///
-/// PUSHED, NOT SHOWN. `jbx health` answers whoever asks, and the person
-/// who needs this is by definition not asking — so it goes out on the
-/// hook, in front of the next command. That is also why it stops: once
-/// per `warn_again_after` per job, marked in the store, or a true
-/// sentence becomes wallpaper by the third repetition.
-fn warn_about_the_endless() -> i32 {
+/// THIS SESSION'S, NOT THE PROJECT'S. What this feeds is a BLOCK — it
+/// holds a turn open and sends the model to act — and the rule for that
+/// is already written beside the failures below: doing it for a job
+/// somebody else started sends an agent to stop work it does not own.
+/// And marking another session's job here would silence it for the one
+/// session that could act on it. A job whose session is gone is still
+/// listed by `jbx health`, which has no cooldown.
+fn endless(me: &str) -> Vec<(String, f64)> {
     let now = store::now();
-    let here = crate::gain::project().1;
     let again = store::warn_again_after();
-    let mut called_out = Vec::new();
+    let mut found = Vec::new();
     for r in store::all() {
-        if r.project != here || !store::nobody_is_watching(&r) {
+        if r.client != me || !store::nobody_is_watching(&r) {
             continue;
         }
         if !matches!(store::state_of(&r), store::State::Running { .. }) {
@@ -568,26 +563,9 @@ fn warn_about_the_endless() -> i32 {
             continue;
         }
         store::note_warned(&r.id);
-        called_out.push((r.id.clone(), ran_for));
+        found.push((r.id.clone(), ran_for));
     }
-    if called_out.is_empty() {
-        return 0;
-    }
-    for (id, ran_for) in &called_out {
-        outln!("[jbx] {id} has been running {}.", store::how_long(*ran_for));
-    }
-    // THE REASON, NOT THE SCOLDING. What is wrong is not the duration —
-    // some work is genuinely long, and there is a verb for saying so.
-    // What is wrong is expecting jbx to keep something alive, because it
-    // is the one thing it does not do.
-    outln!("      jbx runs a line and remembers it for a day. It does not keep one alive:");
-    outln!("      a reboot ends it, records and all. Something with no end of its own — a");
-    outln!("      daemon, a worker, a watcher — belongs under systemd or docker, not here.");
-    outln!("      Genuinely one long piece of work? Say so, and this stops:");
-    for (id, _) in &called_out {
-        outln!("        jbx expect {id} 4h");
-    }
-    0
+    found
 }
 
 /// The `Stop` shape: JSON, because that is the only hook whose output
@@ -597,11 +575,16 @@ fn warn_about_the_endless() -> i32 {
 /// `AfterAgent` wants `"deny"` with the `reason` sent back as a fresh
 /// prompt. Same effect, different spelling — and the wrong one is an
 /// unknown value, which is not an error anybody would ever see.
-pub fn announce_stop(hold: &str) -> i32 {
+pub fn announce_stop(hold: &str, endings: bool) -> i32 {
     let me = client();
-    let pending = take(&me, "agent");
+    // NOT TAKEN WITHOUT `--announce`. The mailbox is `jbx wait`'s to
+    // read on such an install, and emptying it here would steal the
+    // ending Monitor is waiting for — the one path the default install
+    // promises.
+    let pending = if endings { take(&me, "agent") } else { Vec::new() };
+    let endless = endless(&me);
     if pending.is_empty() {
-        return 0;
+        return say_endless(serde_json::json!({}), &endless, hold);
     }
     let summary = pending
         .iter()
@@ -651,6 +634,47 @@ pub fn announce_stop(hold: &str) -> i32 {
             "jbx: {summary}. Failed job logs: {logs}. Read them, say what broke, \
              and fix it if it is within reach."
         ));
+    }
+    say_endless(out, &endless, hold)
+}
+
+/// Add the lines left running to whatever `Stop` was going to say, and
+/// say it — or say nothing, which is by far the usual answer.
+///
+/// IT BLOCKS, and that is the point of this hook rather than another:
+/// `Stop` is the one event whose answer reaches the model as a decision.
+/// A notice beside the turn is read and nothing happens; four loops
+/// waiting for verdicts that had been overwritten ran for hours that
+/// way. Held open, the agent has to do something about them — and the
+/// cooldown is what keeps a hold from turning into a loop.
+fn say_endless(mut out: Value, endless: &[(String, f64)], hold: &str) -> i32 {
+    if !endless.is_empty() {
+        let named = endless
+            .iter()
+            .map(|(id, ran_for)| format!("{id} ({})", store::how_long(*ran_for)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let before = out["reason"].as_str().map(|r| format!("{r} ")).unwrap_or_default();
+        // THE REASON, NOT THE SCOLDING, and three doors out of it: the
+        // duration is not the fault — some work is long — expecting jbx
+        // to keep something alive is.
+        out["decision"] = Value::String(hold.into());
+        out["reason"] = Value::String(format!(
+            "{before}jbx: still running after hours, left by this session: {named}. \
+             jbx runs a line and remembers it for a day; it does not keep one alive, \
+             and a reboot ends it without a trace. For each one: waiting on something \
+             that will not come — stop it, `jbx kill <id>`; a daemon, worker or \
+             watcher — it belongs under systemd or docker; one long piece of work \
+             that is going fine — say so, `jbx expect <id> <age>`."
+        ));
+        let line = format!("jbx: running for hours — {named}.");
+        out["systemMessage"] = Value::String(match out["systemMessage"].as_str() {
+            Some(said) => format!("{said} {line}"),
+            None => line,
+        });
+    }
+    if out.as_object().is_some_and(|o| o.is_empty()) {
+        return 0;
     }
     outln!("{out}");
     0

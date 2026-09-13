@@ -1878,7 +1878,12 @@ fn init_declares_in_the_named_client_and_nowhere_else() {
     ];
 
     s.run_with(&env, &["init", "--global-only", "--cli", "gemini"]);
-    assert_eq!(events(".gemini"), ["BeforeTool".to_string()].into_iter().collect(),
+    // TWO, AND THE SECOND IS GEMINI'S OWN NAME for the end of a turn — the
+    // one event a line left running for hours is named on. Declaring
+    // Claude's `Stop` here would be the hook that looks installed and
+    // never fires.
+    assert_eq!(events(".gemini"),
+               ["BeforeTool", "AfterAgent"].map(String::from).into_iter().collect(),
                "gemini got {:?}", events(".gemini"));
 
     // AND THE DECLARED COMMAND NAMES THE CLIENT. This guard once checked
@@ -1890,6 +1895,16 @@ fn init_declares_in_the_named_client_and_nowhere_else() {
     let declared = std::fs::read_to_string(at(".gemini")).unwrap();
     assert!(declared.contains("hook gemini"),
             "the declaration does not name the dialect: {declared}");
+    assert!(declared.contains("hook gemini --no-endings"),
+            "the turn-end hook of a plain install would take the endings `jbx wait` reads: {declared}");
+
+    // AND A SECOND `init` KEEPS ALL OF IT. It used to rewrite every one of
+    // our declarations to a bare `jbx hook`, putting back — on the next
+    // run — the unnamed client this guard was written against.
+    s.run_with(&env, &["init", "--global-only", "--cli", "gemini"]);
+    let again = std::fs::read_to_string(at(".gemini")).unwrap();
+    assert!(!again.contains("jbx hook\""), "a second init dropped the client: {again}");
+    assert!(again.contains("hook gemini --no-endings"), "a second init dropped the flag: {again}");
     assert!(events(".claude").is_empty(), "claude was touched: {:?}", events(".claude"));
 
     // AND `--announce` SPEAKS THAT CLIENT'S NAMES. Declaring Claude's
@@ -1902,6 +1917,10 @@ fn init_declares_in_the_named_client_and_nowhere_else() {
             .map(String::from).into_iter().collect::<std::collections::BTreeSet<_>>(),
         "gemini got {:?}", events(".gemini")
     );
+    let loud = std::fs::read_to_string(at(".gemini")).unwrap();
+    assert!(!loud.contains("--no-endings"),
+            "`--announce` kept the quiet turn-end hook, so endings stay unannounced: {loud}");
+    assert_eq!(loud.matches("AfterAgent").count(), 1, "two turn-end hooks declared: {loud}");
 
     // `--core` takes them back, in the same client.
     s.run_with(&env, &["init", "--global-only", "--cli", "gemini", "--core"]);
@@ -2267,10 +2286,15 @@ fn the_plugin_declares_what_init_declares_and_says_the_same_version() {
     assert_eq!(declared, announcing,
                "the plugin declares {declared:?} where `jbx init --announce` writes {announcing:?}");
 
-    // AND THE DEFAULT IS THE SMALL ONE. Named here because it is the
-    // promise the flag exists to keep: plain `init` touches one hook.
+    // AND THE DEFAULT IS STILL THE SMALL ONE — two hooks, not four. It was
+    // one, and on the machine that ran on it four polling loops went
+    // unmentioned for hours: the warning about them rode events that
+    // install never declared. `Stop` came back for that alone, with
+    // `--no-endings`, so the unasked announcements stay what `--announce`
+    // is for.
     let plain = events(&[]);
-    assert_eq!(plain, ["PreToolUse".to_string()].into_iter().collect::<std::collections::BTreeSet<_>>(),
+    assert_eq!(plain, ["PreToolUse", "Stop"].map(String::from).into_iter()
+                   .collect::<std::collections::BTreeSet<_>>(),
                "`jbx init` with no flag wrote {plain:?}");
 
     // AND EVERY HOOK GOES THROUGH THE PLUGIN'S OWN BINARY, quoted the
@@ -3697,12 +3721,13 @@ fn force_stops_a_job_without_asking_it_to_stop_first() {
     s.stop_everything();
 }
 
-/// A turn beginning, in the client's own words — the hook where jbx
-/// tells an agent what has happened while it was not looking.
-fn turn_start(s: &Scratch, env: &[(&str, &str)], from: &std::path::Path) -> String {
+/// A turn ending, as a plain install declares it: `jbx hook claude
+/// --no-endings`. Returns the hook's answer, parsed — `null` when it said
+/// nothing, which is its answer almost every time.
+fn turn_end(s: &Scratch, env: &[(&str, &str)], from: &std::path::Path) -> serde_json::Value {
     let mut cmd = Command::new(JBX);
     cmd.env_remove("JBX_WRAPPED")
-        .args(["hook", "claude"])
+        .args(["hook", "claude", "--no-endings"])
         .current_dir(from)
         .env("JBX_DIR", &s.0)
         .env("JBX_CONFIG", s.0.join("global.yaml"))
@@ -3713,10 +3738,10 @@ fn turn_start(s: &Scratch, env: &[(&str, &str)], from: &std::path::Path) -> Stri
     }
     let mut child = cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     use std::io::Write;
-    child.stdin.take().unwrap()
-        .write_all(br#"{"hook_event_name":"UserPromptSubmit"}"#).unwrap();
+    child.stdin.take().unwrap().write_all(br#"{"hook_event_name":"Stop"}"#).unwrap();
     let out = child.wait_with_output().unwrap();
-    String::from_utf8_lossy(&out.stdout).into_owned()
+    let said = String::from_utf8_lossy(&out.stdout);
+    serde_json::from_str(said.trim()).unwrap_or(serde_json::Value::Null)
 }
 
 /// A job left running in a project of the test's own, with the warning
@@ -3737,19 +3762,26 @@ fn a_job_running_for(s: &Scratch, held: bool) -> (std::path::PathBuf, String, st
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    // THE RECORD THAT APPEARS, not the first one found: a test that ran
+    // another job first would otherwise be handed that one's id — which
+    // is how the wiring test first failed, naming the right job and
+    // comparing it with the wrong one.
+    let records = || -> std::collections::BTreeSet<String> {
+        std::fs::read_dir(s.jobs())
+            .map(|d| d.flatten()
+                .filter_map(|e| e.file_name().to_str().map(str::to_string))
+                .filter(|n| n.ends_with(".json"))
+                .collect())
+            .unwrap_or_default()
+    };
+    let before = records();
     // HANDED BACK, NOT ABANDONED: the caller ends it, so a held line does
     // not outlive the test that started it.
     let running = cmd.spawn().unwrap();
     let id = {
         let mut found = None;
         until("the job to be recorded", || {
-            found = std::fs::read_dir(s.jobs())
-                .map(|d| {
-                    d.flatten()
-                        .filter_map(|e| e.file_name().to_str().map(str::to_string))
-                        .find(|n| n.ends_with(".json"))
-                })
-                .unwrap_or(None);
+            found = records().difference(&before).next().cloned();
             found.is_some()
         });
         found.unwrap().trim_end_matches(".json").to_string()
@@ -3773,21 +3805,23 @@ fn a_line_left_running_for_hours_is_told_what_jbx_does_not_do() {
     });
     std::thread::sleep(std::time::Duration::from_millis(1200));
 
-    let said = turn_start(&s, &env, &project);
-    assert!(said.contains(&id) && said.contains("has been running"),
-            "a job running past the threshold went unmentioned:\n{said}");
-    assert!(said.contains("does not keep one alive"),
+    let said = turn_end(&s, &env, &project);
+    // HELD OPEN, NOT MENTIONED. A notice beside the turn is read and
+    // nothing happens; the decision is what makes the agent act.
+    assert_eq!(said["decision"], "block", "the turn was allowed to end:\n{said}");
+    let reason = said["reason"].as_str().unwrap_or_default();
+    assert!(reason.contains(&id), "a job running past the threshold went unmentioned:\n{said}");
+    assert!(reason.contains("does not keep one alive"),
             "the warning never says what jbx is not:\n{said}");
-    assert!(said.contains("systemd") && said.contains("docker"),
+    assert!(reason.contains("systemd") && reason.contains("docker"),
             "the warning names nowhere else to put a daemon:\n{said}");
-    assert!(said.contains(&format!("jbx expect {id}")),
+    assert!(reason.contains("jbx kill") && reason.contains("jbx expect"),
             "the warning offers no way out of itself:\n{said}");
 
-    // AND IT STOPS. A true sentence said at every turn is wallpaper by
-    // the third one, which is what the cooldown is for.
-    let again = turn_start(&s, &env, &project);
-    assert!(!again.contains("has been running"),
-            "the warning came back inside its cooldown:\n{again}");
+    // AND IT STOPS. A hold said at every turn is a session that can never
+    // end, which is what the cooldown is for.
+    let again = turn_end(&s, &env, &project);
+    assert!(again.is_null(), "the warning came back inside its cooldown:\n{again}");
 
     let _ = running.kill();
     let _ = running.wait();
@@ -3803,9 +3837,8 @@ fn a_job_said_to_be_long_is_left_alone_until_it_is() {
 
     let told = text(&s.run(&["expect", &id, "4h"]));
     assert!(told.contains("4h"), "`expect` did not say what it recorded: {told}");
-    let said = turn_start(&s, &env, &project);
-    assert!(!said.contains("has been running"),
-            "a job said to take four hours was called out after a second:\n{said}");
+    let said = turn_end(&s, &env, &project);
+    assert!(said.is_null(), "a job said to take four hours was called out after a second:\n{said}");
 
     // AND THE WAY OUT HAS A CEILING, or it is the off switch — which is
     // exactly what somebody running a daemon through jbx would reach
@@ -3842,8 +3875,9 @@ fn a_held_job_is_called_out_like_any_other() {
     let listed = text(&s.run(&["ps", "--all"]));
     assert!(listed.contains("held"), "the job under test is not held:\n{listed}");
 
-    let said = turn_start(&s, &env, &project);
-    assert!(said.contains(&id), "a held job running past the threshold went unmentioned:\n{said}");
+    let said = turn_end(&s, &env, &project);
+    assert!(said["reason"].as_str().is_some_and(|r| r.contains(&id)),
+            "a held job running past the threshold went unmentioned:\n{said}");
 
     // AND `health` LISTS IT WITHOUT A COOLDOWN — it was asked, and a
     // state it hid for half an hour would be a state it got wrong.
@@ -3866,4 +3900,97 @@ fn store_expectation(s: &Scratch, id: &str) -> Option<f64> {
         .trim()
         .parse()
         .ok()
+}
+
+#[test]
+#[cfg(unix)]
+fn the_stop_line_init_declares_names_a_job_left_running_and_leaves_endings_to_wait() {
+    // THROUGH WHAT `init` WROTE, NOT THROUGH A CALL WE CHOSE. The warning
+    // of 0.23.0 was tested by calling the hook with the event it wanted,
+    // and passed — while the install it shipped on declared no such
+    // event, and four polling loops ran unmentioned for hours. The only
+    // assertion that can see that is one that runs the declared line.
+    let s = Scratch::new("wired");
+    let home = s.0.join("home");
+    std::fs::create_dir_all(home.join(".claude")).unwrap();
+    let env = [
+        ("HOME", home.to_str().unwrap()),
+        ("USERPROFILE", home.to_str().unwrap()),
+        ("JBX_WARN_AFTER", "1"),
+        ("JBX_WARN_AGAIN_AFTER", "3600"),
+    ];
+    s.run_with(&env, &["init", "--global-only"]);
+    let settings: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(home.join(".claude/settings.json")).unwrap()).unwrap();
+    let stop = settings["hooks"]["Stop"][0]["hooks"][0]["command"]
+        .as_str()
+        .unwrap_or_else(|| panic!("plain `init` declared no Stop hook: {settings}"))
+        .to_string();
+
+    // An ending waiting in the mailbox, as one does for `jbx wait` — a
+    // FAILED one, which is what an announcing Stop would block on.
+    let project = s.project(None, "");
+    let _ = Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
+        .args(["run", "--after", "0.1", "--", "sleep 0.4; exit 3"])
+        .current_dir(&project)
+        .env("JBX_DIR", &s.0).env("JBX_CONFIG", s.0.join("global.yaml")).env("JBX_CLIENT", "me")
+        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+        .status();
+    let mailbox = s.jobs().join("signals").join("me").join("agent.jsonl");
+    until("the ending to be deposited", || mailbox.exists());
+
+    let (_, id, mut running) = a_job_running_for(&s, false);
+    std::thread::sleep(std::time::Duration::from_millis(1200));
+
+    let mut hook = Command::new("sh");
+    hook.args(["-c", &stop])
+        .env_remove("JBX_WRAPPED")
+        .current_dir(&project)
+        .env("JBX_DIR", &s.0).env("JBX_CONFIG", s.0.join("global.yaml")).env("JBX_CLIENT", "me");
+    for (k, v) in env {
+        hook.env(k, v);
+    }
+    let mut child = hook.stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    use std::io::Write;
+    child.stdin.take().unwrap().write_all(br#"{"hook_event_name":"Stop"}"#).unwrap();
+    let said = String::from_utf8_lossy(&child.wait_with_output().unwrap().stdout).into_owned();
+    let answer: serde_json::Value = serde_json::from_str(said.trim())
+        .unwrap_or_else(|_| panic!("the declared Stop line said nothing usable about a job left running:\n{said}"));
+    assert_eq!(answer["decision"], "block", "the turn was allowed to end: {answer}");
+    assert!(answer["reason"].as_str().is_some_and(|r| r.contains(&id)),
+            "the job left running is not named: {answer}");
+
+    // AND THE ENDING IS STILL THERE. On a plain install it is `jbx wait`'s
+    // to deliver; a Stop that emptied the box would steal it from the
+    // Monitor waiting on it.
+    assert!(std::fs::read_to_string(&mailbox).is_ok_and(|t| t.contains("exit 3")),
+            "the quiet Stop hook consumed an ending `jbx wait` was owed");
+    assert!(!answer["reason"].as_str().unwrap_or_default().contains("Failed job logs"),
+            "the quiet Stop hook announced an ending: {answer}");
+
+    let _ = running.kill();
+    let _ = running.wait();
+    s.stop_everything();
+}
+
+#[test]
+fn hook_list_says_when_nothing_will_name_a_job_left_running() {
+    // A MACHINE WITHOUT THE CHANNEL LOOKED LIKE ONE WITH IT: installed,
+    // wrapping, and silent about loops polling for hours. The listing is
+    // where somebody checks an install, so that is where it is said.
+    let s = Scratch::new("nochannel");
+    let home = s.0.join("home");
+    std::fs::create_dir_all(home.join(".claude")).unwrap();
+    s.run_with(&[("HOME", home.to_str().unwrap()), ("USERPROFILE", home.to_str().unwrap())],
+               &["init", "--global-only", "--core"]);
+    let listed = text(&hook_list_with_home(&home, &s, &[]));
+    assert!(listed.contains("Stop is not declared"),
+            "an install that cannot name a job left running does not say so:\n{listed}");
+
+    s.run_with(&[("HOME", home.to_str().unwrap()), ("USERPROFILE", home.to_str().unwrap())],
+               &["init", "--global-only"]);
+    let listed = text(&hook_list_with_home(&home, &s, &[]));
+    assert!(!listed.contains("Stop is not declared"),
+            "a plain install is still said to lack the hook it now declares:\n{listed}");
 }
