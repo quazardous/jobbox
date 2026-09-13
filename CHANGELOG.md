@@ -18,6 +18,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-09-13
+
+### Changed
+
+- **`jbx init` declares two hooks, not one: the end of a turn is back.**
+  `Stop` for Claude, `AfterAgent` for Gemini, written as `jbx hook claude
+  --no-endings`. It carries one thing — a job this session left running
+  for hours — and it holds the turn open until the agent deals with it:
+  stops the line, moves it to a service, or says it is genuinely long
+  with `jbx expect`. It is the one event whose answer reaches the model
+  as a decision; a notice beside the turn is read and nothing happens.
+  The thirty-minute cooldown keeps a hold from becoming a loop. On a
+  plain install it never touches the endings `jbx wait` delivers, so the
+  unasked announcements stay what `--announce` is for. `--announce`
+  replaces the quiet `Stop` with the one that announces; `--core` takes
+  it back out. Re-run `jbx init` to get it: an existing settings file
+  keeps what it declared.
+
+### Fixed
+
+- **The warning added in 0.23.0 never reached anybody on a default
+  install.** It rode the turn-start events, which only `--announce`
+  declares. On a machine with the wrapping hook alone, four `until …
+  sleep` loops polled for verdicts that had been overwritten, for four
+  to seven hours, and nothing named them. It now rides the turn-end hook
+  above, and `jbx hook --list` says when an install has no such hook —
+  `jbx health` when no client does.
+- **A second `jbx init` undid part of the first.** It rewrote every
+  declaration to a bare `jbx hook`, so `jbx hook gemini` answered as
+  Claude, did not recognise Gemini's events, and did nothing without an
+  error. Re-running `init` now moves only the path to the binary.
+
 ## [0.23.0] - 2026-09-12
 
 ### Added
