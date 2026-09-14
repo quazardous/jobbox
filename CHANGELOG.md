@@ -18,6 +18,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-09-14
+
+### Changed
+
+- **A project with projects under it counts all of them, and shows its own
+  share as `*self`.** Its row used to count its own commands alone while
+  its children sat indented beneath it, so the eye read a total that was
+  not one. The row now carries the whole subtree; what the project did by
+  itself is a `*self` row among its children, ranked by what it saved
+  like the others. The headline counts readings, not rows, so nothing is
+  added twice. In `--json`, that row carries `"self": true`.
+- **The impact gauge is up to 24 cells, not 10.** A cell worth ten percent
+  made a project crushing the others look like one merely ahead. It takes
+  the room the other columns leave, never less than eight, so a table
+  still fits its terminal.
+- **`jbx gain` covers the last 30 days unless told otherwise.** Readings
+  are kept for ninety, and a figure over ninety days buries this month
+  under the ones before it. `--since all` reaches everything kept, and its
+  heading says how far that goes instead of "since the beginning". The
+  spans at the foot are now hour, day, week and month.
+
 ## [0.24.0] - 2026-09-13
 
 ### Changed
