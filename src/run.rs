@@ -501,7 +501,7 @@ fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>, no_input: b
     cmd.stdin(input).stdout(Stdio::null()).stderr(Stdio::null());
     stop_lending_our_output();
     detach(&mut cmd);
-    let child = match cmd.spawn() {
+    let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("jbx: cannot start the supervisor: {e}");
@@ -602,6 +602,29 @@ fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>, no_input: b
             }
             return code;
         }
+        // THE SUPERVISOR IS OUR OWN CHILD, so its death is a question we
+        // can simply ask. This loop used to watch for the code file and
+        // nothing else — and a supervisor that dies without writing one
+        // leaves that file for ever unwritten. With a finite `after` the
+        // cut still ended the wait; with `--after inf`, the line a harness
+        // backgrounds itself, nothing did. Four such fronts sat for six
+        // to nine hours on 12/09/2026 over zombie supervisors, and the
+        // harness's background tasks waited on them: jbx read those jobs
+        // as `gone`, so no guard ever named them. Asking also reaps the
+        // zombie.
+        if let Ok(Some(status)) = child.try_wait() {
+            // THE CODE IS WRITTEN BEFORE THE SUPERVISOR EXITS, so an exit
+            // with the file in place is the ordinary ending, reached one
+            // turn early — go round and take it the ordinary way.
+            if store::code_path(&id).exists() {
+                continue;
+            }
+            while drain(&mut reader, &mut buf, &mut cut) > 0 {}
+            eprintln!("jbx: {id} ended without leaving an exit code — its supervisor {}",
+                      how_it_went(status));
+            eprintln!("     the line's own ending is not knowable; its log is {}", log.display());
+            return store::NO_ENDING;
+        }
         if store::now() - started >= after {
             let now = store::now();
             // ONE LAST LOOK BEFORE SPEAKING. The line may have finished
@@ -634,6 +657,21 @@ fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>, no_input: b
         if moved == 0 {
             std::thread::sleep(poll_after(store::now() - started));
         }
+    }
+}
+
+/// How a process ended, in words: its code, or the signal that ended it.
+fn how_it_went(status: std::process::ExitStatus) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            return format!("was killed by signal {signal}");
+        }
+    }
+    match status.code() {
+        Some(code) => format!("exited with {code} before recording anything"),
+        None => "ended for a reason the system did not give".to_string(),
     }
 }
 
@@ -957,7 +995,7 @@ pub fn attach(id: &str) -> i32 {
             store::State::Lost => {
                 while drain(&mut reader, &mut buf, &mut cut) > 0 {}
                 eprintln!("jbx: {id} ended without leaving an exit code");
-                break 1;
+                break store::NO_ENDING;
             }
             _ => {
                 if moved == 0 {

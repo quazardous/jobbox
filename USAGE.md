@@ -93,6 +93,14 @@ watch` streams an event per job as it changes and **ends by itself** when
 nothing is left running, which is what keeps a watch from staying armed
 after the thing it waited for.
 
+**125 means jbx lost track, not that the line failed.** A job whose
+supervisor went away without recording an ending — killed, or the machine
+went down under it — has no exit code anybody can know. `jbx wait`,
+`jbx fg <id>` and a held line's own `jbx run` all end with 125 then, and
+say so on stderr; `1` was used before, which is also the commonest way a
+command reports its own failure. A held line used to go further and wait
+for ever, since nothing but that missing code could end it.
+
 Both observe and neither consumes: `jbx signals` destroys what it reports
 — right for an agent reading its own mail exactly once, ruinous for a
 watcher, which would eat the endings the session is waiting for.

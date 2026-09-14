@@ -1126,7 +1126,7 @@ fn wait(id: &str) -> i32 {
                 // the same reason.
                 signals::forget(&store::client(), id);
                 eprintln!("jbx: {id} ended without leaving an exit code");
-                return 1;
+                return store::NO_ENDING;
             }
             store::State::Queued | store::State::Running { .. } => {
                 std::thread::sleep(std::time::Duration::from_millis(200))

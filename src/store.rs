@@ -264,6 +264,16 @@ pub fn record_path(id: &str) -> PathBuf { dir().join(format!("{id}.json")) }
 /// readable from outside, by a `list` that never spoke to the
 /// supervisor holding the job.
 pub fn started_path(id: &str) -> PathBuf { dir().join(format!("{id}.started")) }
+/// THE EXIT CODE FOR A LINE THAT ENDED WITHOUT SAYING HOW.
+///
+/// Its supervisor went away without writing `<id>.code` — killed, or the
+/// machine went down under it — so the line's own code is not knowable.
+/// It used to be `1`, which is also the commonest way a command says it
+/// failed, and a reader had no way to tell "the build failed" from "jbx
+/// lost track of the build". 125 is what `git bisect` and `docker run`
+/// use for the same distinction: the tool, not the thing it ran.
+pub const NO_ENDING: i32 = 125;
+
 /// WHEN THIS JOB WAS LAST CALLED OUT FOR RUNNING TOO LONG. Its absence
 /// means never. Kept per job rather than per session, because two
 /// runaway lines both deserve naming.

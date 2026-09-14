@@ -1451,8 +1451,11 @@ fn stopping_a_job_before_it_starts_leaves_a_state_that_says_so() {
     // ever — and `wait` on it blocked for ever with it.
     let after = text(&s.run_with(&one, &["status", &victim]));
     assert!(!after.contains("waiting for a slot"), "it still claims to be waiting:\n{after}");
-    assert_eq!(s.run_with(&one, &["wait", &victim]).status.code(), Some(1),
-               "`wait` did not come back");
+    // 125, NOT 1: nothing recorded how this job ended, and `1` is how a
+    // command reports its own failure — the reader could not tell the two
+    // apart. See `store::NO_ENDING`.
+    assert_eq!(s.run_with(&one, &["wait", &victim]).status.code(), Some(125),
+               "`wait` did not come back with the lost-ending code");
     // AND NOTHING LEFT WAITING when the scratch directory goes: queued jobs
     // outliving their store is how this suite left orphans on a machine.
     s.stop_everything();
@@ -4130,4 +4133,67 @@ fn the_impact_gauge_takes_the_room_there_is_and_no_more() {
         assert!(r.chars().count() <= 80, "a row runs past 80 columns ({}): {r}", r.chars().count());
         assert!(gauge(r) >= 8, "the gauge shrank below what can rank anything: {r}");
     }
+}
+
+#[test]
+#[cfg(unix)]
+fn a_held_line_whose_supervisor_dies_ends_instead_of_waiting_for_ever() {
+    // THE FRONT WATCHED FOR THE CODE FILE AND NOTHING ELSE. A supervisor
+    // that dies without writing one leaves it unwritten for ever, and
+    // with `--after inf` no cut comes to end the wait. On 12/09/2026 four
+    // fronts sat six to nine hours over zombie supervisors, and the
+    // harness's background tasks waited on them — while jbx read those
+    // jobs as `gone`, so nothing ever named them.
+    let s = Scratch::new("deadsupervisor");
+    let mut front = Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
+        .args(["run", "--after", "inf", "--", "sleep 8"])
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .env("JBX_CLIENT", "me")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut id = String::new();
+    until("the held line to be recorded", || {
+        id = std::fs::read_dir(s.jobs())
+            .map(|d| d.flatten()
+                .filter_map(|e| e.file_name().to_str().map(str::to_string))
+                .find(|n| n.ends_with(".json")))
+            .ok().flatten().unwrap_or_default().trim_end_matches(".json").to_string();
+        !id.is_empty()
+    });
+    let supervisor = supervisor_pid(&s, &id);
+    let _ = Command::new("kill").args(["-9", &supervisor.to_string()]).status();
+
+    // ENDED WITHIN SECONDS, or stopped here so a regression fails the
+    // test rather than freezing the suite.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = front.try_wait().unwrap() {
+            break status;
+        }
+        if std::time::Instant::now() > deadline {
+            let _ = front.kill();
+            let _ = front.wait();
+            panic!("the front was still waiting five seconds after its supervisor died");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    let mut said = String::new();
+    use std::io::Read;
+    front.stderr.take().unwrap().read_to_string(&mut said).unwrap();
+
+    // A CODE OF ITS OWN: `1` is how a command says it failed, and this is
+    // jbx saying it lost track — the two want different things done.
+    assert_eq!(status.code(), Some(125), "the front's exit is not the lost-ending code:\n{said}");
+    assert!(said.contains("without leaving an exit code") && said.contains("signal 9"),
+            "the front does not say what happened:\n{said}");
+    assert!(!pid_alive(supervisor) || std::fs::read_to_string(format!("/proc/{supervisor}/stat"))
+                .map_or(true, |st| !st.contains(") Z ")),
+            "the dead supervisor was left a zombie");
+    let state = text(&s.run(&["status", &id]));
+    assert!(state.contains("gone"), "the job does not read as gone:\n{state}");
 }
