@@ -11,7 +11,7 @@ the sum is invisible until something counts it.
 
 ```console
 $ jbx gain
-jbx gain — since the beginning
+jbx gain — last 30d
 
   commands wrapped         142
   of those, detached        11  (7.7% of them)
@@ -19,15 +19,16 @@ jbx gain — since the beginning
   you stood still       35m12s
   given back             2h29m  ███████████████████░░░░░  81.0%
 
-project  calls  detached  elapsed  waited  saved         impact
-acme     142    11        3h04m    35m12s  2h29m (81%)   ██████████
-  api    96     7         2h11m    18m03s  1h53m (86%)   ████████░░
-  front  34     4         39m      3m17s   36m (92%)     ██░░░░░░░░
+project  calls  detached  elapsed  waited  saved        impact
+acme     142    11        3h04m    35m12s  2h29m (81%)  ████████████████████████
+  api    96     7         2h11m    18m03s  1h53m (86%)  ██████████████████░░░░░░
+  front  34     4         39m      3m17s   36m (92%)    ██████░░░░░░░░░░░░░░░░░░
+  *self  12     0         14m      13m52s  8.0s (1%)    ░░░░░░░░░░░░░░░░░░░░░░░░
 
 last hour       6 calls ·    1 detached ·   8m12s saved (73%)
 last day       38 calls ·    4 detached ·  40m05s saved (77%)
 last week     142 calls ·   11 detached ·   2h29m saved (81%)
-all           142 calls ·   11 detached ·   2h29m saved (81%)
+last month    142 calls ·   11 detached ·   2h29m saved (81%)
 ```
 
 That is one week. Put your own rate on it.

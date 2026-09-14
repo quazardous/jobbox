@@ -26,7 +26,7 @@ jbx clients                    whose endings are still unread
 jbx signals <agent|user>       endings not yet read
 jbx gain [project]             what the wrapping bought, and what it cost
 jbx gain --thresholds          … and whether 30s is the right cut
-jbx gain --since 1h|24h|all    … over a window rather than everything kept
+jbx gain --since 1h|7d|all     … over another window than the last 30 days
 jbx gain --project-path        … with full paths instead of names
 jbx config                     every setting, and where it came from
 jbx help [id]                  the way in: every verb, or one job
@@ -205,6 +205,29 @@ value would be worse than none.
 A job killed before it finished leaves no reading of its own — the run
 is recorded when it ends — so `reached for` can name a job that
 `detached` never counted. Worth knowing before reading the two together.
+
+## A project, and what is under it
+
+A project inside another project — a tool in the tree of the thing it
+serves — is listed under it, and **the row above counts everything
+under it**. What the outer project did by itself is the `*self` row
+among its children, ranked by what it saved like the others:
+
+```
+acme     142  …  2h29m (81%)  ████████████████████████
+  api     96  …  1h53m (86%)  ██████████████████░░░░░░
+  *self   12  …  8.0s (1%)    ░░░░░░░░░░░░░░░░░░░░░░░░
+```
+
+It used to be the other way: the outer row counted its own commands
+only, with its children indented beneath it, so the eye read a total
+that was not one. In `--json`, a `*self` row carries `"self": true` and
+its parent's path; adding rows up means skipping the rows that have
+children, or reading `total` instead.
+
+**The table covers the last 30 days.** Everything kept is ninety, and a
+figure over ninety days buries what changed this month under the months
+before it. `--since all` reaches all of it, and says how far that is.
 
 ## `saved` is a ceiling, and it says so
 

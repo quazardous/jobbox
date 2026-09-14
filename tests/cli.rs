@@ -3994,3 +3994,140 @@ fn hook_list_says_when_nothing_will_name_a_job_left_running() {
     assert!(!listed.contains("Stop is not declared"),
             "a plain install is still said to lack the hook it now declares:\n{listed}");
 }
+
+/// Readings written by hand into a scratch store: one line per
+/// `(path, seconds ago, how long it ran)`, each detached at 30s.
+fn seed_readings(s: &Scratch, lines: &[(&str, f64, f64)]) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs_f64();
+    let body: String = lines
+        .iter()
+        .map(|(path, ago, secs)| {
+            let name = path.rsplit('/').next().unwrap_or(path);
+            format!(
+                "{{\"at\":{},\"kind\":\"run\",\"fg\":false,\"project\":\"{name}\",\"path\":\"{path}\",\
+                 \"shape\":\"make\",\"secs\":{secs},\"after\":30.0,\"code\":0}}\n",
+                now - ago
+            )
+        })
+        .collect();
+    std::fs::create_dir_all(s.home()).unwrap();
+    std::fs::write(s.home().join("readings.jsonl"), body).unwrap();
+}
+
+fn gain_rows(doc: &serde_json::Value) -> Vec<(String, u64, u64, bool)> {
+    doc["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                r["name"].as_str().unwrap().to_string(),
+                r["depth"].as_u64().unwrap(),
+                r["calls"].as_u64().unwrap(),
+                r["self"] == true,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn a_project_with_projects_under_it_counts_them_all_and_shows_its_own_as_self() {
+    // THE ROW READ AS A TOTAL AND WAS NOT ONE. `BookShepherd 58 calls` sat
+    // above an indented `imagecomparaison 57`, and the 58 were
+    // BookShepherd's own: nothing on screen said the child was not in it.
+    let s = Scratch::new("gainself");
+    seed_readings(&s, &[
+        ("/tree", 60.0, 100.0),
+        ("/tree", 120.0, 100.0),
+        ("/tree/sub", 60.0, 100.0),
+        ("/tree/sub", 120.0, 100.0),
+        ("/tree/sub", 180.0, 100.0),
+        ("/alone", 60.0, 100.0),
+    ]);
+    let doc: serde_json::Value =
+        serde_json::from_str(&text(&s.run(&["gain", "--json"]))).expect("gain is JSON");
+    let rows = gain_rows(&doc);
+
+    let find = |name: &str| rows.iter().find(|r| r.0 == name).unwrap_or_else(|| panic!("no {name} row: {rows:?}"));
+    assert_eq!(find("tree").2, 5, "the parent row does not count what is under it: {rows:?}");
+    let own = find("*self");
+    assert_eq!((own.1, own.2, own.3), (1, 2, true), "the parent's own share is not a child `*self` row: {rows:?}");
+    assert_eq!(find("sub").2, 3, "{rows:?}");
+
+    // AND A PROJECT WITH NOTHING UNDER IT HAS NO `*self` — there is
+    // nothing to tell its own share apart from.
+    assert_eq!(rows.iter().filter(|r| r.3).count(), 1, "a `*self` row under a childless project: {rows:?}");
+
+    // AND NOTHING IS COUNTED TWICE where the totals are.
+    assert_eq!(doc["total"]["calls"], 6, "the headline counted a subtree twice: {}", doc["total"]);
+
+    let table = text(&s.run(&["gain"]));
+    assert!(table.contains("  *self"), "the table does not show `*self` indented:\n{table}");
+}
+
+#[test]
+fn gain_looks_back_a_month_unless_asked_for_everything() {
+    // A FIGURE OVER NINETY DAYS BURIES THIS MONTH under the months before
+    // it. A month, unless somebody asks for more.
+    let s = Scratch::new("gainmonth");
+    seed_readings(&s, &[
+        ("/recent", 86400.0, 100.0),
+        ("/old", 40.0 * 86400.0, 100.0),
+    ]);
+    let asked = |args: &[&str]| -> serde_json::Value {
+        let mut all = vec!["gain", "--json"];
+        all.extend_from_slice(args);
+        serde_json::from_str(&text(&s.run(&all))).expect("gain is JSON")
+    };
+
+    let month = asked(&[]);
+    assert_eq!(month["total"]["calls"], 1, "a forty-day-old line is in the default view: {}", month["total"]);
+    let spans: Vec<&str> = month["spans"].as_array().unwrap().iter().filter_map(|x| x["span"].as_str()).collect();
+    assert_eq!(spans, ["hour", "day", "week", "month"], "the default spans: {spans:?}");
+
+    // `--since all` IS THE WAY TO EVERYTHING — one way, not two.
+    let all = asked(&["--since", "all"]);
+    assert_eq!(all["total"]["calls"], 2, "`--since all` lost the old line: {}", all["total"]);
+    assert!(all["spans"].as_array().unwrap().iter().any(|x| x["span"] == "all"),
+            "`--since all` does not show everything kept as a span");
+
+    let heading = text(&s.run(&["gain"]));
+    assert!(heading.contains("last 30d"), "the heading does not say the month:\n{heading}");
+    let everything = text(&s.run(&["gain", "--since", "all"]));
+    assert!(everything.contains("90 days"), "`--since all` promises a memory the store does not keep:\n{everything}");
+}
+
+#[test]
+fn the_impact_gauge_takes_the_room_there_is_and_no_more() {
+    // TEN CELLS MADE A CELL WORTH TEN PERCENT, so a project crushing the
+    // others looked like one merely ahead. Twenty-four when there is room;
+    // fewer when there is not, and never a row past the terminal.
+    let s = Scratch::new("gaingauge");
+    // A NAME LONG ENOUGH THAT 24 CELLS CANNOT FIT IN 80 COLUMNS, so the
+    // narrow case really has to shrink — with `big`, a fixed 24 ran over
+    // by one column, which is a guard that passes by luck.
+    seed_readings(&s, &[("/big-project1", 60.0, 900.0), ("/small", 60.0, 40.0)]);
+    let gauge = |row: &str| row.chars().filter(|c| *c == '█' || *c == '░').count();
+    let table = |cols: &str| -> Vec<String> {
+        text(&s.run_with(&[("JBX_WIDTH", cols), ("JBX_COLOR", "never")], &["gain"]))
+            .lines()
+            .skip_while(|l| !l.starts_with("project"))
+            .skip(1)
+            .take_while(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+
+    let wide = table("200");
+    assert!(!wide.is_empty(), "no table rows were read");
+    assert!(wide.iter().all(|r| gauge(r) == 24), "a wide table does not draw 24 cells: {wide:?}");
+
+    let narrow = table("80");
+    for r in &narrow {
+        assert!(r.chars().count() <= 80, "a row runs past 80 columns ({}): {r}", r.chars().count());
+        assert!(gauge(r) >= 8, "the gauge shrank below what can rank anything: {r}");
+    }
+}

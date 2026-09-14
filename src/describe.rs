@@ -216,7 +216,7 @@ pub const VERBS: &[Verb] = &[
                  ("--json", "answer as JSON rather than as a table"),
                  ("--project-path", "full paths instead of names"),
                  ("--thresholds", "what another `after` would have cost, replayed"),
-                 ("--since", "how far back to look: 1h, 24h, 7d, or all")] },
+                 ("--since", "how far back to look: 1h, 24h, 7d, or all — 30d when not given")] },
     Verb { name: "health", notes: "", summary: "what runs, what is mute, what nobody will read",
         tags: &["read"], effect: "reads", flags: JSON_ONLY },
     Verb { name: "clients", notes: "", summary: "whose endings are still unread",

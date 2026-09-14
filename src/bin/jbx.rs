@@ -174,11 +174,13 @@ fn dispatch(args: Vec<String>) -> i32 {
             gain_reset(how)
         } else { match gain::measure(
             how.free.first().map(String::as_str),
-            how.since,
+            // NOT GIVEN IS NOT `all`. A month, unless somebody asks for
+            // more — `--since all` is how.
+            how.since.unwrap_or(Some(gain::DEFAULT_WINDOW)),
         ) {
             Err(code) => code,
             Ok(v) => Answer(v, 0).show(how, |v| {
-                gain::render(v, how.project_path, how.thresholds)
+                gain::render(v, how.project_path, how.thresholds, table_width(how))
             }),
         } }),
         "init" => with("init", rest, |how| match dialect_named(how.cli.as_deref()) {
@@ -412,7 +414,8 @@ pub struct Flags {
     via_agent: bool,
     project_path: bool,
     thresholds: bool,
-    since: Option<f64>,
+    /// `--since`: `None` when not given, `Some(None)` for `all`.
+    since: Option<Option<f64>>,
     width: Option<usize>,
     client: Option<String>,
     after: Option<f64>,
@@ -498,7 +501,7 @@ impl Flags {
                 "--project-path" => flags.project_path = true,
                 "--thresholds" => flags.thresholds = true,
                 "--since" => match value().as_deref().map(jobbox::gain::window) {
-                    Some(Some(span)) => flags.since = span,
+                    Some(Some(span)) => flags.since = Some(span),
                     _ => {
                         return Err(usage_error(
                             "`--since` wants a span like `1h`, `24h`, `7d`, or `all`",

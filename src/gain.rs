@@ -318,7 +318,7 @@ fn read_all() -> Vec<Reading> {
         .collect()
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Tally {
     calls: usize,
     detached: usize,
@@ -348,6 +348,21 @@ impl Tally {
     /// THE COUNTS STAY WHOLE, filed where the line ended: a call is an
     /// event, and half of one means nothing. `f64::NEG_INFINITY` is no
     /// window at all.
+    /// Another tally's counts, added to this one — how a project comes to
+    /// stand for everything under it.
+    fn absorb(&mut self, other: &Tally) {
+        self.calls += other.calls;
+        self.detached += other.detached;
+        self.chosen += other.chosen;
+        self.chosen_secs += other.chosen_secs;
+        self.held += other.held;
+        self.held_secs += other.held_secs;
+        self.elapsed += other.elapsed;
+        self.waited += other.waited;
+        self.worst = self.worst.max(other.worst);
+        self.paths.extend(other.paths.iter().cloned());
+    }
+
     fn add(&mut self, r: &Reading, from: f64) {
         let start = r.at - r.secs;
         // The part of `[a, b]` that lies after `from`.
@@ -465,10 +480,25 @@ fn arrange(by: &BTreeMap<String, Tally>, names: &BTreeMap<String, String>) -> Ve
         }
     }
 
-    // Depth first, and heaviest first among siblings.
-    let mut order: Vec<&String> = paths.clone();
-    order.sort_by(|a, b| by[*b].saved().total_cmp(&by[*a].saved()));
-    let layout = Layout { order: &order, parent: &parent, by, label: &label };
+    // A PROJECT WITH PROJECTS UNDER IT STANDS FOR ALL OF THEM. Its row
+    // used to count its own readings alone while its children sat
+    // indented beneath it — so the eye read a total that was not one:
+    // `BookShepherd 58 calls` above `imagecomparaison 57` looked like 58
+    // in all. The row now carries the whole subtree, and what the
+    // project did by itself moves to a `*self` row among its children.
+    let whole: BTreeMap<&String, Tally> = paths
+        .iter()
+        .map(|p| {
+            let mut t = by[*p].clone();
+            for q in &paths {
+                if q != p && Path::new(q.as_str()).starts_with(p.as_str()) {
+                    t.absorb(&by[*q]);
+                }
+            }
+            (*p, t)
+        })
+        .collect();
+    let layout = Layout { paths: &paths, parent: &parent, by, whole: &whole, label: &label };
     let mut rows = Vec::new();
     layout.walk(None, 0, &mut rows);
     rows
@@ -476,9 +506,12 @@ fn arrange(by: &BTreeMap<String, Tally>, names: &BTreeMap<String, String>) -> Ve
 
 /// Everything the walk needs, carried once instead of passed eight times.
 struct Layout<'a> {
-    order: &'a [&'a String],
+    paths: &'a [&'a String],
     parent: &'a dyn Fn(&str) -> Option<String>,
+    /// What each project did by itself.
     by: &'a BTreeMap<String, Tally>,
+    /// What each project and everything under it did.
+    whole: &'a BTreeMap<&'a String, Tally>,
     label: &'a BTreeMap<&'a String, String>,
 }
 
@@ -486,19 +519,40 @@ impl Layout<'_> {
     /// THE DEPTH TRAVELS WITH THE ROW instead of being baked into a
     /// string: the table indents with it and the JSON carries it, out of
     /// one walk rather than two.
+    ///
+    /// HEAVIEST FIRST AMONG SIBLINGS, `*self` included: the question the
+    /// table answers is which part of a tree the time went to, and a
+    /// project's own share is one of those parts, not a preface to them.
     fn walk(&self, here: Option<&String>, depth: usize, rows: &mut Vec<Value>) {
-        for p in self.order {
-            if (self.parent)(p).as_ref() != here {
-                continue;
+        let mut siblings: Vec<(Option<&String>, &Tally)> = self
+            .paths
+            .iter()
+            .filter(|p| (self.parent)(p).as_ref() == here)
+            .map(|p| (Some(*p), &self.whole[*p]))
+            .collect();
+        // ONLY UNDER A PROJECT THAT HAS CHILDREN, and only when it did
+        // something itself — a row of zeros would say it had.
+        if let Some(up) = here {
+            let own = &self.by[up];
+            if !siblings.is_empty() && (own.calls > 0 || own.waited > 0.0) {
+                siblings.push((None, own));
             }
-            let t = &self.by[*p];
+        }
+        siblings.sort_by(|a, b| b.1.saved().total_cmp(&a.1.saved()));
+        for (p, t) in siblings {
+            let (path, name, own) = match p {
+                Some(p) => (p, self.label[p].as_str(), false),
+                None => (here.expect("a *self row has a parent"), "*self", true),
+            };
             rows.push(serde_json::json!({
-                "path": p, "name": self.label[*p], "depth": depth,
+                "path": path, "name": name, "depth": depth, "self": own,
                 "calls": t.calls, "detached": t.detached,
                 "elapsed": t.elapsed, "waited": t.waited,
                 "saved": t.saved(), "ratio": t.ratio(), "worst": t.worst,
             }));
-            self.walk(Some(p), depth + 1, rows);
+            if let Some(p) = p {
+                self.walk(Some(p), depth + 1, rows);
+            }
         }
     }
 }
@@ -622,6 +676,14 @@ pub fn window(text: &str) -> Option<Option<f64>> {
     Some(Some(number * secs))
 }
 
+/// HOW FAR BACK `jbx gain` LOOKS WHEN NOBODY SAYS.
+///
+/// A month. Everything kept is ninety days, and a figure over ninety days
+/// buries what changed lately under what stopped mattering — the table
+/// could not show one project crushing the others this month when the
+/// quarter before evened it out. `--since all` still reaches all of it.
+pub const DEFAULT_WINDOW: f64 = 30.0 * 86400.0;
+
 /// EVERYTHING THE TABLE KNOWS, AS A VALUE.
 ///
 /// The rendering below reads this and nothing else, so `--json` and the
@@ -640,7 +702,13 @@ pub fn measure(only: Option<&str>, since: Option<f64>) -> Result<Value, i32> {
     // questions, and a figure covering ninety days answers the first
     // while looking like an answer to the second.
     let now = store::now();
-    let spans: Vec<Value> = [("hour", 3600.0), ("day", 86400.0), ("week", 604800.0), ("all", f64::MAX)]
+    // A MONTH, AND EVERYTHING KEPT ONLY WHEN THAT IS WHAT WAS ASKED FOR:
+    // the last span is the window the table itself is drawn over.
+    let mut windows = vec![("hour", 3600.0), ("day", 86400.0), ("week", 604800.0), ("month", DEFAULT_WINDOW)];
+    if since.is_none() {
+        windows.push(("all", f64::MAX));
+    }
+    let spans: Vec<Value> = windows
         .iter()
         .map(|(name, span)| {
             let mut t = Tally::default();
@@ -857,9 +925,12 @@ fn headline(total: &Value, v: &Value) {
     let detached = total["detached"].as_u64().unwrap_or(0);
     let ratio = num(total, "ratio");
     let cut = if calls > 0 { detached as f64 / calls as f64 } else { 0.0 };
+    // SAID IN THE UNIT IT WAS ASKED IN, and "everything" bounded: readings
+    // go after ninety days, and a heading that said "since the beginning"
+    // promised a memory the store does not have.
     let scope = match v["since"].as_f64() {
-        Some(_) => "in this window",
-        None => "since the beginning",
+        Some(span) => format!("last {}", crate::store::how_long(span)),
+        None => "everything kept — readings go after 90 days".to_string(),
     };
     outln!("{}", crate::paint::dim(&format!("jbx gain — {scope}")));
     outln!();
@@ -909,7 +980,7 @@ fn headline(total: &Value, v: &Value) {
 }
 
 /// THE TABLE, READ OFF THE VALUE ABOVE.
-pub fn render(v: &Value, full_path: bool, thresholds: bool) {
+pub fn render(v: &Value, full_path: bool, thresholds: bool, width: usize) {
     if thresholds {
         return show_thresholds(v);
     }
@@ -925,37 +996,53 @@ pub fn render(v: &Value, full_path: bool, thresholds: bool) {
         // rows would be a sliver, and a column of slivers ranks nothing;
         // against the biggest row, the shape of the distribution shows.
         let tallest = rows.iter().map(|r| num(r, "saved")).fold(0.0_f64, f64::max);
-        print_table(
-            &["project", "calls", "detached", "elapsed", "waited", "saved", "impact"],
-            rows.iter()
-                .map(|r| {
-                    let shown = if full_path {
-                        r["path"].as_str().unwrap_or("").to_string()
+        let headings = ["project", "calls", "detached", "elapsed", "waited", "saved", "impact"];
+        let mut cells: Vec<Vec<String>> = rows
+            .iter()
+            .map(|r| {
+                let shown = if full_path {
+                    // `*self` UNDER A FULL PATH is still `*self`: its path
+                    // is its parent's, and printing it twice would read
+                    // as one project listed as its own child.
+                    if r["self"] == true {
+                        format!("{} *self", r["path"].as_str().unwrap_or(""))
                     } else {
-                        format!(
-                            "{}{}",
-                            "  ".repeat(r["depth"].as_u64().unwrap_or(0) as usize),
-                            r["name"].as_str().unwrap_or("")
-                        )
-                    };
-                    vec![
-                        shown,
-                        r["calls"].to_string(),
-                        r["detached"].to_string(),
-                        human(num(r, "elapsed")),
-                        human(num(r, "waited")),
-                        crate::paint::by_ratio(
-                            num(r, "ratio"),
-                            &format!("{} ({:.0}%)", human(num(r, "saved")), num(r, "ratio") * 100.0),
-                        ),
-                        crate::paint::meter(
-                            if tallest > 0.0 { num(r, "saved") / tallest } else { 0.0 },
-                            10,
-                        ),
-                    ]
-                })
-                .collect(),
-        );
+                        r["path"].as_str().unwrap_or("").to_string()
+                    }
+                } else {
+                    format!(
+                        "{}{}",
+                        "  ".repeat(r["depth"].as_u64().unwrap_or(0) as usize),
+                        r["name"].as_str().unwrap_or("")
+                    )
+                };
+                vec![
+                    shown,
+                    r["calls"].to_string(),
+                    r["detached"].to_string(),
+                    human(num(r, "elapsed")),
+                    human(num(r, "waited")),
+                    crate::paint::by_ratio(
+                        num(r, "ratio"),
+                        &format!("{} ({:.0}%)", human(num(r, "saved")), num(r, "ratio") * 100.0),
+                    ),
+                ]
+            })
+            .collect();
+        // THE GAUGE TAKES WHAT THE OTHER COLUMNS LEAVE, up to 24 — the
+        // headline's own length. Ten cells made a cell worth ten percent,
+        // and a project crushing the rest looked like one merely ahead.
+        // MEASURED, NOT RESERVED: `ps` overflowed its terminal twice by
+        // reserving widths its cells then outgrew. Eight is the least a
+        // bar can be and still rank anything.
+        let taken: usize = (0..headings.len() - 1)
+            .map(|i| cells.iter().map(|c| visible(&c[i])).chain([visible(headings[i])]).max().unwrap_or(0) + 2)
+            .sum();
+        let gauge = width.saturating_sub(taken).clamp(8, 24);
+        for (c, r) in cells.iter_mut().zip(rows) {
+            c.push(crate::paint::meter(if tallest > 0.0 { num(r, "saved") / tallest } else { 0.0 }, gauge));
+        }
+        print_table(&headings, cells);
         outln!();
         outln!(
             "{} saved — command time that ran while the caller was free, {:.0}% of {}.",
@@ -1008,12 +1095,13 @@ pub fn render(v: &Value, full_path: bool, thresholds: bool) {
             // normal here, and nobody can guess that from "(21%)".
             outln!(
                 "{}  {:>6} calls · {:>4} detached · {:>7} saved of {:>7} {}",
-                crate::paint::dim(match s["span"].as_str().unwrap_or("") {
+                crate::paint::dim(&format!("{:<10}", match s["span"].as_str().unwrap_or("") {
                     "hour" => "last hour",
-                    "day" => "last day ",
+                    "day" => "last day",
                     "week" => "last week",
-                    _ => "all      ",
-                }),
+                    "month" => "last month",
+                    _ => "all kept",
+                })),
                 // AS NUMBERS, NOT AS VALUES. A `serde_json::Value`
                 // renders itself and ignores the width it is given, so
                 // the columns went ragged while the format string said
@@ -1035,9 +1123,13 @@ pub fn render(v: &Value, full_path: bool, thresholds: bool) {
         outln!("{}", crate::paint::dim(
             "It cannot see you waiting some other way: a ceiling, not a receipt."));
         outln!("{}", crate::paint::dim(
-            "`--since 1h` narrows the table; `--thresholds` asks whether the cut is at"));
+            "The table covers the last 30 days: `--since 1h` narrows it, `--since all`"));
         outln!("{}", crate::paint::dim(
-            "the right number; name a project to see its shapes."));
+            "reaches everything kept. `--thresholds` asks whether the cut is at the right"));
+        outln!("{}", crate::paint::dim(
+            "number; name a project to see its shapes. A `*self` row is what a project"));
+        outln!("{}", crate::paint::dim(
+            "did by itself; the row above it counts everything under it too."));
         return;
     }
     let tallest = rows.iter().map(|r| num(r, "saved")).fold(0.0_f64, f64::max);
