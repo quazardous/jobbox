@@ -34,7 +34,9 @@ jbx how                        the gestures: what to do, and when
 jbx why                        why it works this way
 jbx init [--undo] [--global-only]
                                declare the wrapping hook, and the one that
-                               names a job left running when a turn ends
+                               names a job left running when a turn ends;
+                               on Claude Code, place /jbx, /jbx-after and
+                               /jbx-slots — never over a skill you changed
 jbx init --announce            … and the ones that report an ending unasked
 jbx init --core                … only the wrapping one, taking the rest back
 jbx hook [client]              answers an agent CLI; init declares this one

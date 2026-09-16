@@ -76,11 +76,14 @@ settings file other tools share. On Windows, `irm
 https://raw.githubusercontent.com/quazardous/jobbox/main/install.ps1 |
 iex`, and [WINDOWS.md](WINDOWS.md) has the rest. No script at all:
 `cargo install --git https://github.com/quazardous/jobbox`, then
-`jbx init` — that builds `main`, and `--tag` builds a release.
+`jbx init` — that builds `main`, and `--tag` builds a release. On Claude
+Code, `jbx init` also places the skills `/jbx`, `/jbx-after` and
+`/jbx-slots`.
 
-Then, on Claude Code, the plugin declares the announcing hooks as well —
-the ones that make an ending report itself unasked — along with the
-skills and the background watch:
+Or, on Claude Code, the plugin — **one or the other, not both**, since each
+brings the same skills under its own names. It declares the announcing
+hooks as well — the ones that make an ending report itself unasked —
+along with the background watch:
 
 ```console
 $ claude plugin marketplace add quazardous/jobbox

@@ -415,7 +415,11 @@ pub fn init(
     };
     let binary = declared_binary();
     if undo {
-        return restore(&path, &binary, d.name);
+        let code = restore(&path, &binary, d.name);
+        if d.name == "claude" {
+            withdraw_skills(&path);
+        }
+        return code;
     }
 
     // THE GLOBAL FILE IS WRITTEN WHEN THERE IS NONE, so the settings are
@@ -607,6 +611,13 @@ pub fn init(
         return 1;
     }
     outln!("wired into {}", path.display());
+    // THE SKILLS COME WITH THE HOOKS, for Claude — the only client that
+    // has skills. The plugin always carried them; an install by release
+    // archive and `jbx init` carried none, so `/jbx` existed only for
+    // whoever had gone through the marketplace.
+    if d.name == "claude" {
+        place_skills(&path);
+    }
     if fs::symlink_metadata(&binary).map(|m| m.file_type().is_symlink()).unwrap_or(false) {
         // SAID, BECAUSE IT CHANGES WHAT A REBUILD DOES. Through a link
         // the hook follows whatever the link points at — which is what
@@ -648,6 +659,119 @@ pub fn init(
         outln!("  put it back with `jbx init --undo`");
     }
     0
+}
+
+/// THE PLUGIN'S SKILLS, CARRIED IN THE BINARY.
+///
+/// One source for both installs: these are the very files the plugin
+/// ships, read at build time, so the two can never say different things
+/// — and the test that holds every skill to `disable-model-invocation`
+/// holds these too.
+///
+/// RENAMED ON THE WAY, because nothing prefixes a skill in
+/// `~/.claude/skills/`: in the plugin they are `/jbx:after` and
+/// `/jbx:slots`, and there `after` and `slots` are names any other skill
+/// may already have.
+const SKILLS: &[(&str, &str, &str)] = &[
+    ("jbx", "jbx", include_str!("../plugin/skills/jbx/SKILL.md")),
+    ("jbx-after", "after", include_str!("../plugin/skills/after/SKILL.md")),
+    ("jbx-slots", "slots", include_str!("../plugin/skills/slots/SKILL.md")),
+];
+
+/// What marks a skill as written by `jbx init`, and with which content.
+///
+/// THE HASH IS OF WHAT WAS WRITTEN, so a later run can tell three things
+/// apart: ours and untouched (replace it freely, it may be an older
+/// version), ours and edited by somebody (leave it), not ours (leave it).
+/// A marker without the hash would overwrite the edit on the next `init`.
+const SKILL_MARK: &str = "<!-- written by `jbx init`, which replaces it while it is unchanged: ";
+
+fn skill_text(name: &str, plugin_name: &str, source: &str) -> String {
+    let body = source.replacen(&format!("name: {plugin_name}\n"), &format!("name: {name}\n"), 1);
+    format!("{body}\n{SKILL_MARK}{} -->\n", content_hash(&body))
+}
+
+/// FNV-1a over the text — enough to notice an edit, and no dependency.
+fn content_hash(text: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in text.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x1000_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
+/// Whether a skill on disk is one we wrote and nobody has changed since.
+enum Found {
+    Absent,
+    OursUntouched,
+    OursEdited,
+    NotOurs,
+}
+
+fn found(file: &Path) -> Found {
+    let Ok(text) = fs::read_to_string(file) else { return Found::Absent };
+    let Some(at) = text.rfind(SKILL_MARK) else { return Found::NotOurs };
+    let recorded = text[at + SKILL_MARK.len()..].split_whitespace().next().unwrap_or("");
+    // The body is everything before the blank line that precedes the mark.
+    let body = text[..at].strip_suffix('\n').unwrap_or(&text[..at]);
+    // AND NOTHING AFTER THE MARK. Only the body was hashed, so a line
+    // appended below the mark — the easiest edit there is — went unseen,
+    // and the next `init` replaced it. Found by trying exactly that.
+    let after_mark = text[at..].find('\n').map_or("", |end| &text[at + end + 1..]);
+    if content_hash(body) == recorded && after_mark.trim().is_empty() {
+        Found::OursUntouched
+    } else {
+        Found::OursEdited
+    }
+}
+
+fn skills_dir(settings: &Path) -> Option<PathBuf> {
+    settings.parent().map(|home| home.join("skills"))
+}
+
+fn place_skills(settings: &Path) {
+    let Some(dir) = skills_dir(settings) else { return };
+    let mut placed = Vec::new();
+    for (name, plugin_name, source) in SKILLS {
+        let file = dir.join(name).join("SKILL.md");
+        let text = skill_text(name, plugin_name, source);
+        match found(&file) {
+            Found::Absent | Found::OursUntouched => {
+                if fs::read_to_string(&file).is_ok_and(|now| now == text) {
+                    continue;
+                }
+                let _ = fs::create_dir_all(dir.join(name));
+                if fs::write(&file, &text).is_ok() {
+                    placed.push(format!("/{name}"));
+                }
+            }
+            // SAID, NOT OVERWRITTEN. Somebody's edit, or somebody else's
+            // skill of the same name, is theirs to keep.
+            Found::OursEdited => outln!("  left {} alone — it was edited since `jbx init` wrote it", file.display()),
+            Found::NotOurs => outln!("  left {} alone — `jbx init` did not write it", file.display()),
+        }
+    }
+    if !placed.is_empty() {
+        outln!("  skills {} in {} — the plugin carries the same ones; use one or the other",
+               placed.join(", "), dir.display());
+    }
+}
+
+fn withdraw_skills(settings: &Path) {
+    let Some(dir) = skills_dir(settings) else { return };
+    for (name, _, _) in SKILLS {
+        let file = dir.join(name).join("SKILL.md");
+        match found(&file) {
+            Found::OursUntouched => {
+                let _ = fs::remove_file(&file);
+                let _ = fs::remove_dir(dir.join(name));
+                outln!("  removed the /{name} skill");
+            }
+            Found::OursEdited => outln!("  kept {} — it was edited since `jbx init` wrote it", file.display()),
+            Found::Absent | Found::NotOurs => {}
+        }
+    }
 }
 
 fn restore(path: &Path, binary: &str, client: &str) -> i32 {

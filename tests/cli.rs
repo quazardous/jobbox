@@ -4273,3 +4273,62 @@ fn a_held_line_whose_supervisor_dies_ends_instead_of_waiting_for_ever() {
     let state = text(&s.run(&["status", &id]));
     assert!(state.contains("gone"), "the job does not read as gone:\n{state}");
 }
+
+#[test]
+fn init_places_the_plugins_skills_and_keeps_what_somebody_changed() {
+    // AN INSTALL BY RELEASE CARRIED NO SKILL. The plugin always brought
+    // `/jbx:jbx` and its two siblings; `install.sh` then `jbx init` brought
+    // the hooks alone, so `/jbx` existed only for whoever had gone through
+    // the marketplace.
+    let s = Scratch::new("skills");
+    let home = s.0.join("home");
+    std::fs::create_dir_all(home.join(".claude")).unwrap();
+    let env = [("HOME", home.to_str().unwrap()), ("USERPROFILE", home.to_str().unwrap())];
+    let skill = |name: &str| home.join(".claude/skills").join(name).join("SKILL.md");
+    let read = |p: &std::path::Path| std::fs::read_to_string(p).unwrap_or_default();
+
+    // A SKILL OF THE SAME NAME THAT WAS NEVER OURS, already there.
+    std::fs::create_dir_all(skill("jbx").parent().unwrap()).unwrap();
+    std::fs::write(skill("jbx"), "---\nname: jbx\n---\nsomebody else's\n").unwrap();
+
+    s.run_with(&env, &["init", "--global-only"]);
+    assert_eq!(read(&skill("jbx")), "---\nname: jbx\n---\nsomebody else's\n",
+               "`init` overwrote a skill it did not write");
+
+    // THE PLUGIN'S OWN FILES, renamed where nothing prefixes a skill.
+    for (name, plugin) in [("jbx-after", "after"), ("jbx-slots", "slots")] {
+        let placed = read(&skill(name));
+        let source = std::fs::read_to_string(format!("plugin/skills/{plugin}/SKILL.md")).unwrap();
+        assert!(placed.starts_with(&source.replacen(&format!("name: {plugin}\n"), &format!("name: {name}\n"), 1)),
+                "`{name}` is not the plugin's `{plugin}` skill:\n{placed}");
+        assert!(placed.contains("disable-model-invocation: true"), "`{name}` is model-invocable:\n{placed}");
+    }
+
+    // A SECOND RUN CHANGES NOTHING.
+    let before = read(&skill("jbx-after"));
+    s.run_with(&env, &["init", "--global-only"]);
+    assert_eq!(read(&skill("jbx-after")), before, "a second `init` rewrote an untouched skill");
+
+    // AN EDIT IS KEPT — below the mark as well as above it: the first
+    // version checked only the text above, and replaced a line appended
+    // underneath.
+    let edited = format!("{}a note of mine\n", read(&skill("jbx-slots")));
+    std::fs::write(skill("jbx-slots"), &edited).unwrap();
+    let said = text(&s.run_with(&env, &["init", "--global-only"]));
+    assert_eq!(read(&skill("jbx-slots")), edited, "`init` replaced an edited skill");
+    assert!(said.contains("edited since"), "`init` did not say it left the edit alone:\n{said}");
+
+    // AND `--undo` TAKES BACK ONLY WHAT IS STILL ITS OWN.
+    s.run_with(&env, &["init", "--global-only", "--undo"]);
+    assert!(!skill("jbx-after").exists(), "`--undo` left an untouched skill behind");
+    assert_eq!(read(&skill("jbx-slots")), edited, "`--undo` removed an edited skill");
+    assert!(skill("jbx").exists(), "`--undo` removed a skill it never wrote");
+
+    // AND ONLY FOR CLAUDE, the one client with skills.
+    let other = s.0.join("home-gemini");
+    std::fs::create_dir_all(other.join(".gemini")).unwrap();
+    s.run_with(&[("HOME", other.to_str().unwrap()), ("USERPROFILE", other.to_str().unwrap())],
+               &["init", "--global-only", "--cli", "gemini"]);
+    assert!(!other.join(".claude/skills").exists() && !other.join(".gemini/skills").exists(),
+            "`init --cli gemini` placed skills");
+}
