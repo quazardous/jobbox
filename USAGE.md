@@ -310,6 +310,13 @@ An unknown name is refused rather than treated as Claude: a hook
 speaking the wrong dialect answers nothing and looks perfectly healthy,
 which is the one failure worth being loud about.
 
+`--undo` withdraws the declaration naming **this** copy, and one naming a
+jbx that is no longer on disk — nothing else. Second installs are routine
+(`JBX_BIN` moves where `install.ps1` puts one), and removing a spare used
+to take the live one's hook with it, leaving a machine with no wrapper at
+all. A declaration pointing at a copy that still exists is now left where
+it is.
+
 ## It composes with rtk, rather than racing it
 
 [rtk](https://github.com/rtk-ai/rtk) rewrites commands to spend fewer

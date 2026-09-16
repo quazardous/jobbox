@@ -512,6 +512,65 @@ fn init_displaces_rtk_and_undo_puts_it_back() {
     assert_eq!(after, serde_json::from_str::<serde_json::Value>(before).unwrap());
 }
 
+#[test]
+fn an_undo_withdraws_this_copy_and_leaves_another_one_declared() {
+    let s = Scratch::new("copies");
+    let config = s.0.join("claude");
+    std::fs::create_dir_all(&config).unwrap();
+    let settings = config.join("settings.json");
+    let name = std::path::Path::new(JBX).file_name().unwrap();
+
+    // TWO DECLARATIONS THAT ARE BOTH `jbx` AND NEITHER IS THIS ONE. The
+    // first is a second install that EXISTS -- `install.ps1` makes that
+    // routine through `JBX_BIN`, and uninstalling a throwaway copy used
+    // to withdraw the live one's hook, leaving the machine with no
+    // wrapper at all. The second names a jbx that is GONE, which is the
+    // opposite case: keeping it breaks every command in every session
+    // that reads the file.
+    let live = s.0.join("live-install");
+    std::fs::create_dir_all(&live).unwrap();
+    let live = live.join(name);
+    std::fs::copy(JBX, &live).unwrap();
+    let gone = s.0.join("removed-install").join(name);
+
+    let spell = |p: &std::path::Path| p.display().to_string().replace('\\', "/");
+    let before = serde_json::json!({
+        "model": "opus",
+        "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
+            {"type": "command", "command": format!("{} hook claude", spell(&live))},
+            {"type": "command", "command": format!("{} hook claude", spell(&gone))}
+        ]}]}
+    });
+    std::fs::write(&settings, serde_json::to_string(&before).unwrap()).unwrap();
+
+    let here = s.project(None, "");
+    Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
+        .args(["init", "--undo"])
+        .current_dir(&here)
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .env("CLAUDE_CONFIG_DIR", &config)
+        .output()
+        .unwrap();
+
+    let after: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+    let left: Vec<String> = after["hooks"]["PreToolUse"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|m| m["hooks"].as_array().into_iter().flatten())
+        .filter_map(|e| e["command"].as_str().map(str::to_string))
+        .collect();
+    assert!(left.iter().any(|c| c.starts_with(&spell(&live))),
+            "an undo from one copy withdrew another copy's hook: {left:?}");
+    assert!(!left.iter().any(|c| c.starts_with(&spell(&gone))),
+            "a hook naming a binary that is gone was left behind: {left:?}");
+    // AND WHAT WAS NEVER OURS IS STILL UNTOUCHED.
+    assert_eq!(after["model"], "opus");
+}
+
 // ── WHAT IT MEASURES ────────────────────────────────────────────────────
 
 /// WAIT FOR AN ENDING WITHOUT COLLECTING IT.

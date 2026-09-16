@@ -122,6 +122,47 @@ fn is_ours(entry: &Value, binary: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// THE SAME FILE, WRITTEN TWO WAYS. A declaration carries whatever
+/// spelling `init` was called through — slashes either way, a different
+/// case on Windows — so the comparison resolves both before it answers.
+/// Canonicalising needs the file to exist; when it does not, the spelling
+/// is all there is, and that is the case the caller has already handled.
+fn same_file(a: &str, b: &str) -> bool {
+    let norm = |p: &str| {
+        let text = fs::canonicalize(p)
+            .map(|c| c.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| p.to_string())
+            .replace('\\', "/");
+        if cfg!(windows) { text.to_lowercase() } else { text }
+    };
+    norm(a) == norm(b)
+}
+
+/// WITHDRAWING IS NARROWER THAN RECOGNISING, AND THE DIFFERENCE IS A BUG
+/// SOMEBODY LIVED THROUGH.
+///
+/// `is_ours` matches any binary named jbx, because `repoint` has to find
+/// a declaration still naming the OLD path in order to move it. An undo
+/// cannot borrow that test. `install.ps1 -Uninstall` honours `JBX_BIN`,
+/// so a second or scratch install running `init --undo` withdrew the
+/// hook belonging to the REAL one and left the machine with no wrapper
+/// at all — measured on 16/09/2026, uninstalling a throwaway copy under
+/// the temp directory while the live install sat in LOCALAPPDATA.
+///
+/// So an entry goes when it names THIS binary, or names a jbx that is no
+/// longer on disk. The first is the install being removed; the second
+/// would break every command in every session that read it, which is the
+/// one thing worse than leaving it.
+fn withdrawable(entry: &Value, binary: &str) -> bool {
+    if !is_ours(entry, binary) {
+        return false;
+    }
+    let Some(first) = entry["command"].as_str().and_then(|c| c.split_whitespace().next()) else {
+        return false;
+    };
+    same_file(first, binary) || !Path::new(first).exists()
+}
+
 /// THE PATH TO WRITE INTO THE HARNESS — and it prefers the symlink.
 ///
 /// `current_exe()` follows symlinks, so a dev install declared the build
@@ -623,7 +664,10 @@ fn restore(path: &Path, binary: &str, client: &str) -> i32 {
         };
         for matcher in matchers.iter_mut() {
             if let Some(hooks) = matcher["hooks"].as_array_mut() {
-                hooks.retain(|e| !is_ours(e, binary));
+                // ANOTHER COPY'S DECLARATION IS NOT OURS TO WITHDRAW —
+                // see `withdrawable`. `is_ours` here removed the live
+                // install's hook when a scratch one was uninstalled.
+                hooks.retain(|e| !withdrawable(e, binary));
             }
         }
         matchers.retain(|m| !m["hooks"].as_array().map(|h| h.is_empty()).unwrap_or(false));
