@@ -18,6 +18,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-09-16
+
+### Fixed
+
+- **A held line whose supervisor dies now ends, instead of waiting for
+  ever.** A line the harness backgrounds itself (`--after inf`) waited for
+  an exit code that a killed supervisor never writes, so its task hung for
+  hours. It now notices the supervisor is gone, says on stderr that the
+  ending cannot be known, and ends.
+- **Uninstalling a second copy no longer removes the live one's hook.**
+  `install.ps1 -Uninstall` with `JBX_BIN` pointed at a spare install ran an
+  undo that withdrew every jbx declaration, whichever copy it named, and
+  left the machine with no wrapper at all. It now withdraws only the copy
+  being removed, and any declaration naming a jbx that is no longer on disk.
+
+### Changed
+
+- **125 means jbx lost track of a job, not that the job failed.** `jbx
+  wait`, `jbx fg <id>` and a held line's `jbx run` return 125 when a job
+  ended without a recorded exit code. They returned 1 before, which is
+  also how most commands report their own failure. Scripts that tested for
+  1 in that case need to test for 125.
+
 ## [0.25.0] - 2026-09-14
 
 ### Changed
