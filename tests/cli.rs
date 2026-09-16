@@ -712,7 +712,15 @@ fn queue_holds_work_back_when_the_slots_are_full() {
     let shown = text(&s.run_with(&cap, &["list"]));
     let queued = shown.lines().filter(|l| l.contains("queued")).count();
     assert_eq!(queued, 2, "the cap did not hold anything back:\n{shown}");
-    assert!(shown.contains("background"), "nothing started at all:\n{shown}");
+    // A JOB THAT HAS ALREADY FINISHED ALSO STARTED. Where the three
+    // `queue` calls cost more wall time than the job they hand over — a
+    // real Windows workstation, not the runner — the first one is done
+    // before this listing is read, and the row says `finished` rather
+    // than `background`. That still disproves "nothing started at all",
+    // which is the only thing this line ever meant; the cap holding two
+    // back is asserted above and is what the test is really for.
+    assert!(shown.contains("background") || shown.contains("finished"),
+            "nothing started at all:\n{shown}");
 
     // AND A DELIBERATE JOB IS ANNOUNCED WHATEVER ITS DURATION. Somebody
     // chose to hand it over; a two-second one they chose to hand over is
@@ -2477,7 +2485,16 @@ fn a_listing_can_show_the_whole_line_and_speak_json() {
     let short = text(&s.run(&["ps", "--width", "80"]));
     assert!(!short.contains("intent"), "a column of nothing was drawn: {short}");
     assert!(short.contains("echo a very long line"), "the line column is gone: {short}");
-    s.run(&["run", "--after", "1", "--intent", "measure the index", "--", "sleep 3"]);
+    // AND ITS TWIN OUTLIVES THEM TOO. Thirty was given to the job above
+    // for the reason stated there — it is longer than every path through
+    // this test — but this one was left at three, and the `ps --json` at
+    // the end reads BOTH. On a machine where the calls in between cost
+    // more than three seconds it is already gone, and that listing has
+    // one row where it wants two.
+    s.run(&["run", "--after", "1", "--intent", "measure the index", "--", "sleep 30"]);
+    until("the named job is listed as running", || {
+        text(&s.run(&["ps"])).contains("measure the index")
+    });
     let both = text(&s.run(&["ps"]));
     assert!(both.contains("intent"), "a named job drew no intent column: {both}");
     assert!(both.contains("measure the index"), "the name was dropped: {both}");
