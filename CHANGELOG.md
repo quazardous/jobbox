@@ -18,6 +18,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-09-16
+
+### Added
+
+- **`jbx init` places the skills on Claude Code**, so an install by release
+  archive has them too: `/jbx`, `/jbx-after` and `/jbx-slots`. Until now
+  only the plugin carried them. They are the plugin's own files, built into
+  the binary, so the two installs cannot drift; `after` and `slots` are
+  renamed because nothing prefixes a skill in `~/.claude/skills/`. Use the
+  plugin or the release install, not both — each brings the same skills
+  under its own names.
+- **A skill you changed is never overwritten.** Each one `init` writes
+  carries a mark with a hash of what it wrote, so a later run replaces an
+  untouched skill, leaves an edited one and says so, and never touches a
+  skill it did not write. `jbx init --undo` removes only the untouched
+  ones — and none at all while another jbx is still declared, since the
+  skills are shared by every copy.
+- **MIGRATING.md** says what each `jobbox` command became. `jobbox` turned
+  into `jbx` in 0.5.0 with no alias, and the one rename that looks right is
+  not: `jobbox run <intent> -- <cmd>` is `jbx queue`, while `jbx run` runs
+  the line in front of you and drops the word before `--` without a word.
+
 ## [0.26.0] - 2026-09-16
 
 ### Fixed
