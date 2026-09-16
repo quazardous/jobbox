@@ -85,6 +85,12 @@ machine came up cannot be running, and neither can a pid that names a
 thread of another program. `jbx prune` clears it. Before 0.22.0, `jbx
 kill` on one of these signalled whatever had inherited the number.
 
+## `jobbox: command not found`
+
+`jobbox` became `jbx` in 0.5.0, with no alias. [MIGRATING.md](MIGRATING.md)
+says what each command became — and why `jobbox run` is `jbx queue`, not
+`jbx run`, which is the rename that looks right and is not.
+
 ## On macOS
 
 If macOS says the developer cannot be verified, the file was downloaded
