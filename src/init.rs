@@ -416,8 +416,17 @@ pub fn init(
     let binary = declared_binary();
     if undo {
         let code = restore(&path, &binary, d.name);
+        // NOT WHILE ANOTHER COPY IS STILL DECLARED. `restore` leaves a
+        // second install's hooks in place — uninstalling a spare copy
+        // used to take the live one's hook with it — and the skills are
+        // shared by every copy: removing them here would do to `/jbx`
+        // exactly what that fix stopped doing to the hook.
         if d.name == "claude" {
-            withdraw_skills(&path);
+            if any_jbx_declared(&read(&path)) {
+                outln!("  kept the skills — another jbx is still declared in {}", path.display());
+            } else {
+                withdraw_skills(&path);
+            }
         }
         return code;
     }
@@ -756,6 +765,26 @@ fn place_skills(settings: &Path) {
         outln!("  skills {} in {} — the plugin carries the same ones; use one or the other",
                placed.join(", "), dir.display());
     }
+}
+
+/// Whether any hook in these settings still calls a `jbx … hook`.
+fn any_jbx_declared(settings: &Value) -> bool {
+    settings["hooks"]
+        .as_object()
+        .into_iter()
+        .flat_map(|events| events.values())
+        .filter_map(Value::as_array)
+        .flatten()
+        .flat_map(|m| m["hooks"].as_array().into_iter().flatten())
+        .filter_map(|e| e["command"].as_str())
+        .any(|c| {
+            let mut words = c.split_whitespace();
+            Path::new(words.next().unwrap_or(""))
+                .file_stem()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.eq_ignore_ascii_case("jbx"))
+                && words.next() == Some("hook")
+        })
 }
 
 fn withdraw_skills(settings: &Path) {

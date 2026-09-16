@@ -4332,3 +4332,48 @@ fn init_places_the_plugins_skills_and_keeps_what_somebody_changed() {
     assert!(!other.join(".claude/skills").exists() && !other.join(".gemini/skills").exists(),
             "`init --cli gemini` placed skills");
 }
+
+#[test]
+fn an_undo_from_a_spare_copy_leaves_the_skills_the_live_copy_uses() {
+    // THE SAME MISTAKE, ONE STEP OVER. An undo from a spare copy used to
+    // withdraw the live copy's hook, and was fixed to leave it. The skills
+    // arrived just after, and every undo removed them — so the live copy
+    // kept its hook and lost `/jbx`.
+    let s = Scratch::new("skillcopies");
+    let config = s.0.join("claude");
+    std::fs::create_dir_all(&config).unwrap();
+    let settings = config.join("settings.json");
+    let run = |args: &[&str]| {
+        Command::new(JBX)
+            .env_remove("JBX_WRAPPED")
+            .args(args)
+            .current_dir(&s.0)
+            .env("JBX_DIR", &s.0)
+            .env("JBX_CONFIG", s.0.join("global.yaml"))
+            .env("CLAUDE_CONFIG_DIR", &config)
+            .output()
+            .unwrap()
+    };
+    run(&["init", "--global-only"]);
+    let skill = config.join("skills/jbx/SKILL.md");
+    assert!(skill.exists(), "`init` placed no skill to test with");
+
+    // A LIVE SECOND INSTALL, declared beside this one.
+    let name = std::path::Path::new(JBX).file_name().unwrap();
+    let live = s.0.join("live-install");
+    std::fs::create_dir_all(&live).unwrap();
+    let live = live.join(name);
+    std::fs::copy(JBX, &live).unwrap();
+    let mut doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+    doc["hooks"]["PreToolUse"].as_array_mut().unwrap().push(serde_json::json!({
+        "matcher": "Bash",
+        "hooks": [{"type": "command",
+                   "command": format!("{} hook claude", live.display().to_string().replace('\\', "/"))}]
+    }));
+    std::fs::write(&settings, doc.to_string()).unwrap();
+
+    let said = text(&run(&["init", "--global-only", "--undo"]));
+    assert!(skill.exists(), "an undo from one copy removed the skills another copy uses:\n{said}");
+    assert!(said.contains("another jbx is still declared"), "the undo did not say why it kept them:\n{said}");
+}
