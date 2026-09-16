@@ -154,6 +154,8 @@ runs without ever letting go, and `jbx gain` counts what that cost.
   commands, and the two things that differ there.
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — why nothing is
   detaching, which is usually on purpose.
+- **[MIGRATING.md](MIGRATING.md)** — what each `jobbox` command became,
+  and the one rename that goes wrong without a word.
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — what belongs in a test, and
   what has already been ruled out.
 - **[CODE-SIGNING-POLICY.md](CODE-SIGNING-POLICY.md)** — who may release
