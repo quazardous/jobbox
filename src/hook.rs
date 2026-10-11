@@ -188,6 +188,21 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect, endings: bool) -> i
     if event[dialect.reads_tool].as_str() != Some(dialect.tool) {
         return 0;
     }
+    // AN AGENT ISOLATED IN A WORKTREE GETS ITS LINE UNTOUCHED. Claude Code
+    // reads every command such an agent runs, to keep its git operations
+    // inside its own worktree — and a wrapped line hides the git it runs
+    // inside an operand. Measured on 11/10/2026: `echo` and `ls` went
+    // through wrapped, but every `git commit`, quoted or not, `-C` or not,
+    // was refused, and four agents finished their work without being able
+    // to commit any of it. Unwrapped, the same commit went through.
+    //
+    // DECIDED BY WHERE THE CALL COMES FROM, NOT BY WHAT IT SAYS. Leaving
+    // `git` alone and wrapping the rest would be a list of commands not
+    // worth wrapping — the rule CONTRIBUTING records as refused. The price
+    // is that an isolated agent gets no detachment at all.
+    if isolated_agent(&event) {
+        return 0;
+    }
     let Some(tool_input) = event[dialect.reads_input].as_object() else { return 0 };
     let Some(line) = tool_input.get("command").and_then(Value::as_str) else { return 0 };
 
@@ -311,4 +326,24 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect, endings: bool) -> i
     let answer = dialect.answer(updated);
     outln!("{answer}");
     0
+}
+
+/// Whether this call comes from a Claude Code agent isolated in a worktree.
+///
+/// THE HARNESS DOES NOT SAY SO IN ONE FIELD — there is no `isolation` in
+/// its hook input. It says two things that together do: `agent_id`, set
+/// inside a subagent, and `cwd`, which is the worktree root once the agent
+/// is in it, and those live under `.claude/worktrees/`. Either alone is
+/// not enough: a subagent without isolation works in the project itself,
+/// and a person can stand in a worktree directory without being one.
+fn isolated_agent(event: &Value) -> bool {
+    let is_agent = event["agent_id"].as_str().is_some_and(|id| !id.is_empty());
+    let cwd = event["cwd"]
+        .as_str()
+        .map(std::path::PathBuf::from)
+        .or_else(|| std::env::current_dir().ok());
+    is_agent && cwd.is_some_and(|dir| {
+        let parts: Vec<&std::ffi::OsStr> = dir.components().map(|c| c.as_os_str()).collect();
+        parts.windows(2).any(|w| w[0] == ".claude" && w[1] == "worktrees")
+    })
 }

@@ -4377,3 +4377,56 @@ fn an_undo_from_a_spare_copy_leaves_the_skills_the_live_copy_uses() {
     assert!(skill.exists(), "an undo from one copy removed the skills another copy uses:\n{said}");
     assert!(said.contains("another jbx is still declared"), "the undo did not say why it kept them:\n{said}");
 }
+
+#[test]
+fn an_agent_isolated_in_a_worktree_gets_its_line_untouched() {
+    // CLAUDE CODE READS EVERY COMMAND AN ISOLATED AGENT RUNS, to keep its
+    // git inside its own worktree, and a wrapped line hides that git in an
+    // operand. Measured on 11/10/2026: wrapped `echo` and `ls` went
+    // through, every wrapped `git commit` was refused, and the same commit
+    // unwrapped went through. Four agents finished work they could not
+    // commit.
+    let s = Scratch::new("isolated");
+    let ask = |extra: serde_json::Value| -> String {
+        let mut event = serde_json::json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "git commit -m x", "description": "d"},
+        });
+        for (k, v) in extra.as_object().unwrap() {
+            event[k] = v.clone();
+        }
+        let mut child = Command::new(JBX)
+            .env_remove("JBX_WRAPPED")
+            .args(["hook", "claude"])
+            .env("JBX_DIR", &s.0)
+            .env("JBX_CONFIG", s.0.join("global.yaml"))
+            .env("PATH", "/nonexistent")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write;
+        child.stdin.take().unwrap().write_all(event.to_string().as_bytes()).unwrap();
+        String::from_utf8_lossy(&child.wait_with_output().unwrap().stdout).into_owned()
+    };
+    let worktree = "/repo/.claude/worktrees/agent-a1";
+
+    // AN ISOLATED AGENT: nothing said, so the harness runs the line as
+    // written.
+    let isolated = ask(serde_json::json!({"agent_id": "a1", "cwd": worktree}));
+    assert!(isolated.trim().is_empty(), "an isolated agent's line was rewritten:\n{isolated}");
+
+    // NEITHER HALF ALONE IS ENOUGH. A subagent working in the project
+    // itself is not isolated, and a session standing in a worktree
+    // directory is not an agent.
+    for (who, extra) in [
+        ("a subagent outside a worktree", serde_json::json!({"agent_id": "a1", "cwd": "/repo"})),
+        ("a session in a worktree directory", serde_json::json!({"cwd": worktree})),
+        ("the main session", serde_json::json!({"cwd": "/repo"})),
+    ] {
+        let said = ask(extra);
+        assert!(said.contains("updatedInput") && said.contains("run --"),
+                "{who} lost its wrapping:\n{said}");
+    }
+}

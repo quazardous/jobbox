@@ -85,6 +85,28 @@ machine came up cannot be running, and neither can a pid that names a
 thread of another program. `jbx prune` clears it. Before 0.22.0, `jbx
 kill` on one of these signalled whatever had inherited the number.
 
+## An agent in a worktree cannot commit
+
+A Claude Code agent started with `isolation: "worktree"` has every command
+read by the harness, which keeps its git operations inside its own
+worktree. A wrapped line hides the git it runs in an operand, so the
+harness refused it — *"what it runs cannot be shown not to be git"* — for
+`git commit`, `git reset` and the rest, while everything else went
+through.
+
+From 0.28.0 jbx leaves such an agent's lines untouched. It knows one by
+the hook input: an `agent_id`, and a working directory under
+`.claude/worktrees/`. **The price is that an isolated agent gets no
+detachment**: a long build in one runs in front of it, as it would
+without jbx. jbx does not leave `git` alone and wrap the rest — choosing
+by what a command says is the rule it refuses (CONTRIBUTING, *What was
+already ruled out*).
+
+Before 0.28.0, `enabled: false` in a `.jbx.yaml` is the way out. A
+committed one is checked out into every worktree, and so turns jbx off for
+the parent session too; one written in the agent's worktree alone does
+not.
+
 ## `jobbox: command not found`
 
 `jobbox` became `jbx` in 0.5.0, with no alias. [MIGRATING.md](MIGRATING.md)
