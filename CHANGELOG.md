@@ -18,6 +18,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-10-11
+
+### Fixed
+
+- **A Claude Code agent isolated in a worktree can commit again.** Claude
+  Code reads every command such an agent runs, to keep its git inside its
+  own worktree, and refused a wrapped `git commit` as something that
+  "cannot be shown not to be git" — so agents finished work they could
+  not commit. jbx now leaves an isolated agent's lines untouched, known by
+  an `agent_id` and a working directory under `.claude/worktrees/`. The
+  price is that such an agent gets no detachment. jbx does not exempt
+  `git` and wrap the rest: choosing by what a command says is the rule it
+  refuses.
+
 ## [0.27.0] - 2026-09-16
 
 ### Added
