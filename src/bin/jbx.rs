@@ -1001,6 +1001,7 @@ fn status(id: &str, how: &Flags) -> i32 {
             "state": describe(&state),
             "queued": matches!(state, store::State::Queued),
             "lost": matches!(state, store::State::Lost),
+            "killed_at": store::killed_at(&r.id),
             "exit": match state { store::State::Finished { code } => Some(code), _ => None },
             "detached": r.detached,
             "pid": r.pid,
@@ -1026,7 +1027,13 @@ fn status(id: &str, how: &Flags) -> i32 {
             jobbox::outln!("           waiting for a slot — nothing is wrong; `jbx slots`");
             jobbox::outln!("           says how many may run at once.");
         }
-        if v["lost"] == true {
+        if v["lost"] == true && v["killed_at"].is_number() {
+            // A DELIBERATE ACT, SAID AS ONE — rather than offered as one
+            // of two guesses, when jbx is the one that did it.
+            let ago = store::now() - v["killed_at"].as_f64().unwrap_or(0.0);
+            jobbox::outln!("           stopped by `jbx kill` {} ago — no exit code,", store::how_long(ago));
+            jobbox::outln!("           because the line never got to end on its own.");
+        } else if v["lost"] == true {
             // THE EXPLANATION LIVES HERE, where somebody came to
             // understand one line rather than to scan forty.
             jobbox::outln!("           nothing recorded a code: it was stopped, or the");
@@ -1216,6 +1223,7 @@ fn kill(id: &str, force: bool) -> i32 {
                 // SAID OUT LOUD, because the code will not say it: a
                 // killed line leaves an interrupt code a later reader
                 // would take for a failure of the command itself.
+                store::mark_killed(id);
                 jobbox::outln!("jbx: {id} stopped");
                 return 0;
             }
@@ -1228,6 +1236,7 @@ fn kill(id: &str, force: bool) -> i32 {
     for _ in 0..20 {
         if !store::alive(r.pid) {
             let how = if force { "it was not asked first" } else { "it needed KILL" };
+            store::mark_killed(id);
             jobbox::outln!("jbx: {id} stopped ({how})");
             return 0;
         }
@@ -1971,6 +1980,10 @@ WHEN YOU REALLY CANNOT GO ON WITHOUT THE RESULT
       jbx fg <id>              bring a detached job back to the front
 
   It is counted, so the habit stays visible. `jbx gain` says what it cost.
+
+  NOT `timeout 28 <line>` to stay under the cut. A check killed half way
+  prints nothing, and behind a pipe it exits 0: a build that never
+  finished reads exactly like a clean one. Let it detach instead.
 
 WHEN THE WORK HAS NOT STARTED YET
   A line already running cannot be held back. Work you are ABOUT to file

@@ -102,6 +102,8 @@ went down under it — has no exit code anybody can know. `jbx wait`,
 say so on stderr; `1` was used before, which is also the commonest way a
 command reports its own failure. A held line used to go further and wait
 for ever, since nothing but that missing code could end it.
+`jbx status` tells the two apart when it can: a job `jbx kill` stopped
+reads `stopped by jbx kill`, and its `--json` carries `killed_at`.
 
 Both observe and neither consumes: `jbx signals` destroys what it reports
 — right for an agent reading its own mail exactly once, ruinous for a
@@ -421,7 +423,7 @@ this one run.
 | `JBX_ENABLED` | `enabled` | whether jbx does anything here at all |
 | `JBX_AFTER` | `after` | seconds before a line is detached (`30`) |
 | `JBX_DIR` | `dir` | where jbx keeps its house (`~/.jobbox`) |
-| `JBX_SLOTS` | `slots` | how many QUEUED jobs run at once (`none` for no cap) |
+| `JBX_SLOTS` | `slots` | how many QUEUED jobs run at once — `auto` is half the cores, the default; `none` for no cap |
 | `JBX_MUTE_AFTER` | `mute_after` | seconds of silence before a job is called mute (`600`) |
 | `JBX_WARN_AFTER` | `warn_after` | seconds in the background before a job is called out (`7200`) |
 | `JBX_WARN_AGAIN_AFTER` | `warn_again_after` | seconds before the same job is called out again (`1800`) |

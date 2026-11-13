@@ -18,6 +18,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] - 2026-11-13
+
+### Added
+
+- **`jbx status` says when `jbx kill` stopped a job.** A killed line never
+  writes an exit code, so it read `gone — stopped, or the machine went
+  down` like any lost job. It now says `stopped by jbx kill`, and
+  `--json` carries `killed_at`.
+- **`slots: auto`** names the default (half the cores) in a config file.
+
+### Fixed
+
+- **Every wrapped command was 0.45s slower than it needed to be** once
+  the readings file passed a few megabytes: the 90-day expiry parsed the
+  whole file each time to find nothing to remove. It now reads the first
+  line, and rewrites the file about once a day.
+- **The session rule warns against `timeout 28 <line>`.** Agents learned
+  to cap lines just under the cut, and behind a pipe a check killed half
+  way exits 0: on one machine, 1449 lines read as clean that never
+  finished. `jbx how` says the same.
+- **Unreadable job records are collected.** An empty record left by an
+  interrupted write was skipped by the daily sweep and stayed for ever.
+- **The `config.yaml` template states the real defaults** — `slots`
+  and `dir` were stale — and lists the three settings it left out.
+
 ## [0.28.0] - 2026-10-11
 
 ### Fixed

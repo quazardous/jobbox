@@ -1273,6 +1273,26 @@ pub fn forget_older_than(days: f64) {
     if meta.len() < 1_048_576 {
         return;
     }
+    // THE FIRST LINE ANSWERS FOR THE WHOLE FILE. This runs before every
+    // wrapped command, and it used to parse every reading to find out
+    // that none had expired: 0.45s per command on a 35 MB file, measured
+    // against the same command over an empty one (0.00s). Readings are
+    // appended, so the first is the oldest — if it is still young,
+    // nothing is old.
+    //
+    // A DAY OF SLACK, because without it the oldest line expires a
+    // second after every pass and the full rewrite runs on every command
+    // again. With it, the file is rewritten about once a day and holds
+    // between ninety and ninety-one days.
+    let oldest = std::fs::File::open(&path).ok().and_then(|f| {
+        use std::io::BufRead;
+        let mut first = String::new();
+        std::io::BufReader::new(f).read_line(&mut first).ok()?;
+        serde_json::from_str::<Value>(&first).ok()?["at"].as_f64()
+    });
+    if oldest.is_some_and(|at| at >= store::now() - (days + 1.0) * 86400.0) {
+        return;
+    }
     let cut = store::now() - days * 86400.0;
     let Ok(text) = std::fs::read_to_string(&path) else { return };
     let kept: Vec<&str> = text

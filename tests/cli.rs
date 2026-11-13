@@ -433,7 +433,7 @@ fn init_leaves_a_commented_project_file_that_changes_nothing() {
     // become findable by reading rather than by asking, and the one
     // uncommented key is the one worth a decision.
     assert!(written.contains("compose: auto"));
-    for opinionated in ["enabled: false", "after: 30", "slots: 4"] {
+    for opinionated in ["enabled: false", "after: 30", "slots: auto"] {
         let line = written.lines().find(|l| l.contains(opinionated)).unwrap_or("");
         assert!(line.trim_start().starts_with('#'), "{opinionated} was not commented");
     }
@@ -857,6 +857,51 @@ fn health_names_a_job_that_runs_without_saying_anything() {
     assert!(row(&quieted).contains("MUTE"), "`list` called it something else:\n{listed}");
     s.run(&["kill", &never]);
     s.run(&["kill", &quieted]);
+}
+
+#[test]
+fn the_config_template_uncommented_changes_nothing() {
+    // IT SAYS "EVERY SETTING IT HAS, WITH ITS DEFAULT", so that is what is
+    // checked — by doing what its reader does: uncomment it and look.
+    // It had said `slots: 4` and `dir: ~/.cache/jbx` long after the
+    // defaults had become half the cores and `~/.jobbox`, and left out
+    // three settings altogether.
+    let uncommented: String = jobbox::config::TEMPLATE
+        .lines()
+        .map(|l| match l.strip_prefix("# ") {
+            Some(rest) if rest.split(':').next().is_some_and(|k| {
+                !k.is_empty() && k.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+            }) => rest,
+            _ => l,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let settings = |s: &Scratch| -> Vec<serde_json::Value> {
+        let v: serde_json::Value =
+            serde_json::from_str(&text(&s.run(&["config", "--json"]))).unwrap();
+        v["settings"].as_array().unwrap().clone()
+    };
+
+    let bare = Scratch::new("tmplbare");
+    let filled = Scratch::new("tmplfilled");
+    std::fs::write(filled.0.join("global.yaml"), &uncommented).unwrap();
+    let (before, after) = (settings(&bare), settings(&filled));
+
+    for (b, a) in before.iter().zip(&after) {
+        let name = b["setting"].as_str().unwrap();
+        // `dir` IS THE EXCEPTION only because each scratch names its own
+        // through `JBX_DIR`, and the environment beats the file — which
+        // is the rule, not a gap. Its line is checked as text below.
+        if name == "dir" {
+            continue;
+        }
+        assert_eq!(b["value"], a["value"], "`{name}` uncommented is not the default");
+        // EVERY SETTING, OR THE HEADER IS WRONG.
+        if b["from"] == "default" {
+            assert_ne!(a["from"], "default", "`{name}` is not in the template");
+        }
+    }
+    assert!(uncommented.contains("\ndir: ~/.jobbox"), "the template names the wrong home");
 }
 
 #[test]
@@ -3018,6 +3063,57 @@ fn a_two_day_old_record_whose_process_is_gone_is_collected_by_itself() {
 }
 
 #[test]
+fn an_unreadable_record_is_collected_once_it_is_old() {
+    // AN EMPTY `.json` IS WHAT A WRITE CUT SHORT LEAVES, and the sweep
+    // reads records before judging them — so it never judged this one.
+    // Eight of them sat a month on one machine, each with its empty log.
+    let s = Scratch::new("unreadable");
+    s.run(&["run", "--after", "0", "--", "true"]);
+    let jobs = s.jobs();
+    let files = |id: &str| -> Vec<std::path::PathBuf> {
+        ["json", "log", "code.part"].iter().map(|e| jobs.join(format!("{id}.{e}"))).collect()
+    };
+    let fifty_hours_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(50 * 3600);
+    for (id, when) in [("jdead0ld", Some(fifty_hours_ago)), ("jdeadnew", None)] {
+        for path in files(id) {
+            let f = std::fs::File::create(&path).unwrap();
+            if let Some(t) = when {
+                f.set_modified(t).unwrap();
+            }
+        }
+    }
+
+    s.run(&["run", "--after", "0", "--", "true"]);
+    assert!(files("jdead0ld").iter().all(|p| !p.exists()),
+            "an old unreadable record survived the sweep");
+    // A FRESH ONE MAY BE A RECORD BEING WRITTEN RIGHT NOW. Same horizon
+    // as any record without an exit code: the file's age stands in for
+    // the start time nobody can read.
+    assert!(files("jdeadnew").iter().all(|p| p.exists()),
+            "an unreadable record was collected before it was old");
+}
+
+#[test]
+fn a_job_stopped_by_kill_says_who_stopped_it() {
+    // A KILLED LINE NEVER WRITES AN EXIT CODE — its supervisor goes down
+    // with it — so it reads `gone` like a job the machine lost. On one
+    // machine half the code-less records were jbx's own kills, each
+    // described as "stopped, or the machine went down": a guess offered
+    // about something this program did itself.
+    let s = Scratch::new("killedsays");
+    let id = announced(&text(&s.run(&["run", "--after", "0", "--", "sleep 30"])));
+    assert!(text(&s.run(&["kill", &id])).contains("stopped"));
+
+    let said = text(&s.run(&["status", &id]));
+    assert!(said.contains("stopped by `jbx kill`"), "the kill was not named:\n{said}");
+    assert!(!said.contains("machine went down"), "still offered as a guess:\n{said}");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&text(&s.run(&["status", "--json", &id]))).unwrap();
+    assert!(json["killed_at"].is_number(), "no `killed_at` in --json: {json}");
+}
+
+#[test]
 fn the_listing_verbs_explain_their_state_column() {
     // SIX WORDS THAT LOOK ALIKE AND ARE NOT, and the difference decides
     // what to do next: `foreground` is somebody standing still, `held`
@@ -4429,4 +4525,38 @@ fn an_agent_isolated_in_a_worktree_gets_its_line_untouched() {
         assert!(said.contains("updatedInput") && said.contains("run --"),
                 "{who} lost its wrapping:\n{said}");
     }
+}
+
+#[test]
+fn readings_expire_at_ninety_days_without_rereading_the_file_on_every_command() {
+    // THE PRUNE RUNS BEFORE EVERY WRAPPED COMMAND, and it used to parse
+    // every reading to learn that none had expired: 0.45s added to each
+    // command on a 35 MB file. The oldest reading is the first line, so
+    // it alone decides — with a day of slack, or the next command finds
+    // one more expired second and rewrites everything again.
+    let day = 86400.0;
+    // Over the 1 MB below which nothing is pruned at all.
+    let young: Vec<(&str, f64, f64)> = (0..9000).map(|i| ("/p", 10.0 * day + i as f64, 1.0)).collect();
+
+    // INSIDE THE SLACK: ninety and a half days old is past ninety, and
+    // the file is still left alone — that is the day of slack at work.
+    let s = Scratch::new("prunereadings");
+    let mut lines = vec![("/p", 90.5 * day, 1.0)];
+    lines.extend(&young);
+    seed_readings(&s, &lines);
+    let file = s.home().join("readings.jsonl");
+    let before = std::fs::read_to_string(&file).unwrap();
+    assert!(before.len() > 1_048_576, "the seed is under the size that triggers a prune");
+    s.run(&["run", "--after", "0", "--", "true"]);
+    assert!(std::fs::read_to_string(&file).unwrap().starts_with(&before),
+            "the file was rewritten while its oldest reading was inside the slack");
+
+    // PAST THE SLACK: the expired reading goes, and only it.
+    let mut lines = vec![("/p", 92.0 * day, 1.0)];
+    lines.extend(&young);
+    seed_readings(&s, &lines);
+    s.run(&["run", "--after", "0", "--", "true"]);
+    let after = std::fs::read_to_string(&file).unwrap();
+    assert!(after.lines().count() >= young.len(), "young readings were pruned");
+    assert!(after.lines().count() < young.len() + 2, "the 92-day-old reading survived");
 }

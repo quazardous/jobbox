@@ -280,6 +280,23 @@ pub const NO_ENDING: i32 = 125;
 pub fn warned_path(id: &str) -> PathBuf { dir().join(format!("{id}.warned")) }
 /// HOW LONG SOMEBODY SAID THIS ONE WOULD TAKE — `jbx expect`.
 pub fn expected_path(id: &str) -> PathBuf { dir().join(format!("{id}.expect")) }
+/// WHEN `jbx kill` STOPPED THIS ONE. A killed job's supervisor goes down
+/// with it, so no exit code is ever written — and without this, `status`
+/// could only offer "stopped, or the machine went down", the same words
+/// for a deliberate act and an accident. Half of the code-less records
+/// on one machine were jbx's own kills, described as a mystery.
+pub fn killed_path(id: &str) -> PathBuf { dir().join(format!("{id}.killed")) }
+
+/// SAY THAT jbx STOPPED IT. Written only after the process is observed
+/// gone, so the marker never claims a kill that did not happen.
+pub fn mark_killed(id: &str) {
+    let _ = fs::write(killed_path(id), format!("{}", now()));
+}
+
+/// When `jbx kill` stopped this job, if it did.
+pub fn killed_at(id: &str) -> Option<f64> {
+    fs::read_to_string(killed_path(id)).ok()?.trim().parse().ok()
+}
 
 /// THE LONGEST A JOB MAY BE EXPECTED TO TAKE.
 ///
@@ -843,6 +860,8 @@ pub fn forget(id: &str) -> bool {
         started_path(id),
         warned_path(id),
         expected_path(id),
+        killed_path(id),
+        dir().join(format!("{id}.code.part")),
     ] {
         any |= fs::remove_file(path).is_ok();
     }
@@ -895,17 +914,35 @@ pub fn forget_older_than(hours: f64) -> usize {
         {
             continue;
         }
-        for path in [
-            record_path(&r.id),
-            code_path(&r.id),
-            log_path(&r.id),
-            started_path(&r.id),
-            warned_path(&r.id),
-            expected_path(&r.id),
-        ] {
-            let _ = fs::remove_file(path);
-        }
+        forget(&r.id);
         gone += 1;
+    }
+    gone + forget_unreadable()
+}
+
+/// RECORDS THAT CANNOT BE READ, ONCE THEY ARE OLD ENOUGH TO BE DEAD.
+///
+/// `all()` skips a record it cannot parse, so the sweep above never saw
+/// one — and an empty `.json`, left by a write cut short (a full disk
+/// does it), stayed for ever with its empty log beside it: eight of them
+/// a month old on one machine. Without a readable start time the file's
+/// own age stands in, against the same horizon as any record with no
+/// exit code.
+fn forget_unreadable() -> usize {
+    let Ok(entries) = fs::read_dir(dir()) else { return 0 };
+    let cut = std::time::SystemTime::now()
+        - std::time::Duration::from_secs_f64(UNRECOVERABLE_AFTER);
+    let mut gone = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
+        let old = entry.metadata().and_then(|m| m.modified()).is_ok_and(|t| t < cut);
+        if old && read_record(stem).is_none() && forget(stem) {
+            gone += 1;
+        }
     }
     gone
 }

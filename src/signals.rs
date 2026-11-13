@@ -508,6 +508,14 @@ pub fn discipline() -> i32 {
     outln!("      `jbx wait <id>` as a BACKGROUND command and its ending wakes you.");
     outln!("      Genuinely cannot go on without a result? Say so: `jbx fg -- '<line>'`");
     outln!("      never lets go, and `jbx gain` counts what that cost.");
+    // THE THIRD BEAT IS A WORKAROUND SEEN IN THE READINGS, not a guess.
+    // Agents learned to cap lines just under the cut — `timeout 28
+    // cargo check | grep error` — and in two months 1473 such lines were
+    // killed by their own timeout, 1449 of them recorded as exit 0: the
+    // pipe hides `timeout`'s 124, so a check that never finished passed
+    // for a clean one. The cut costs nothing; dodging it costs the truth.
+    outln!("      DO NOT CAP A LINE UNDER THE CUT with `timeout 28`. Killed half way, a");
+    outln!("      check prints nothing and, behind a pipe, exits 0 — it looks green.");
     0
 }
 

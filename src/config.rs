@@ -396,6 +396,10 @@ pub fn slots(default: usize) -> (Option<usize>, Source) {
     let read = |text: &str| -> Option<Option<usize>> {
         match text.trim() {
             "none" | "0" => Some(None),
+            // `auto` IS THE DEFAULT, NAMED. The template has to show a
+            // value that uncommented changes nothing, and the default
+            // is half the cores — a number no file can know in advance.
+            "auto" => Some(Some(default)),
             other => other.parse::<usize>().ok().map(Some),
         }
     };
@@ -573,7 +577,7 @@ pub fn project_template(rtk_found: bool) -> String {
          # enabled: false       # jbx stays out of the way in this project\n\
          # after: 30            # seconds before a long line detaches itself\n\
          # allow_wait: false     # true: the agent may run `jbx wait` in front of itself\n\
-         # slots: 4             # how many QUEUED jobs run at once; `none` for no cap\n\
+         # slots: auto          # how many QUEUED jobs run at once — half the cores; `none` for no cap\n\
          \n\
          {seen}\n\
          integration:\n\
@@ -590,13 +594,16 @@ pub const TEMPLATE: &str = "\
 # variable wins: it is what you typed for one run, this is what you
 # decided once.
 
-# after: 30            # seconds before a long line detaches itself
-# allow_wait: false     # true: the agent may run `jbx wait` in front of itself
-# mute_after: 600      # seconds of silence before a running job is called mute
-# slots: 4             # how many QUEUED jobs run at once; `none` for no cap
-# dir: ~/.cache/jbx    # where logs and records live
-# width: auto          # columns a listing may draw in; `auto` asks the terminal
-# color: auto          # auto | always | never — `auto` means when a terminal reads
+# enabled: true          # false: jbx stays out of the way everywhere
+# after: 30              # seconds before a long line detaches itself
+# allow_wait: false      # true: the agent may run `jbx wait` in front of itself
+# mute_after: 600        # seconds of silence before a running job is called mute
+# warn_after: 7200       # seconds in the background before a job is called out
+# warn_again_after: 1800 # seconds before the same job is called out again
+# slots: auto            # how many QUEUED jobs run at once — half the cores; `none` for no cap
+# dir: ~/.jobbox         # where logs and records live (%LOCALAPPDATA%\\jobbox on Windows)
+# width: auto            # columns a listing may draw in; `auto` asks the terminal
+# color: auto            # auto | always | never — `auto` means when a terminal reads
 
 integration:
   rtk:
