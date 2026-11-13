@@ -1286,6 +1286,48 @@ fn wait_file(path: &str, text: Option<&str>, deadline: f64) -> i32 {
     }
 }
 
+/// THE LAST LINES OF A FILE, read from its end — a log can be gigabytes.
+fn last_lines(path: &std::path::Path, n: usize) -> Vec<String> {
+    use std::io::{Read, Seek};
+    let Ok(mut file) = std::fs::File::open(path) else { return Vec::new() };
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let from = len.saturating_sub(64 * 1024);
+    if file.seek(std::io::SeekFrom::Start(from)).is_err() {
+        return Vec::new();
+    }
+    let mut tail = Vec::new();
+    let _ = file.read_to_end(&mut tail);
+    let text = String::from_utf8_lossy(&tail);
+    let lines: Vec<&str> = text.trim_end_matches('\n').lines().collect();
+    // A CUT FIRST LINE IS DROPPED: half a line reads as a different one.
+    let skip = usize::from(from > 0 && lines.len() > n);
+    lines[skip..].iter().rev().take(n).rev().map(|l| l.to_string()).collect()
+}
+
+/// WHAT A WAIT SAYS WHEN THE JOB HAS ENDED (#5034).
+///
+/// It used to say nothing and exit with the code, so every wait was
+/// followed by a `tail` or a `status` to learn how it went — two calls
+/// for one answer, and reads were 90 % of what agents did with a job.
+/// Under Monitor each line printed here becomes the notification that
+/// wakes the agent, so the answer arrives with the wake-up. Ten lines,
+/// fixed: the exit code is what a script reads, `jbx tail` has the rest.
+fn say_ending(r: &store::Record, code: Option<i32>) {
+    let took = std::fs::metadata(store::code_path(&r.id))
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs_f64() - r.started)
+        .unwrap_or_else(|| store::now() - r.started);
+    match code {
+        Some(code) => jobbox::outln!("jbx: {} ({}) — exit {code} in {}", r.id, r.intent, store::how_long(took)),
+        None => jobbox::outln!("jbx: {} ({}) — ended without leaving an exit code", r.id, r.intent),
+    }
+    for line in last_lines(&store::log_path(&r.id), 10) {
+        jobbox::outln!("  {line}");
+    }
+}
+
 fn wait(id: &str, text: Option<&str>, deadline: Option<f64>) -> i32 {
     let began = store::now();
     let mut watch = Watch::new(store::log_path(id));
@@ -1345,6 +1387,7 @@ fn wait(id: &str, text: Option<&str>, deadline: Option<f64>) -> i32 {
                 // health` as stranded, for ever, one box per session — an
                 // alarm that always rings and is therefore never read.
                 signals::forget(&store::client(), id);
+                say_ending(&r, Some(code));
                 return code;
             }
             store::State::Lost => {
@@ -1353,7 +1396,7 @@ fn wait(id: &str, text: Option<&str>, deadline: Option<f64>) -> i32 {
                 // call still carried that news. The box is cleared for
                 // the same reason.
                 signals::forget(&store::client(), id);
-                eprintln!("jbx: {id} ended without leaving an exit code");
+                say_ending(&r, None);
                 return store::NO_ENDING;
             }
             store::State::Queued | store::State::Running { .. } => {

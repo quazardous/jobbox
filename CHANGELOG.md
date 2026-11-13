@@ -47,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`jbx wait` says how the job ended.** It used to exit with the code and
+  print nothing, so every wait was followed by a `tail` to learn how it
+  went. It now prints `jbx: <id> (<intent>) — exit N in <time>` and the
+  last ten lines of the log — under Monitor, that is the wake-up itself.
 - **The detach message says how to ask for a result up front** — `jbx fg
   -- '<line>'` next time — for the agent that waited on a day of
   deliveries one by one and found `fg` only in `jbx help`. It still does

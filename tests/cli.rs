@@ -4949,3 +4949,20 @@ fn the_detach_message_says_how_to_ask_for_the_result_up_front() {
     assert!(!said.contains(&format!("jbx fg {id}")), "it offered to wait for this one:\n{said}");
     s.run(&["kill", &id]);
 }
+
+#[test]
+fn a_wait_says_how_the_job_ended_and_what_it_printed_last() {
+    // #5034: `wait` said nothing and exited with the code, so every wait
+    // was followed by a `tail` — and reads were 90 % of what was done
+    // with a job. Under Monitor these lines ARE the wake-up.
+    let s = Scratch::new("waitsays");
+    let line = "for i in $(seq 1 30); do echo line $i; done; echo delivered: shop ok; exit 3";
+    let id = announced(&text(&s.run(&["run", "--after", "0", "--intent", "deliver shop", "--", line])));
+    let out = s.run(&["wait", &id]);
+    assert_eq!(out.status.code(), Some(3), "the job's code is no longer the wait's");
+    let said = text(&out);
+    assert!(said.contains(&format!("jbx: {id} (deliver shop) — exit 3 in")), "no header:\n{said}");
+    assert!(said.contains("delivered: shop ok"), "the last line is missing:\n{said}");
+    assert!(said.contains("line 30") && !said.contains("line 20\n"), "not the last ten:\n{said}");
+    assert_eq!(said.lines().count(), 11, "header and ten lines, nothing else:\n{said}");
+}
