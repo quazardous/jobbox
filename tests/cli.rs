@@ -4920,24 +4920,37 @@ fn a_detached_wait_loop_is_offered_the_wait_that_ends_by_itself() {
 
 #[test]
 fn a_wait_loop_is_called_out_at_thirty_minutes_and_a_build_is_not() {
-    // N = 30 min, chosen on #5032: a hand-written wait past half an hour
-    // is usually waiting for something that is not coming. Every other
-    // job keeps the two hours.
+    // N = 30 min, chosen on #5032 — a quarter of the two hours other jobs
+    // get. Shown at scale: with `warn_after` at 40s a loop is called out
+    // at 10s and a build is not. AGED FOR REAL, NOT BY EDITING THE RECORD:
+    // a record dated before the machine booted reads as lost, and a CI
+    // runner is minutes old — 31 minutes of history it could not have.
     let s = Scratch::new("loopcall");
-    let start = |line: &str| announced(&text(&s.run_as("me", &["run", "--after", "0", "--", line])));
+    let env = [("JBX_CLIENT", "me"), ("JBX_WARN_AFTER", "40")];
+    let start = |line: &str| announced(&text(&s.run_with(&env, &["run", "--after", "0", "--", line])));
     let lp = start("until [ -e /nonexistent-jbx ]; do sleep 1; done");
-    let build = start("sleep 3000");
+    let build = start("sleep 60");
+    std::thread::sleep(std::time::Duration::from_secs(12));
+    let stop = {
+        let mut child = Command::new(JBX)
+            .env_remove("JBX_WRAPPED")
+            .env_remove("CLAUDE_CODE_SESSION_ID")
+            .env("JBX_DIR", &s.0)
+            .env("JBX_CONFIG", s.0.join("global.yaml"))
+            .envs(env)
+            .args(["hook", "claude", "--no-endings"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write;
+        child.stdin.take().unwrap().write_all(br#"{"hook_event_name":"Stop"}"#).unwrap();
+        String::from_utf8_lossy(&child.wait_with_output().unwrap().stdout).into_owned()
+    };
+    assert!(stop.contains(&lp), "the wait loop was not called out at a quarter: {stop}");
+    assert!(!stop.contains(&build), "a build was called out with it: {stop}");
     for id in [&lp, &build] {
-        let record = s.jobs().join(format!("{id}.json"));
-        let mut v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&record).unwrap()).unwrap();
-        v["started"] = serde_json::json!(v["started"].as_f64().unwrap() - 31.0 * 60.0);
-        std::fs::write(&record, v.to_string()).unwrap();
-    }
-    let stop = event(&s, serde_json::json!({"hook_event_name": "Stop"}), &["--no-endings"]);
-    assert!(stop.contains(&lp), "the 31-minute wait loop was not called out: {stop}");
-    assert!(!stop.contains(&build), "a 31-minute build was called out with it: {stop}");
-    for id in [&lp, &build] {
-        s.run_as("me", &["kill", id]);
+        s.run_with(&env, &["kill", id]);
     }
 }
 

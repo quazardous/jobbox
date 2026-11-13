@@ -379,7 +379,10 @@ pub const WAIT_LOOP_CALLED_OUT_AFTER: f64 = 30.0 * 60.0;
 pub fn allowed_to_run_record(r: &Record) -> f64 {
     match expected_of(&r.id) {
         Some(said) => said,
-        None if is_wait_loop(&r.command) => WAIT_LOOP_CALLED_OUT_AFTER.min(warn_after()),
+        // A QUARTER OF WHAT OTHER JOBS GET, NEVER MORE THAN HALF AN HOUR:
+        // thirty minutes at the default two hours, and it follows a
+        // `warn_after` set lower instead of outliving it.
+        None if is_wait_loop(&r.command) => WAIT_LOOP_CALLED_OUT_AFTER.min(warn_after() / 4.0),
         None => warn_after(),
     }
 }
