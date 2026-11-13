@@ -309,6 +309,38 @@ pub fn mark_orphaned(id: &str) {
     let _ = fs::write(orphaned_path(id), format!("{}", now()));
 }
 
+/// SOMEBODY ASKED AFTER THIS ONE BY ITS ID — a `wait` or a `status`
+/// while it ran. A line that ends in front of whoever ran it is erased
+/// by its front, since nobody else was ever told its id; this marker is
+/// how the front learns that somebody was (#5047).
+pub fn waited_path(id: &str) -> PathBuf { dir().join(format!("{id}.waited")) }
+
+pub fn mark_waited(id: &str) {
+    if record_path(id).exists() && !code_path(id).exists() {
+        let _ = fs::write(waited_path(id), format!("{}", now()));
+    }
+}
+
+/// A `jbx fg` INSIDE THIS JOB'S LINE ASKED NOT TO BE LET GO OF (#5045).
+/// The hook wraps `cd x && env -u V jbx fg -- '…'` whole, the inner `fg`
+/// steps aside into this job, and only this marker tells the front that
+/// the line it is holding asked to be held.
+pub fn fg_asked_path(id: &str) -> PathBuf { dir().join(format!("{id}.fg")) }
+
+/// WHAT A `jbx` INSIDE THIS JOB'S LINE HAD TO SAY, kept apart until the
+/// line ends and then added to its log (#5044).
+pub fn note_path(id: &str) -> PathBuf { dir().join(format!("{id}.note")) }
+
+/// THE STOP THIS JOB ALREADY HELD BACK — a subagent's, once (#5046).
+/// Once only, so a job that never ends cannot make its agent unstoppable.
+pub fn stop_held_path(id: &str) -> PathBuf { dir().join(format!("{id}.stopheld")) }
+
+/// Whether this job's id got out: its agent ended under it, so the
+/// parent was told it, or somebody waited on it.
+pub fn id_got_out(id: &str) -> bool {
+    orphaned_path(id).exists() || waited_path(id).exists()
+}
+
 /// When this job's agent ended under it, if it did.
 pub fn orphaned_at(id: &str) -> Option<f64> {
     fs::read_to_string(orphaned_path(id)).ok()?.trim().parse().ok()
@@ -904,6 +936,14 @@ fn parent_of(_pid: u32) -> Option<u32> {
     None
 }
 
+/// An id is `j` and seven hex digits and nothing else, which no command
+/// and no other file in the store is.
+pub fn looks_like_an_id(word: &str) -> bool {
+    word.len() == 8
+        && word.starts_with('j')
+        && word[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
 /// DROP ONE JOB'S TRACES, WHATEVER STATE IT IS IN.
 ///
 /// The caller decides what deserves forgetting; this only does it. Kept
@@ -921,6 +961,10 @@ pub fn forget(id: &str) -> bool {
         expected_path(id),
         killed_path(id),
         orphaned_path(id),
+        waited_path(id),
+        stop_held_path(id),
+        fg_asked_path(id),
+        note_path(id),
         dir().join(format!("{id}.code.part")),
     ] {
         any |= fs::remove_file(path).is_ok();
@@ -995,12 +1039,23 @@ fn forget_unreadable() -> usize {
     let mut gone = 0;
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+        let old = entry.metadata().and_then(|m| m.modified()).is_ok_and(|t| t < cut);
+        if !old {
             continue;
         }
-        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else { continue };
-        let old = entry.metadata().and_then(|m| m.modified()).is_ok_and(|t| t < cut);
-        if old && read_record(stem).is_none() && forget(stem) {
+        // A MARKER WITH NO RECORD BESIDE IT. The front used to erase a
+        // job file by file and forgot the markers (#5047): 24 of them sat
+        // on one machine, naming jobs nothing else remembered.
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some((stem, _)) = name.split_once('.') else { continue };
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            // ONLY WHAT IS SHAPED LIKE A JOB'S: the store holds other files.
+            if looks_like_an_id(stem) && !record_path(stem).exists() && fs::remove_file(&path).is_ok() {
+                gone += 1;
+            }
+            continue;
+        }
+        if read_record(stem).is_none() && forget(stem) {
             gone += 1;
         }
     }

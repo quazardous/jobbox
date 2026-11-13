@@ -160,6 +160,11 @@ When the answer is yes, say so — `jbx fg -- '<line>'` runs without ever
 letting go, and `jbx gain` counts what that cost. A habit of reaching
 for it becomes visible instead of invisible.
 
+It holds wherever it stands in the line: `cd x && env -u V jbx fg --
+'…'` is wrapped whole, and the inner `fg` tells the job around it not to
+let go — as long as it is reached before the cut. Put it first and the
+question does not arise.
+
 Changed your mind halfway? `jbx fg <id>` picks a detached job back up:
 everything it has printed, then what it prints next, then its exit code.
 
@@ -545,11 +550,18 @@ Under Claude Code, a line a **subagent** runs is recorded as that agent's
 (`--agent <id>`, written by the hook from the `agent_id` the harness
 sends). When the agent ends — `SubagentStop` — the jobs it left running
 are **marked, not stopped**: an agent sometimes leaves a build running on
-purpose for the session to use. `jbx ps` shows them `orphaned`, and the
-session's next turn end names them once:
+purpose for the session to use.
+
+**Its first stop is held back**, once per running job: the agent is told
+to `jbx wait` on it in front of itself, then commit and report — its
+turn ending ends it, and nothing would wake it. Once only, so a job that
+never ends cannot make the agent unstoppable. If it stops again, `jbx
+ps` shows the job `orphaned`, it is kept after it ends whatever its
+threshold, and the session's next turn end names it once, with where it
+ran:
 
 ```console
-jbx: agent a26d4df9972edc54b ended and left a job running: j2628a39 (bench wait).
+jbx: agent a26d4df9972edc54b ended and left a job running: j2628a39 (bench wait, in /work/wt-a).
 It was not stopped — if nothing will use it, `jbx kill --agent a26d4df9972edc54b`.
 ```
 
@@ -663,6 +675,10 @@ What it deliberately does not do:
 - **A wait that is not `jbx wait`** — `until grep …; sleep`, `sleep 300`
   — cannot be told from work, and is not refused. A detached loop is
   offered `jbx wait --file` instead, and called out after half an hour.
+- **A subagent is never marked** (`agent_id` in the event, `JBX_AGENT`
+  in its shell). Its turn ending ends it, so a Monitor it arms wakes
+  nobody — and its waiting holds only itself, never the session. It is
+  told to run `jbx wait` in front of itself, then finish its work.
 - **A client with no Monitor is never marked.** On Cursor — no
   end-of-turn hook either — `jbx wait` is the only way an ending reaches
   anybody, and refusing it there would silence the mechanism rather than

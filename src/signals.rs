@@ -577,6 +577,44 @@ fn orphans_path(client: &str) -> PathBuf {
 /// sometimes leaves a build running on purpose for the session to use,
 /// and stopping it would destroy that. The marker is what lets the
 /// session — and a permission check — tell these from live work.
+/// A SUBAGENT IS STOPPING (#5046). While a job of its own still runs,
+/// the stop is held back ONCE per job, with the gesture that finishes
+/// the work: its turn ending ends it, so a Monitor it armed wakes
+/// nobody, and the work stayed uncommitted until the parent noticed —
+/// seven times in one day. Once only, so a job that never ends cannot
+/// make the agent unstoppable: the next stop goes through, and the
+/// parent is told what was left.
+pub fn agent_stopping(agent: &str, hold: &str) -> i32 {
+    let me = client();
+    let fresh: Vec<store::Record> = store::all()
+        .into_iter()
+        .filter(|r| r.agent.as_deref() == Some(agent) && r.client == me)
+        .filter(|r| matches!(store::state_of(r), store::State::Running { .. } | store::State::Queued))
+        .filter(|r| !store::stop_held_path(&r.id).exists())
+        .collect();
+    if fresh.is_empty() {
+        agent_ended(agent);
+        return 0;
+    }
+    for r in &fresh {
+        let _ = fs::write(store::stop_held_path(&r.id), format!("{}", store::now()));
+    }
+    let jobs = fresh.iter().map(|r| format!("{} ({})", r.id, r.intent)).collect::<Vec<_>>().join(", ");
+    let waits = fresh.iter().map(|r| format!("`jbx wait {}`", r.id)).collect::<Vec<_>>().join(", then ");
+    outln!(
+        "{}",
+        serde_json::json!({
+            "decision": hold,
+            "reason": format!(
+                "jbx: your job {jobs} is still running. You are a subagent: when your turn ends, \
+                 you end, and nothing wakes you — so do not stop yet. Run {waits} in front of you; \
+                 it ends when the job does. Then finish your work: commit, and report."
+            ),
+        })
+    );
+    0
+}
+
 pub fn agent_ended(agent: &str) {
     let me = client();
     for r in store::all() {
@@ -587,7 +625,7 @@ pub fn agent_ended(agent: &str) {
             continue;
         }
         store::mark_orphaned(&r.id);
-        let line = serde_json::json!({ "id": r.id, "intent": r.intent, "agent": agent }).to_string();
+        let line = serde_json::json!({ "id": r.id, "intent": r.intent, "agent": agent, "cwd": r.cwd }).to_string();
         store::append_line(&orphans_path(&me), &line);
     }
 }
@@ -607,7 +645,10 @@ fn orphan_notice(me: &str) -> Option<String> {
         if !store::read_record(id).is_some_and(|r| matches!(store::state_of(&r), store::State::Running { .. } | store::State::Queued)) {
             continue;
         }
-        by_agent.entry(agent.into()).or_default().push(format!("{id} ({})", v["intent"].as_str().unwrap_or("")));
+        // WHERE IT RAN, so the resume message writes itself: for an
+        // isolated agent, that is its worktree (#5046).
+        let place = v["cwd"].as_str().map(|c| format!(", in {c}")).unwrap_or_default();
+        by_agent.entry(agent.into()).or_default().push(format!("{id} ({}{place})", v["intent"].as_str().unwrap_or("")));
     }
     if by_agent.is_empty() {
         return None;

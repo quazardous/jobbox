@@ -364,6 +364,16 @@ pub fn supervise(
         }
     };
     let took = store::now() - began;
+    // WHAT A `jbx` INSIDE THE LINE HAD TO SAY ABOUT IT (#5044), put in
+    // the log only now: the line writes at its own position, not at the
+    // end, so a line added while it ran would have been written over.
+    if let Ok(note) = std::fs::read_to_string(store::note_path(id)) {
+        use std::io::Write;
+        if let Ok(mut sink) = OpenOptions::new().append(true).open(store::log_path(id)) {
+            let _ = write!(sink, "{note}");
+        }
+        let _ = std::fs::remove_file(store::note_path(id));
+    }
     crate::gain::record(&crate::gain::fingerprint(line), took, after, fg, code);
     // ONLY A DETACHED JOB IS ANNOUNCED, and `took > after` is exactly
     // that — no coordination with the front needed, which is the point:
@@ -474,7 +484,29 @@ fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>, no_input: b
     // detachment and an announcement. A second one adds nothing and
     // costs the truth about which id to trust — so the inner one steps
     // aside, exactly as it does for a terminal.
-    if std::env::var_os("JBX_WRAPPED").is_some() {
+    if let Some(outer) = std::env::var_os("JBX_WRAPPED") {
+        let outer = outer.to_string_lossy().into_owned();
+        // BUT A `fg` STILL MEANS "NEVER LET GO" (#5045). The job holding
+        // this line is the one whose front decides, so it is told.
+        if fg {
+            let _ = std::fs::write(store::fg_asked_path(&outer), "");
+        }
+        // AND THE STEPPING ASIDE IS SAID, where no pipe can eat it (#5044).
+        // `cd x && jbx run -- '<gate>' | grep 'BACKGROUND as'` ran the gate
+        // for three minutes inside the outer job, and its grep found no
+        // detachment to match: exit 1, an empty log, and a Monitor woken
+        // on what looked like a job that never ran. The note reaches the
+        // outer job's log when its line ends, and so `jbx wait`'s tail.
+        if !fg {
+            use std::io::Write;
+            if let Ok(mut note) = OpenOptions::new().create(true).append(true).open(store::note_path(&outer)) {
+                let _ = writeln!(
+                    note,
+                    "\njbx: a `jbx run` inside this line ran as part of {outer}, not as a job of its own:\n\
+                     \x20    no id, no detachment message. Whatever the line filtered out of its output is gone."
+                );
+            }
+        }
         let mut cmd = shell(line);
         return match cmd.status() {
             Ok(status) => exit_code(status),
@@ -639,8 +671,14 @@ fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>, no_input: b
                 .ok()
                 .and_then(|t| t.trim().parse::<i32>().ok())
                 .unwrap_or(1);
-            for path in [store::record_path(&id), store::code_path(&id), log] {
-                let _ = std::fs::remove_file(path);
+            // UNLESS ITS ID GOT OUT. A line the harness backgrounds runs
+            // with no cut, so it never detaches — yet its id can still be
+            // handed on: to the parent, when the agent that ran it ended
+            // under it, and from there to a `jbx wait`. Erasing it then
+            // left that wait with "unknown" and the outcome nowhere
+            // (#5047). Kept, it lives the life of a detached job.
+            if !store::id_got_out(&id) {
+                store::forget(&id);
             }
             if cut {
                 // THE EXIT CODE IS RIGHT AND THE VIEW WAS NOT. Saying so
@@ -674,7 +712,7 @@ fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>, no_input: b
             eprintln!("     the line's own ending is not knowable; its log is {}", log.display());
             return store::NO_ENDING;
         }
-        if store::now() - started >= after {
+        if store::now() - started >= after && !store::fg_asked_path(&id).exists() {
             let now = store::now();
             // ONE LAST LOOK BEFORE SPEAKING. The line may have finished
             // between the check above and this one, and announcing a job
@@ -836,7 +874,18 @@ fn announce(id: &str, after: f64, seen: Observation) -> i32 {
     // agent with an instruction and no way to obey it. Everywhere else
     // the word means nothing, and `jbx help <id>` says what to do
     // instead.
-    if let Some(into) = crate::harness::here().and_then(|h| h.backgrounder) {
+    // BUT NOT TO A SUBAGENT (#5046). Its turn ending ends it: the
+    // Monitor it armed has nobody left to wake, and the work stayed
+    // uncommitted until the parent noticed — seven times in one day. Its
+    // waiting holds only itself, so in front of it is where it belongs.
+    let subagent = store::read_record(id).is_some_and(|r| r.agent.is_some());
+    if subagent {
+        let _ = writeln!(
+            out,
+            "You are a subagent: when your turn ends, you end, and nothing wakes you.\n\
+             With nothing else: run `jbx wait {id}` in front of you, then finish."
+        );
+    } else if let Some(into) = crate::harness::here().and_then(|h| h.backgrounder) {
         let _ = writeln!(
             out,
             "With nothing else: hand `jbx wait {id}` to {into} — it ends when the job\n\

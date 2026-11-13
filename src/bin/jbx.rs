@@ -227,7 +227,11 @@ fn dispatch(args: Vec<String>) -> i32 {
             // from its supervisor, whatever it is shaped like. Only where the
             // client has a Monitor to send the waiting to: elsewhere there is
             // nowhere better, and nothing is refused.
+            // NOT A SUBAGENT'S (#5046): its turn ending ends it, so a
+            // Monitor would wake nobody, and its waiting holds only itself.
+            let subagent = std::env::var("JBX_AGENT").is_ok_and(|a| !a.trim().is_empty());
             let in_agent_shell = std::env::var_os(jobbox::run::AGENT_SHELL).is_some()
+                && !subagent
                 && jobbox::harness::here().and_then(|h| h.backgrounder).is_some();
             if (how.via_agent || in_agent_shell) && !jobbox::config::allow_wait().0 {
                 let with_text = how.text.as_ref().map(|t| format!(" --text {t:?}")).unwrap_or_default();
@@ -263,9 +267,46 @@ fn dispatch(args: Vec<String>) -> i32 {
         }
         other => {
             eprintln!("jbx: unknown verb {other:?}");
+            // THE NEAREST VERB, NOT AN ALIAS. `ls` was reached for again
+            // and again before `ps` (#5047); one name per verb keeps the
+            // help short, and a hint costs nothing to those who never err.
+            if let Some(near) = nearest_verb(other) {
+                eprintln!("     did you mean `jbx {near}`?");
+            }
             eprint!("{}", usage());
             2
         }
+    }
+}
+
+/// The verbs a person types, for the hint above.
+const VERBS: &[&str] = &[
+    "run", "fg", "queue", "expect", "slots", "after", "describe", "how", "why", "bench",
+    "health", "clients", "config", "signals", "gain", "init", "watch", "list", "ps", "top",
+    "prune", "status", "tail", "wait", "kill", "hook",
+];
+
+/// The verb one or two keystrokes away, if exactly one is closest.
+fn nearest_verb(word: &str) -> Option<&'static str> {
+    fn distance(a: &str, b: &str) -> usize {
+        let b: Vec<char> = b.chars().collect();
+        let mut row: Vec<usize> = (0..=b.len()).collect();
+        for (i, ca) in a.chars().enumerate() {
+            let mut prev = row[0];
+            row[0] = i + 1;
+            for (j, cb) in b.iter().enumerate() {
+                let here = row[j + 1];
+                row[j + 1] = (prev + usize::from(ca != *cb)).min(row[j] + 1).min(here + 1);
+                prev = here;
+            }
+        }
+        row[b.len()]
+    }
+    let mut scored: Vec<(usize, &str)> = VERBS.iter().map(|v| (distance(word, v), *v)).collect();
+    scored.sort();
+    match scored.as_slice() {
+        [(d, v), rest @ ..] if *d <= 2 && *d < word.len() && rest.first().is_none_or(|(e, _)| e > d) => Some(v),
+        _ => None,
     }
 }
 
@@ -1067,11 +1108,23 @@ fn listing(only_alive: bool, how: &Flags) -> i32 {
     0
 }
 
+/// WHY AN ID IS UNKNOWN, ON STANDARD OUTPUT. A Monitor reads only
+/// that stream: said on stderr, `jbx wait` on a vanished job woke it
+/// with nothing at all, and a script's `sed` read an empty line (#5047).
+fn unknown_job(id: &str) -> i32 {
+    jobbox::outln!(
+        "jbx: {id} is unknown — it ended in front of whoever ran it (such a line is never kept), \
+         or it was collected a day after it ended. `jbx list` says what there is."
+    );
+    1
+}
+
 fn status(id: &str, how: &Flags) -> i32 {
     let Some(r) = store::read_record(id) else {
-        eprintln!("jbx: {id} is unknown");
-        return 1;
+        return unknown_job(id);
     };
+    // ASKED AFTER BY ID, so its front must not erase it on ending.
+    store::mark_waited(id);
     // SETTLED, BECAUSE A SCRIPT ACTS ON THIS ANSWER. `ps` and `list` can
     // read `gone` for a job whose supervisor is between its last write
     // and its exit — the next refresh corrects them. A single-shot
@@ -1341,10 +1394,10 @@ fn say_ending(r: &store::Record, code: Option<i32>) {
 fn wait(id: &str, text: Option<&str>, deadline: Option<f64>) -> i32 {
     let began = store::now();
     let mut watch = Watch::new(store::log_path(id));
+    store::mark_waited(id);
     loop {
         let Some(r) = store::read_record(id) else {
-            eprintln!("jbx: {id} is unknown");
-            return 1;
+            return unknown_job(id);
         };
         // A LINE IN ITS LOG, NOT ITS END: what `until grep -q … x.log`
         // was written for. Looked at before the state, so a job that
@@ -2220,9 +2273,7 @@ fn note_grip(id: &str, verb: &str) {
 }
 
 fn looks_like_an_id(word: &str) -> bool {
-    word.len() == 8
-        && word.starts_with('j')
-        && word[1..].chars().all(|c| c.is_ascii_hexdigit())
+    store::looks_like_an_id(word)
 }
 
 /// `jbx why` — THE REASONING, WHERE THE BINARY IS.
@@ -2449,7 +2500,11 @@ fn help_for(id: &str, flags: &Flags) -> i32 {
         (format!("jbx tail {id} -f"), "… and keep watching"),
         (format!("jbx fg {id}"), "bring it back to the foreground and watch it"),
         (format!("jbx wait {id}"),
-         "give this to Monitor: it ends when the job does, and that wakes you"),
+         if record.agent.is_some() {
+             "run it in front of you: you are a subagent, and your turn ending ends you"
+         } else {
+             "give this to Monitor: it ends when the job does, and that wakes you"
+         }),
         (format!("jbx kill {id}"), "stop it, and everything it started"),
     ];
 Answer(
@@ -2469,10 +2524,16 @@ Answer(
         for c in v["commands"].as_array().map(Vec::as_slice).unwrap_or_default() {
             jobbox::outln!("  {:<22} {}", text(c, "command"), text(c, "what"));
         }
-        jobbox::outln!("\nTHE USUAL ANSWER IS NONE OF THESE. You will be told when it ends, on a");
-        jobbox::outln!("later turn — go and do something else. With nothing else to do, hand");
-        jobbox::outln!("`jbx wait` to Monitor rather than polling, or running it in front of");
-        jobbox::outln!("you: it ends when the job does, so the ending wakes you.");
+        if record.agent.is_some() {
+            jobbox::outln!("\nYOU ARE A SUBAGENT: when your turn ends, you end, and nothing wakes");
+            jobbox::outln!("you. Do what else you can, then run `jbx wait {id}` in front of you,");
+            jobbox::outln!("and finish your work — commit, report — once it returns.");
+        } else {
+            jobbox::outln!("\nTHE USUAL ANSWER IS NONE OF THESE. You will be told when it ends, on a");
+            jobbox::outln!("later turn — go and do something else. With nothing else to do, hand");
+            jobbox::outln!("`jbx wait` to Monitor rather than polling, or running it in front of");
+            jobbox::outln!("you: it ends when the job does, so the ending wakes you.");
+        }
 })
 }
 

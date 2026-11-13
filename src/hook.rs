@@ -180,7 +180,7 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect, endings: bool) -> i
         // leave a build running on purpose for the session to use.
         Some(e) if Some(e) == dialect.agent_end => {
             if let Some(agent) = event["agent_id"].as_str().filter(|a| !a.is_empty()) {
-                crate::signals::agent_ended(agent);
+                return crate::signals::agent_stopping(agent, dialect.hold);
             }
             return 0;
         }
@@ -234,6 +234,13 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect, endings: bool) -> i
     // comparing whole strings would miss it as soon as the binary is
     // reached by another name: what identifies us is the file name.
     if is_us(line, binary) {
+        // A SUBAGENT WAITS IN FRONT OF ITSELF (#5046). Its turn ending
+        // ends it, so a Monitor it armed has nobody left to wake — and
+        // its waiting holds only itself, never the session. Nothing of
+        // ours is marked for it.
+        if event["agent_id"].as_str().is_some_and(|a| !a.is_empty()) {
+            return 0;
+        }
         // A `jbx wait` THE AGENT TYPED — mark it, so `wait` can tell it
         // from one Monitor launched. Monitor's never reaches this hook:
         // it is not a Bash tool call, so nothing marks it and nothing

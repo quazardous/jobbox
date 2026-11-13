@@ -18,6 +18,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.2] - 2026-11-13
+
+### Fixed
+
+- **A subagent finishes its work instead of stopping under its own job.**
+  0.29.1 sent every agent's wait to Monitor — but a subagent's turn
+  ending ends it, so its Monitor woke nobody and the work stayed
+  uncommitted until the parent noticed. A subagent may now run `jbx
+  wait` in front of itself (its waiting holds only itself), the
+  detachment tells it so, and its first stop while a job of its own runs
+  is held back once with that instruction. The parent's notice of a
+  left job now says where it ran.
+
+- **A `jbx run` inside a wrapped line says it ran as part of it.** `cd x
+  && jbx run -- '<build>' | grep 'BACKGROUND as'` runs the build inside
+  the job around it — one job, not two — so no detachment is printed and
+  the grep found nothing: exit 1 and an empty log, read as a build that
+  never ran. The job's log now ends with a line saying so, where no pipe
+  can eat it, and `jbx wait` shows it.
+- **`jbx fg` holds behind a prefix.** `cd x && env -u V jbx fg -- '…'`
+  is wrapped whole, and the inner `fg` used to step aside into a job that
+  let go at the cut all the same. It now tells that job not to let go.
+  A `fg` reached only after the cut comes too late: the line was
+  already let go of.
+- **A job somebody asked after is no longer erased when it ends.** A line
+  that never detaches — one the harness backgrounds — was erased by jbx
+  on ending, since nobody was supposed to know its id. But a subagent
+  that ends under such a line hands its id to the parent, and a `jbx
+  wait` on it then met "unknown", with the outcome gone. A job that was
+  waited on, asked after with `status`, or left behind by its agent is
+  now kept like any detached job.
+- **"Unknown" says why, on standard output.** A Monitor reads nothing
+  else, so a vanished job woke it with an empty line.
+- **Markers left beside erased jobs are swept** after two days.
+- **A mistyped verb gets the nearest one**: `jbx ls` answers "did you
+  mean `jbx ps`?".
+
 ## [0.29.1] - 2026-11-13
 
 ### Fixed

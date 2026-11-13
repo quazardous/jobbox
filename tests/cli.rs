@@ -4797,10 +4797,18 @@ fn an_agents_end_names_what_it_left_and_stops_nothing() {
     let other = start(Some("agentB"), "agent B's build");
     let own = start(None, "the session's own");
 
-    // PROBED: `SubagentStop` carries the same `agent_id`. Marked, and
-    // nothing said on the spot — the hook has nobody to say it to.
-    let said = event(&s, serde_json::json!({"hook_event_name": "SubagentStop", "agent_id": "agentA"}), &[]);
-    assert!(said.trim().is_empty(), "SubagentStop spoke: {said}");
+    // PROBED: `SubagentStop` carries the same `agent_id`. THE FIRST STOP
+    // IS HELD BACK (#5046): a subagent's turn ending ends it, so it is
+    // sent to wait in front of itself and finish — and nothing is marked.
+    let stop = serde_json::json!({"hook_event_name": "SubagentStop", "agent_id": "agentA"});
+    let held = event(&s, stop.clone(), &[]);
+    assert!(held.contains("\"block\"") && held.contains(&format!("jbx wait {left}")),
+            "a subagent stopping on a running job was not held back: {held}");
+    assert!(!held.contains(&other) && !held.contains(&own), "another's job was named: {held}");
+    assert!(!text(&s.run_as("me", &["ps"])).contains("orphaned"), "marked while held back");
+    // ONCE: a job that never ends must not make the agent unstoppable.
+    let said = event(&s, stop, &[]);
+    assert!(said.trim().is_empty(), "the second SubagentStop was held back too: {said}");
     let ps = text(&s.run_as("me", &["ps"]));
     let row = |id: &str| ps.lines().find(|l| l.starts_with(id)).unwrap_or("").to_string();
     assert!(row(&left).contains("orphaned"), "the left job is not marked:\n{ps}");
@@ -5127,4 +5135,185 @@ fn a_jbx_line_that_does_not_wait_is_left_exactly_as_it_was() {
         let said = String::from_utf8_lossy(&hook.wait_with_output().unwrap().stdout).into_owned();
         assert!(said.trim().is_empty(), "`{line}` was rewritten: {said}");
     }
+}
+
+// ── A JOB WHOSE ID GOT OUT (#5047) ──────────────────────────────────────
+
+/// A line run with no cut, as the harness runs one it backgrounds:
+/// spawned, so the test can ask after it while it runs.
+fn held_line(s: &Scratch, agent: Option<&str>, line: &str) -> (std::process::Child, String) {
+    let mut args = vec!["run", "--after", "inf"];
+    if let Some(a) = agent {
+        args.extend(["--agent", a]);
+    }
+    args.extend(["--", line]);
+    let child = Command::new(JBX)
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .env("JBX_CLIENT", "me")
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut id = String::new();
+    until("the held line to be listed", || {
+        let listed = text(&s.run_as("me", &["list", "--all", "--json"]));
+        let rows: serde_json::Value = serde_json::from_str(listed.trim()).unwrap_or_default();
+        id = rows.as_array().into_iter().flatten()
+            .find(|r| r["command"].as_str() == Some(line))
+            .and_then(|r| r["id"].as_str())
+            .unwrap_or("")
+            .to_string();
+        !id.is_empty()
+    });
+    (child, id)
+}
+
+#[test]
+fn a_held_line_somebody_asked_after_outlives_its_end() {
+    // SEEN 13/11/2026: a subagent's backgrounded line was handed to the
+    // parent when the agent ended, a `jbx wait` was armed on it — and the
+    // front erased it on ending, so `status` said "unknown" and the
+    // outcome was nowhere.
+    let s = Scratch::new("idgotout");
+
+    // ASKED AFTER BY `status` WHILE IT RAN.
+    let (mut child, asked) = held_line(&s, None, "sleep 1; exit 4");
+    let _ = s.run_as("me", &["status", &asked]);
+    child.wait().unwrap();
+    let after = s.run_as("me", &["status", &asked]);
+    assert!(text(&after).contains("exit 4"), "its ending was lost:\n{}", text(&after));
+
+    // ITS AGENT ENDED UNDER IT, so the parent was told its id.
+    // TWICE: the first stop is held back (#5046), the second goes through.
+    let (mut child, left) = held_line(&s, Some("agentA"), "sleep 1; exit 5");
+    for _ in 0..2 {
+        event(&s, serde_json::json!({"hook_event_name": "SubagentStop", "agent_id": "agentA"}), &[]);
+    }
+    child.wait().unwrap();
+    let after = s.run_as("me", &["status", &left]);
+    assert!(text(&after).contains("exit 5"), "an orphaned job was erased on ending:\n{}", text(&after));
+
+    // THE CONTROL: nobody asked, so it was never a job, and goes.
+    let (mut child, quiet) = held_line(&s, None, "sleep 1; exit 6");
+    child.wait().unwrap();
+    let gone = s.run_as("me", &["status", &quiet]);
+    // ON STDOUT, AND SAYING WHY: a Monitor reads nothing else.
+    assert!(text(&gone).contains("unknown") && text(&gone).contains("ended in front"),
+            "an unknown id was not explained on stdout:\n{}", text(&gone));
+    let left_behind: Vec<_> = std::fs::read_dir(s.jobs()).unwrap().flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with(&quiet))
+        .collect();
+    assert!(left_behind.is_empty(), "the erased job left files: {left_behind:?}");
+}
+
+#[test]
+fn a_verb_one_keystroke_away_is_named() {
+    let s = Scratch::new("nearverb");
+    let out = s.run(&["ls"]);
+    assert_eq!(out.status.code(), Some(2));
+    let said = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(said.contains("did you mean `jbx ps`"), "`ls` was not pointed at `ps`:\n{said}");
+    // NOTHING CLOSE, NOTHING OFFERED.
+    let far = String::from_utf8_lossy(&s.run(&["frobnicate"]).stderr).into_owned();
+    assert!(!far.contains("did you mean"), "a far word was given a guess:\n{far}");
+}
+
+// ── A SUBAGENT WAITS IN FRONT OF ITSELF (#5046) ─────────────────────────
+
+#[test]
+fn a_subagent_may_wait_and_is_told_to() {
+    let s = Scratch::new("subwait");
+    let claude = [("CLAUDE_CODE_SESSION_ID", "subwait1")];
+    // ITS SHELL: an agent's, and a subagent's.
+    let sub = [("CLAUDE_CODE_SESSION_ID", "subwait1"), ("JBX_AGENT_SHELL", "1"), ("JBX_AGENT", "agentA")];
+    let main = [("CLAUDE_CODE_SESSION_ID", "subwait1"), ("JBX_AGENT_SHELL", "1")];
+    let id = announced(&text(&s.run_with(&claude, &["run", "--after", "0", "--agent", "agentA", "--", "sleep 1"])));
+    // THE CONTROL: the session's own shell is still sent to Monitor.
+    assert_eq!(s.run_with(&main, &["wait", &id]).status.code(), Some(2), "the session's wait went through");
+    let waited = s.run_with(&sub, &["wait", &id]);
+    assert_ne!(waited.status.code(), Some(2), "a subagent's wait was refused:\n{}",
+               String::from_utf8_lossy(&waited.stderr));
+
+    // TOLD SO WHERE IT IS LET GO OF, and not sent to Monitor.
+    let said = text(&s.run_with(&claude, &["run", "--after", "0", "--agent", "agentA", "--", "sleep 1"]));
+    assert!(said.contains("You are a subagent") && !said.contains("to Monitor"),
+            "a subagent was sent to Monitor:\n{said}");
+    let mine = text(&s.run_with(&claude, &["run", "--after", "0", "--", "sleep 1"]));
+    assert!(mine.contains("Monitor") && !mine.contains("subagent"), "the session lost its Monitor line:\n{mine}");
+    s.stop_everything();
+}
+
+#[test]
+fn the_hook_leaves_a_subagents_own_wait_alone() {
+    let s = Scratch::new("subhook");
+    for line in ["jbx wait j123abc", "jbx wait j123abc; jbx tail j123abc"] {
+        let mut e = serde_json::json!({
+            "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "tool_input": {"command": line},
+        });
+        // THE CONTROL: the session's own is marked.
+        assert!(!event(&s, e.clone(), &[]).trim().is_empty(), "the session's `{line}` was not marked");
+        e["agent_id"] = serde_json::json!("agentA");
+        let said = event(&s, e, &[]);
+        assert!(said.trim().is_empty(), "a subagent's `{line}` was rewritten: {said}");
+    }
+}
+
+#[test]
+fn the_parent_is_told_where_the_left_job_ran() {
+    let s = Scratch::new("leftwhere");
+    let id = announced(&text(&s.run_as("me", &["run", "--after", "0", "--agent", "agentA", "--intent", "check", "--", "sleep 30"])));
+    let stop = serde_json::json!({"hook_event_name": "SubagentStop", "agent_id": "agentA"});
+    event(&s, stop.clone(), &[]);
+    event(&s, stop, &[]);
+    let told = event(&s, serde_json::json!({"hook_event_name": "Stop"}), &["--no-endings"]);
+    let here = std::env::current_dir().unwrap().display().to_string();
+    assert!(told.contains(&id) && told.contains(&format!("in {here}")),
+            "the notice did not say where the job ran: {told}");
+    s.stop_everything();
+}
+
+// ── A `fg` BEHIND A PREFIX (#5045) ──────────────────────────────────────
+
+#[test]
+fn an_fg_inside_a_wrapped_line_holds_the_line() {
+    // SEEN 13/11/2026: `cd x && env -u V jbx fg -- '…'` was wrapped whole,
+    // and the `fg` stepped aside into a job that let go at the cut.
+    let s = Scratch::new("innerfg");
+    let line = |verb: &str| format!("true && env -u NOTHING {JBX} {verb} -- 'sleep 3; exit 7'");
+    let held = s.run(&["run", "--after", "1", "--", &line("fg")]);
+    assert_eq!(held.status.code(), Some(7), "the inner fg was let go of:\n{}", text(&held));
+    assert!(!text(&held).contains("BACKGROUND"), "it detached:\n{}", text(&held));
+    // THE CONTROL: the same line with `run` lets go at the cut.
+    let let_go = s.run(&["run", "--after", "1", "--", &line("run")]);
+    assert!(text(&let_go).contains("BACKGROUND"), "the control did not detach:\n{}", text(&let_go));
+    s.stop_everything();
+}
+
+// ── A `jbx run` THAT STEPPED ASIDE SAYS SO (#5044) ──────────────────────
+
+#[test]
+fn a_run_inside_a_wrapped_line_says_it_stepped_aside_where_no_pipe_reaches() {
+    // SEEN 13/11/2026: the inner run's output went into the line's own
+    // `grep`, which found no detachment: exit 1, an empty log.
+    let s = Scratch::new("stepaside");
+    let line = format!("true && {JBX} run -- 'echo work' | grep 'BACKGROUND as'");
+    let out = s.run(&["run", "--after", "10", "--", &line]);
+    assert_eq!(out.status.code(), Some(1), "the grep's code was not the line's");
+    let said = text(&out);
+    assert!(said.contains("ran as part of"), "the stepping aside was not said:\n{said}");
+    // THE CONTROL: a line with no `jbx` in it gets no note.
+    let plain = text(&s.run(&["run", "--after", "10", "--", "echo work | grep nothing"]));
+    assert!(!plain.contains("ran as part of"), "a plain line was given the note:\n{plain}");
+    // AND NOTHING IS LEFT BEHIND.
+    let left: Vec<_> = std::fs::read_dir(s.jobs()).unwrap().flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".note"))
+        .collect();
+    assert!(left.is_empty(), "a note outlived its job: {left:?}");
 }
