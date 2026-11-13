@@ -78,7 +78,7 @@ impl Scratch {
     }
     fn run(&self, args: &[&str]) -> Output {
         Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
             .args(args)
             .env("JBX_DIR", &self.0)
             .env("JBX_CONFIG", self.0.join("global.yaml"))
@@ -90,7 +90,7 @@ impl Scratch {
     /// these are two sessions as far as the endings are concerned.
     fn run_as(&self, who: &str, args: &[&str]) -> Output {
         Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
             .args(args)
             .env("JBX_DIR", &self.0)
             .env("JBX_CONFIG", self.0.join("global.yaml"))
@@ -124,7 +124,7 @@ impl Scratch {
     fn event(&self, who: &str, json: &str) -> String {
         use std::io::Write;
         let mut child = Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
             .arg("hook")
             .env("JBX_DIR", &self.0)
             .env("JBX_CONFIG", self.0.join("global.yaml"))
@@ -143,7 +143,7 @@ impl Scratch {
     fn event_as(&self, dialect: &str, json: &str) -> Output {
         use std::io::Write;
         let mut child = Command::new(JBX)
-            .env_remove("JBX_WRAPPED")
+            .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
             .args(["hook", dialect])
             .env("JBX_DIR", &self.0)
             .env("JBX_CONFIG", self.0.join("global.yaml"))
@@ -159,7 +159,7 @@ impl Scratch {
     /// The same, with one extra variable set — a threshold, a cap.
     fn run_with(&self, env: &[(&str, &str)], args: &[&str]) -> Output {
         let mut cmd = Command::new(JBX);
-        cmd.env_remove("JBX_WRAPPED")
+        cmd.env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
             .args(args)
             .env("JBX_DIR", &self.0)
             .env("JBX_CONFIG", self.0.join("global.yaml"))
@@ -190,7 +190,7 @@ impl Scratch {
         let config = self.0.join("global.yaml");
         std::fs::write(&config, global).unwrap();
         Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
             .args(args)
             .current_dir(here)
             .env("JBX_DIR", &self.0)
@@ -315,7 +315,7 @@ fn hook_as(s: &Scratch, client: &str, event_name: &str, tool: &str, command: &st
     })
     .to_string();
     let mut child = Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .arg("hook")
         .arg(client)
         .env("JBX_DIR", &s.0)
@@ -378,7 +378,7 @@ fn the_hook_says_nothing_about_other_tools() {
     })
     .to_string();
     let mut child = Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .arg("hook")
         .env("JBX_DIR", &s.0)
             .env("JBX_CONFIG", s.0.join("global.yaml"))
@@ -402,9 +402,9 @@ fn a_quoted_line_still_means_what_it_meant() {
     let answer: serde_json::Value = serde_json::from_str(hook(&s, tricky).trim()).unwrap();
     let rewritten = answer["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap();
     let through = Command::new("sh")
-        .env_remove("JBX_WRAPPED").arg("-c").arg(rewritten).env("JBX_DIR", &s.0).output().unwrap();
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL").arg("-c").arg(rewritten).env("JBX_DIR", &s.0).output().unwrap();
     let direct = Command::new("sh")
-        .env_remove("JBX_WRAPPED").arg("-c").arg(tricky).output().unwrap();
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL").arg("-c").arg(tricky).output().unwrap();
     assert_eq!(through.stdout, direct.stdout, "quoting changed the command");
 }
 
@@ -418,7 +418,7 @@ fn init_leaves_a_commented_project_file_that_changes_nothing() {
     std::fs::create_dir_all(&config).unwrap();
 
     let out = Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .arg("init")
         .current_dir(&here)
         .env("JBX_DIR", &s.0)
@@ -440,7 +440,7 @@ fn init_leaves_a_commented_project_file_that_changes_nothing() {
     // AND IT MUST PARSE. A template that is not valid YAML would be
     // reported as broken on the first command run in the project.
     let shown = text(&Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .arg("config")
         .current_dir(&here)
         .env("JBX_DIR", &s.0)
@@ -467,7 +467,7 @@ fn init_displaces_rtk_and_undo_puts_it_back() {
     // that edits the machine it runs on is a suite nobody can trust.
     let here = s.project(None, "");
     let wired = Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .arg("init")
         .current_dir(&here)
         .env("JBX_DIR", &s.0)
@@ -498,7 +498,7 @@ fn init_displaces_rtk_and_undo_puts_it_back() {
     assert_eq!(now["model"], "opus");
 
     Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .args(["init", "--undo"])
         .current_dir(&here)
         .env("JBX_DIR", &s.0)
@@ -545,7 +545,7 @@ fn an_undo_withdraws_this_copy_and_leaves_another_one_declared() {
 
     let here = s.project(None, "");
     Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .args(["init", "--undo"])
         .current_dir(&here)
         .env("JBX_DIR", &s.0)
@@ -931,7 +931,7 @@ fn a_closed_pipe_is_not_a_crash() {
     // replaces handled it; the rewrite lost it, and only piping into
     // `head` by hand showed that.
     let out = Command::new("sh")
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .arg("-c")
         .arg(format!("{} config | head -1", jbx_in_line()))
         .env("JBX_DIR", &s.0)
@@ -955,7 +955,7 @@ fn ask_hook(binary_dir: &std::path::Path, s: &Scratch, global: &str) -> String {
     })
     .to_string();
     let mut child = Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .arg("hook")
         .current_dir(binary_dir)
         .env("JBX_DIR", &s.0)
@@ -1094,7 +1094,7 @@ fn every_verb_in_the_readme_exists() {
         .collect::<Vec<_>>()
         .join("\n");
     let help = text(&Command::new(JBX)
-        .env_remove("JBX_WRAPPED").arg("--help").output().unwrap());
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL").arg("--help").output().unwrap());
     let mut missing = Vec::new();
     // INSIDE FENCED BLOCKS ONLY. Prose says "jbx removes the question",
     // and reading that as a verb makes the guard cry wolf — which is how
@@ -1187,7 +1187,7 @@ fn the_line_goes_to_the_shell_it_was_written_for() {
 fn run_from(s: &Scratch, dir: &std::path::Path, line: &str) {
     std::fs::create_dir_all(dir.join(".claude")).unwrap();
     Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .args(["run", "--", line])
         .current_dir(dir)
         .env("JBX_DIR", &s.0)
@@ -1256,7 +1256,7 @@ fn a_reader_that_leaves_early_is_told_its_view_was_partial() {
     // an ordinary capture that reads to the end and misses nothing. A
     // write that FAILS is the exact fact, and it has no false positive.
     let out = Command::new("sh")
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .arg("-c")
         .arg(format!("{} run -- 'seq 20000' | head -3", jbx_in_line()))
         .env("JBX_DIR", &s.0)
@@ -1317,7 +1317,7 @@ fn a_reading_belongs_to_the_calling_session_not_to_wherever_it_ran() {
     let elsewhere = s.0.join("far/away");
     std::fs::create_dir_all(&elsewhere).unwrap();
     Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .args(["run", "--", "echo x"])
         .current_dir(&elsewhere)
         .env("JBX_DIR", &s.0)
@@ -1347,7 +1347,7 @@ fn without_a_session_it_falls_back_to_where_it_stands() {
     // here is the honest answer, and it is what a person in a terminal
     // means anyway.
     Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .args(["run", "--", "echo x"])
         .current_dir(&here)
@@ -1377,7 +1377,7 @@ fn global_only_leaves_the_project_alone() {
 
     let run = |flags: &[&str]| {
         Command::new(JBX)
-            .env_remove("JBX_WRAPPED")
+            .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
             .arg("init")
             .args(flags)
             .current_dir(&here)
@@ -1415,7 +1415,7 @@ fn the_declared_hook_survives_the_shell_that_runs_it() {
     std::fs::create_dir_all(&config).unwrap();
     let here = s.project(None, "");
     Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .arg("init")
         .current_dir(&here)
         .env("JBX_DIR", &s.0)
@@ -1438,7 +1438,7 @@ fn the_declared_hook_survives_the_shell_that_runs_it() {
     let out = Command::new("sh")
         .arg("-c")
         .arg(declared)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .env("JBX_DIR", &s.0)
         .env("JBX_CONFIG", s.0.join("global.yaml"))
         .stdin(Stdio::null())
@@ -1463,7 +1463,7 @@ fn init_declares_the_link_it_was_called_through() {
 
     let run = |program: &std::path::Path| {
         Command::new(program)
-            .env_remove("JBX_WRAPPED")
+            .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
             .arg("init")
             .current_dir(&here)
             .env("JBX_DIR", &s.0)
@@ -1504,7 +1504,7 @@ fn a_held_line_and_a_let_go_one_do_not_read_alike() {
     // nothing behind. Let go of: only the log receives anything.
     // `running` said neither.
     let long = std::process::Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .args(["run", "--after", "30", "--", "sleep 4"])
         .env("JBX_DIR", &s.0)
         .env("JBX_CONFIG", s.0.join("global.yaml"))
@@ -1609,7 +1609,7 @@ fn a_list_shows_this_project_and_counts_what_it_hides() {
 
     let start = |dir: &std::path::Path| {
         Command::new(JBX)
-            .env_remove("JBX_WRAPPED")
+            .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
             .env_remove("CLAUDE_CODE_SESSION_ID")
             .args(["run", "--after", "1", "--", "sleep 4"])
             .current_dir(dir)
@@ -1623,7 +1623,7 @@ fn a_list_shows_this_project_and_counts_what_it_hides() {
     start(&other);
 
     let here = text(&Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .arg("ps")
         .current_dir(&mine)
@@ -2214,7 +2214,7 @@ fn the_old_house_is_carried_over_and_nothing_is_left_behind() {
     // test the one case this cannot apply to.
     let ask = |args: &[&str]| -> String {
         let out = Command::new(JBX)
-            .env_remove("JBX_WRAPPED")
+            .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
             .env_remove("JBX_DIR")
             .env_remove("JBX_CONFIG")
             .env("HOME", &home)
@@ -2845,7 +2845,7 @@ fn a_job_is_named_by_whoever_ran_it_when_they_said() {
         "tool_input": {"command": "make test", "description": "run the unit tests", "timeout": 1},
     }).to_string();
     let mut child = Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .arg("hook")
         .env("JBX_DIR", &s.0)
         .env("JBX_CONFIG", s.0.join("global.yaml"))
@@ -3065,7 +3065,7 @@ fn a_job_held_on_purpose_is_not_called_mute() {
     // property under test — so waiting for it here would wait out the
     // job and then look at an empty store.
     let mut held = Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .env("JBX_DIR", &s.0)
         .env("JBX_CONFIG", s.0.join("global.yaml"))
         .env("JBX_CLIENT", "me")
@@ -3470,7 +3470,7 @@ fn no_listing_row_outruns_its_width_when_the_cells_grow_long() {
     std::fs::create_dir_all(&project).unwrap();
     let jbx_in_project = |args: &[&str]| {
         Command::new(JBX)
-            .env_remove("JBX_WRAPPED")
+            .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
             .env("JBX_DIR", &s.0)
             .env("JBX_CONFIG", s.0.join("global.yaml"))
             .env("JBX_CLIENT", "me")
@@ -3545,7 +3545,7 @@ fn no_listing_row_outruns_its_width_when_the_cells_grow_long() {
 /// running the suite would send the listing to its real settings.
 fn hook_list_with_home(home: &std::path::Path, s: &Scratch, args: &[&str]) -> Output {
     Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .env_remove("CLAUDE_CONFIG_DIR")
         .env("HOME", home)
         .env("USERPROFILE", home)
@@ -3663,7 +3663,7 @@ fn a_line_given_no_input_does_not_wait_for_input_that_never_comes() {
     use std::io::Read;
     let s = Scratch::new("noinput");
     let mut child = Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .env("JBX_DIR", &s.0)
         .env("JBX_CONFIG", s.0.join("global.yaml"))
         .args(["run", "--no-input", "--after", "30", "--", "read -r x; echo read-exit=$?"])
@@ -3697,7 +3697,7 @@ fn a_line_run_by_hand_still_reads_what_is_piped_into_it() {
     use std::io::Write;
     let s = Scratch::new("pipein");
     let mut child = Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .env("JBX_DIR", &s.0)
         .env("JBX_CONFIG", s.0.join("global.yaml"))
         .args(["run", "--", "cat"])
@@ -3760,7 +3760,7 @@ fn jobs_ending_together_leave_every_ending_and_every_measurement_readable() {
     let jobs: Vec<_> = (0..8)
         .map(|_| {
             Command::new(JBX)
-                .env_remove("JBX_WRAPPED")
+                .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
                 .env("JBX_DIR", &s.0)
                 .env("JBX_CONFIG", s.0.join("global.yaml"))
                 .env("JBX_CLIENT", "me")
@@ -4027,7 +4027,7 @@ fn force_stops_a_job_without_asking_it_to_stop_first() {
 /// nothing, which is its answer almost every time.
 fn turn_end(s: &Scratch, env: &[(&str, &str)], from: &std::path::Path) -> serde_json::Value {
     let mut cmd = Command::new(JBX);
-    cmd.env_remove("JBX_WRAPPED")
+    cmd.env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .args(["hook", "claude", "--no-endings"])
         .current_dir(from)
         .env("JBX_DIR", &s.0)
@@ -4054,7 +4054,7 @@ fn turn_end(s: &Scratch, env: &[(&str, &str)], from: &std::path::Path) -> serde_
 fn a_job_running_for(s: &Scratch, held: bool) -> (std::path::PathBuf, String, std::process::Child) {
     let project = s.project(None, "");
     let mut cmd = Command::new(JBX);
-    cmd.env_remove("JBX_WRAPPED")
+    cmd.env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .args(["run", "--after", if held { "inf" } else { "0.2" }, "--", "sleep 45"])
         .current_dir(&project)
         .env("JBX_DIR", &s.0)
@@ -4232,7 +4232,7 @@ fn the_stop_line_init_declares_names_a_job_left_running_and_leaves_endings_to_wa
     // FAILED one, which is what an announcing Stop would block on.
     let project = s.project(None, "");
     let _ = Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .args(["run", "--after", "0.1", "--", "sleep 0.4; exit 3"])
         .current_dir(&project)
         .env("JBX_DIR", &s.0).env("JBX_CONFIG", s.0.join("global.yaml")).env("JBX_CLIENT", "me")
@@ -4246,7 +4246,7 @@ fn the_stop_line_init_declares_names_a_job_left_running_and_leaves_endings_to_wa
 
     let mut hook = Command::new("sh");
     hook.args(["-c", &stop])
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .current_dir(&project)
         .env("JBX_DIR", &s.0).env("JBX_CONFIG", s.0.join("global.yaml")).env("JBX_CLIENT", "me");
     for (k, v) in env {
@@ -4444,7 +4444,7 @@ fn a_held_line_whose_supervisor_dies_ends_instead_of_waiting_for_ever() {
     // jobs as `gone`, so nothing ever named them.
     let s = Scratch::new("deadsupervisor");
     let mut front = Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .args(["run", "--after", "inf", "--", "sleep 8"])
         .env("JBX_DIR", &s.0)
         .env("JBX_CONFIG", s.0.join("global.yaml"))
@@ -4567,7 +4567,7 @@ fn an_undo_from_a_spare_copy_leaves_the_skills_the_live_copy_uses() {
     let settings = config.join("settings.json");
     let run = |args: &[&str]| {
         Command::new(JBX)
-            .env_remove("JBX_WRAPPED")
+            .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
             .args(args)
             .current_dir(&s.0)
             .env("JBX_DIR", &s.0)
@@ -4619,7 +4619,7 @@ fn an_agent_isolated_in_a_worktree_gets_its_line_untouched() {
             event[k] = v.clone();
         }
         let mut child = Command::new(JBX)
-            .env_remove("JBX_WRAPPED")
+            .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
             .args(["hook", "claude"])
             .env("JBX_DIR", &s.0)
             .env("JBX_CONFIG", s.0.join("global.yaml"))
@@ -4697,7 +4697,7 @@ fn what_an_agent_is_told_to_wait_with_is_what_jbx_accepts() {
     let s = Scratch::new("waitwith");
     let in_claude = |args: &[&str], stdin: &str| -> String {
         let mut child = Command::new(JBX)
-            .env_remove("JBX_WRAPPED")
+            .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
             .env("CLAUDE_CODE_SESSION_ID", "waitwith")
             .env("JBX_DIR", &s.0)
             .env("JBX_CONFIG", s.0.join("global.yaml"))
@@ -4745,7 +4745,7 @@ fn what_an_agent_is_told_to_wait_with_is_what_jbx_accepts() {
 /// A hook event, as Claude Code sends it, under a pinned client.
 fn event(s: &Scratch, payload: serde_json::Value, args: &[&str]) -> String {
     let mut child = Command::new(JBX)
-        .env_remove("JBX_WRAPPED")
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
         .env_remove("CLAUDE_CODE_SESSION_ID")
         .env("JBX_DIR", &s.0)
         .env("JBX_CONFIG", s.0.join("global.yaml"))
@@ -4933,7 +4933,7 @@ fn a_wait_loop_is_called_out_at_thirty_minutes_and_a_build_is_not() {
     std::thread::sleep(std::time::Duration::from_secs(12));
     let stop = {
         let mut child = Command::new(JBX)
-            .env_remove("JBX_WRAPPED")
+            .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
             .env_remove("CLAUDE_CODE_SESSION_ID")
             .env("JBX_DIR", &s.0)
             .env("JBX_CONFIG", s.0.join("global.yaml"))
@@ -4982,4 +4982,149 @@ fn a_wait_says_how_the_job_ended_and_what_it_printed_last() {
     assert!(said.contains("delivered: shop ok"), "the last line is missing:\n{said}");
     assert!(said.contains("line 30") && !said.contains("line 20\n"), "not the last ten:\n{said}");
     assert_eq!(said.lines().count(), 11, "header and ten lines, nothing else:\n{said}");
+}
+
+// ── ONLY MONITOR WAITS ──────────────────────────────────────────────────
+//
+// A bare `jbx wait` from an agent's Bash was refused; anything with shell
+// punctuation walked through — `jbx wait x; jbx tail x` did, in the very
+// session that wrote these tests. The line now carries JBX_AGENT_SHELL
+// from its supervisor, so the refusal no longer depends on its shape.
+
+/// A `jbx` under an explicit environment: nothing inherited that matters.
+fn jbx_in(s: &Scratch, env: &[(&str, &str)], args: &[&str]) -> Output {
+    Command::new(JBX)
+        .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL").env_remove("CLAUDE_CODE_SESSION_ID")
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .envs(env.iter().copied())
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap()
+}
+
+#[test]
+#[cfg(unix)]
+fn no_shape_of_line_lets_an_agent_wait_for_itself() {
+    // THE REAL PATH, end to end: the hook rewrites the line as Claude Code
+    // would have it, and the rewritten line is run the way Claude Code runs
+    // it. The job waited on lasts 40s; a wait that slipped through would
+    // hold the line that long, so the clock is part of the verdict.
+    let s = Scratch::new("onlymonitor");
+    let job = announced(&text(&s.run(&["run", "--after", "0", "--", "sleep 40"])));
+    let bin_dir = std::path::Path::new(JBX).parent().unwrap().display().to_string();
+    let path = format!("{bin_dir}:/usr/bin:/bin");
+    let claude = [("CLAUDE_CODE_SESSION_ID", "onlymonitor")];
+
+    let shapes = [
+        format!("jbx wait {job}; echo AFTER"),
+        format!("jbx wait {job} && echo AFTER"),
+        format!("sh -c 'jbx wait {job}'"),
+        format!("jbx wait {job} --text never | cat"),
+        "jbx wait --file /nonexistent-jbx --text x; echo AFTER".to_string(),
+    ];
+    for line in &shapes {
+        for background in [false, true] {
+            let mut input = serde_json::json!({"command": line, "description": "wait"});
+            if background {
+                input["run_in_background"] = serde_json::json!(true);
+            }
+            let event = serde_json::json!({
+                "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": input,
+            });
+            let mut hook = Command::new(JBX)
+                .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
+                .env("JBX_DIR", &s.0).env("JBX_CONFIG", s.0.join("global.yaml"))
+                .envs(claude).env("PATH", &path)
+                .args(["hook", "claude"])
+                .stdin(Stdio::piped()).stdout(Stdio::piped())
+                .spawn().unwrap();
+            use std::io::Write;
+            hook.stdin.take().unwrap().write_all(event.to_string().as_bytes()).unwrap();
+            let answer: serde_json::Value =
+                serde_json::from_slice(&hook.wait_with_output().unwrap().stdout).unwrap();
+            let rewritten = answer["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap().to_string();
+
+            let began = std::time::Instant::now();
+            let ran = Command::new("sh")
+                .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
+                .env("JBX_DIR", &s.0).env("JBX_CONFIG", s.0.join("global.yaml"))
+                .envs(claude).env("PATH", &path)
+                .args(["-c", &rewritten])
+                .stdin(Stdio::null())
+                .output().unwrap();
+            let took = began.elapsed().as_secs();
+            let said = format!("{}{}", String::from_utf8_lossy(&ran.stdout), String::from_utf8_lossy(&ran.stderr));
+            assert!(said.contains("this waiting is Monitor's"),
+                    "`{line}` (background: {background}) was not refused:\n{said}");
+            assert!(took < 20, "`{line}` (background: {background}) waited {took}s before being refused");
+        }
+    }
+    s.run(&["kill", &job]);
+}
+
+#[test]
+fn monitor_another_client_and_allow_wait_still_wait() {
+    // WHAT MUST STILL PASS. Monitor's command never went through the hook,
+    // so it carries no marker; a client with no Monitor has nowhere better
+    // to send the wait; and `allow_wait: true` is somebody deciding so.
+    let s = Scratch::new("stillwait");
+    let short = || announced(&text(&s.run(&["run", "--after", "0", "--", "sleep 1; exit 4"])));
+
+    let monitor = jbx_in(&s, &[("CLAUDE_CODE_SESSION_ID", "x")], &["wait", &short()]);
+    assert_eq!(monitor.status.code(), Some(4), "Monitor's wait was refused: {}", text(&monitor));
+
+    let elsewhere = jbx_in(&s, &[("JBX_AGENT_SHELL", "1")], &["wait", &short()]);
+    assert_eq!(elsewhere.status.code(), Some(4), "a client with no Monitor was refused: {}", text(&elsewhere));
+
+    // AND THE CONTROL: the same marker under Claude Code is refused.
+    let agent = jbx_in(&s, &[("JBX_AGENT_SHELL", "1"), ("CLAUDE_CODE_SESSION_ID", "x")], &["wait", &short()]);
+    assert_eq!(agent.status.code(), Some(2), "the agent's own wait went through: {}", text(&agent));
+
+    std::fs::write(s.0.join("global.yaml"), "allow_wait: true\n").unwrap();
+    let allowed = jbx_in(&s, &[("JBX_AGENT_SHELL", "1"), ("CLAUDE_CODE_SESSION_ID", "x")], &["wait", &short()]);
+    assert_eq!(allowed.status.code(), Some(4), "`allow_wait: true` was overruled: {}", text(&allowed));
+}
+
+#[test]
+#[cfg(unix)]
+fn only_a_line_the_hook_wrote_is_marked_as_an_agents_shell() {
+    // THE MARKER FOLLOWS `--no-input`, which the hook writes and nothing
+    // else does: a person's `jbx run` is not an agent's shell.
+    let s = Scratch::new("marker");
+    let seen = |args: &[&str]| {
+        let id = announced(&text(&jbx_in(&s, &[], args)));
+        jbx_in(&s, &[], &["wait", &id]);
+        text(&jbx_in(&s, &[], &["tail", &id]))
+    };
+    let probe = "sleep 1; echo marker=${JBX_AGENT_SHELL:-none}";
+    assert!(seen(&["run", "--after", "0", "--no-input", "--", probe]).contains("marker=1"),
+            "a hook-written line did not carry the marker");
+    assert!(seen(&["run", "--after", "0", "--", probe]).contains("marker=none"),
+            "a person's line was marked as an agent's shell");
+}
+
+#[test]
+fn a_jbx_line_that_does_not_wait_is_left_exactly_as_it_was() {
+    // THE MARKER IS ADDED ONLY WHERE A WAIT IS NAMED. Every other line of
+    // ours stays untouched — the hook answers nothing for it at all.
+    let s = Scratch::new("untouched");
+    for line in ["jbx ps; jbx tail j1234567", "jbx tail j1234567 | grep waiting", "jbx list --all"] {
+        let event = serde_json::json!({
+            "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "tool_input": {"command": line},
+        });
+        let mut hook = Command::new(JBX)
+            .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
+            .env("JBX_DIR", &s.0).env("JBX_CONFIG", s.0.join("global.yaml"))
+            .env("CLAUDE_CODE_SESSION_ID", "x")
+            .args(["hook", "claude"])
+            .stdin(Stdio::piped()).stdout(Stdio::piped())
+            .spawn().unwrap();
+        use std::io::Write;
+        hook.stdin.take().unwrap().write_all(event.to_string().as_bytes()).unwrap();
+        let said = String::from_utf8_lossy(&hook.wait_with_output().unwrap().stdout).into_owned();
+        assert!(said.trim().is_empty(), "`{line}` was rewritten: {said}");
+    }
 }

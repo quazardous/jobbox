@@ -257,6 +257,25 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect, endings: bool) -> i
                 return 0;
             }
         }
+        // ANYTHING ELSE OF OURS THAT WAITS, whatever its punctuation. A
+        // line that starts with `jbx` is never wrapped — that is what
+        // keeps one command from becoming two jobs — so the supervisor's
+        // JBX_AGENT_SHELL never reached it, and `jbx wait x; jbx tail x`
+        // walked through: seen, in the session that closed this. The
+        // marker is exported in front instead, which changes nothing the
+        // line does and reaches every command in it. A shell variable is
+        // the one addition that is safe to make to a line we do not parse.
+        if !crate::config::allow_wait().0
+            && crate::harness::backgrounder_of(dialect.name).is_some()
+            && line.split(|c: char| !c.is_ascii_alphanumeric() && c != '-').any(|w| w == "wait")
+        {
+            let mut updated = tool_input.clone();
+            updated["command"] =
+                Value::String(format!("export {}=1; {line}", crate::run::AGENT_SHELL));
+            let answer = dialect.answer(updated);
+            outln!("{answer}");
+            return 0;
+        }
         return 0;
     }
 

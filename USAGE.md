@@ -638,22 +638,31 @@ allow_wait: true       # let the agent run `jbx wait` in front of itself
 ```
 
 The discrimination costs nothing to explain: the hook sees every command
-the agent types and marks a bare `jbx wait` with `--via-agent`; what
-Monitor launches is not a tool call and never reaches the hook, so it is
-never marked. `wait` refuses the marked ones with exit 2 — not a code a
-job could have returned — and names Monitor instead, because a refusal
-that only refuses sends the caller looking for another way to stand
-still, and there is always one.
+the agent types, and what Monitor launches is not a tool call and never
+reaches it — so only the agent's shell is ever marked, in one of two ways:
+
+- **A line jbx wraps** runs with `JBX_AGENT_SHELL` set by its supervisor,
+  and everything in it inherits it — a `;`, a `&&`, a script it calls.
+- **A line that starts with `jbx`** is never wrapped; when it names
+  `wait`, the hook puts `export JBX_AGENT_SHELL=1;` in front of it (a
+  bare `jbx wait` gets `--via-agent`, as before).
+
+`wait` refuses either with exit 2 — not a code a job could have returned —
+and names Monitor instead, because a refusal that only refuses sends the
+caller looking for another way to stand still, and there is always one.
+**So only Monitor waits**, in the foreground or as a background shell
+call alike: until 0.29.1 a compound line — `jbx wait x; jbx tail x` —
+walked through, and was seen to.
 
 **The refusal does not name this setting**, deliberately. Telling an
 agent which knob forbade something is telling it where to go and switch
 the guardrail off, and editing a config file is what it does all day.
 
-Two things it deliberately does not do:
+What it deliberately does not do:
 
-- **A compound line is left alone.** Appending a flag to `jbx wait x &&
-  deploy` would change what the shell runs. This is a guardrail against
-  a habit, not against somebody working around it.
+- **A wait that is not `jbx wait`** — `until grep …; sleep`, `sleep 300`
+  — cannot be told from work, and is not refused. A detached loop is
+  offered `jbx wait --file` instead, and called out after half an hour.
 - **A client with no Monitor is never marked.** On Cursor — no
   end-of-turn hook either — `jbx wait` is the only way an ending reaches
   anybody, and refusing it there would silence the mechanism rather than

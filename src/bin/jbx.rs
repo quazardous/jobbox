@@ -219,7 +219,17 @@ fn dispatch(args: Vec<String>) -> i32 {
             };
             // THE SAME REFUSAL FOR EVERY WAIT. A file or a pattern does not
             // change whose waiting this is: it is Monitor's (#5037).
-            if how.via_agent && !jobbox::config::allow_wait().0 {
+            //
+            // TWO WAYS TO KNOW IT IS AN AGENT'S SHELL. The hook marks a bare
+            // `jbx wait` with `--via-agent`, but leaves any line with shell
+            // punctuation alone — so `jbx wait x; jbx tail x` walked through,
+            // and was seen to. The line itself now carries `JBX_AGENT_SHELL`
+            // from its supervisor, whatever it is shaped like. Only where the
+            // client has a Monitor to send the waiting to: elsewhere there is
+            // nowhere better, and nothing is refused.
+            let in_agent_shell = std::env::var_os(jobbox::run::AGENT_SHELL).is_some()
+                && jobbox::harness::here().and_then(|h| h.backgrounder).is_some();
+            if (how.via_agent || in_agent_shell) && !jobbox::config::allow_wait().0 {
                 let with_text = how.text.as_ref().map(|t| format!(" --text {t:?}")).unwrap_or_default();
                 return refuse_wait(&format!("{what}{with_text}"));
             }

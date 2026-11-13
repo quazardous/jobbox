@@ -234,6 +234,10 @@ fn detach(cmd: &mut Command) {
 /// It is the same binary re-invoked rather than a shell trap, because a
 /// trap is a shell feature and `cmd.exe` has no equivalent. One
 /// mechanism on both platforms beats two that drift apart.
+/// SET ON A LINE AN AGENT'S SHELL RAN, and on everything that line runs.
+/// See `supervise`; read by `jbx wait`, which is Monitor's.
+pub const AGENT_SHELL: &str = "JBX_AGENT_SHELL";
+
 pub fn supervise(
     id: &str,
     after: f64,
@@ -339,6 +343,15 @@ pub fn supervise(
     // THE LINE IS TOLD IT IS ALREADY WRAPPED, so that a `jbx run` inside
     // it steps aside instead of making a second job. See `run_inner`.
     cmd.env("JBX_WRAPPED", id);
+    // AND WHETHER IT IS AN AGENT'S SHELL, which is what `--no-input`
+    // says: the hook writes it on every line it rewrites, and nothing
+    // else does. Inherited by everything the line runs — a `;`, a `&&`,
+    // a script — so a wait anywhere inside it knows whose it is, where
+    // the hook's own mark reached only a line that was a bare `jbx wait`.
+    // Monitor's commands never pass the hook, so they never carry it.
+    if no_input {
+        cmd.env(AGENT_SHELL, "1");
+    }
     let began = store::now();
     let code = match cmd.spawn() {
         Ok(mut child) => match child.wait() {

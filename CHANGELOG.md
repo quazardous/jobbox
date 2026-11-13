@@ -18,6 +18,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.1] - 2026-11-13
+
+### Fixed
+
+- **Only Monitor waits, whatever the line looks like.** Under Claude Code
+  a `jbx wait` the agent typed was refused only when it stood alone: `jbx
+  wait x; jbx tail x`, `jbx wait x && deploy`, a script calling it — all
+  walked through, in the foreground or as a background shell call. The
+  agent's shell now carries `JBX_AGENT_SHELL` — set by the supervisor of
+  every line the hook wraps, and exported in front of a `jbx` line that
+  names `wait` — and `jbx wait` refuses wherever it sees it. Monitor's
+  commands never pass the hook and still wait; so does every client with
+  no Monitor, and `allow_wait: true` still says yes.
+
 ## [0.29.0] - 2026-11-13
 
 ### Added
