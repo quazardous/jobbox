@@ -1987,13 +1987,7 @@ A JOB JUST DETACHED
 
 WHEN THERE IS GENUINELY NOTHING ELSE TO DO
   Do not poll — polling is waiting with extra steps, and it spends a turn
-  per look. Hand the waiting to whatever runs your commands:
-
-      jbx wait <id>            as a BACKGROUND command, not a foreground
-                               one. It exits when the job does and carries
-                               its exit code, so its ending wakes you.
-      jbx watch --json         one line per job event, for a monitor. It
-                               ENDS BY ITSELF when nothing is left running.
+  per look. {WAITING}
 
   Cover the failures too. A watch that speaks only on success is silent
   through a crash, and silence looks exactly like \"still running\".
@@ -2027,6 +2021,8 @@ WHEN THE WORK HAS NOT STARTED YET
   can be — that is the other door, and the only one that takes a name:
 
       jbx queue '<intent>' -- '<line>'
+      jbx queue '<intent>' --lane <name> -- '<line>'
+                               one at a time with every job naming <name>
       jbx slots 4              how many queued jobs may run at once
 
 READING WHAT HAPPENED
@@ -2036,6 +2032,31 @@ READING WHAT HAPPENED
       jbx gain                what takes time — a ceiling, not a receipt
 
   `jbx help` is the map. `jbx why` is the reasoning behind all of this.";
+    // THE WAITING GESTURE BY ITS NAME — see `signals::discipline`. Under
+    // Claude Code a bare `jbx wait` from Bash is refused, background or
+    // not, so "a BACKGROUND command" sent the reader into the refusal.
+    let waiting = match jobbox::harness::here().and_then(|h| h.backgrounder) {
+        Some(into) => format!("\
+Hand the waiting to {into} — not to a Bash call,
+  background or not: a bare `jbx wait` from Bash is refused.
+
+      jbx wait <id>            give this to {into}. It exits when the job
+                               does and carries its exit code, so its
+                               ending wakes you.
+      jbx watch --json         one line per job event, for {into} when
+                               several are out. It ENDS BY ITSELF when
+                               nothing is left running."),
+        None => "\
+Hand the waiting to whatever runs your commands:
+
+      jbx wait <id>            as a BACKGROUND command, not a foreground
+                               one. It exits when the job does and carries
+                               its exit code, so its ending wakes you.
+      jbx watch --json         one line per job event, for a monitor. It
+                               ENDS BY ITSELF when nothing is left running."
+            .to_string(),
+    };
+    let text = text.replace("{WAITING}", &waiting);
     Answer(serde_json::json!({ "text": text }), 0)
         .show(how, |v| jobbox::outln!("{}", v["text"].as_str().unwrap_or("")))
 }

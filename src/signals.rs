@@ -504,8 +504,23 @@ pub fn discipline() -> i32 {
     outln!("      line and finds out. Nothing for you to do differently.");
     outln!("      DO NOT WAIT ON A JOB THAT HAS LET GO. It finishes whether you watch it");
     outln!("      or not, and you are told when it does — so go and do something else.");
-    outln!("      Polling is waiting with extra steps; with nothing else to do, run");
-    outln!("      `jbx wait <id>` as a BACKGROUND command and its ending wakes you.");
+    // THE GESTURE BY ITS NAME, WHERE THE CLIENT HAS ONE. This said "a
+    // BACKGROUND command" everywhere, and under Claude Code an agent that
+    // obeyed — a Bash call with `run_in_background` — was refused by the
+    // very next step: the hook marks a bare `jbx wait` from Bash, whether
+    // in the background or not, and `wait` sends it to Monitor. The rule
+    // read first contradicted the refusal read second.
+    match crate::harness::here().and_then(|h| h.backgrounder) {
+        Some(into) => {
+            outln!("      Polling is waiting with extra steps; with nothing else to do, hand");
+            outln!("      `jbx wait <id>` to {into} — not to a Bash call, background or not, which");
+            outln!("      is refused. It ends when the job does, and that ending wakes you.");
+        }
+        None => {
+            outln!("      Polling is waiting with extra steps; with nothing else to do, run");
+            outln!("      `jbx wait <id>` as a BACKGROUND command and its ending wakes you.");
+        }
+    }
     outln!("      Genuinely cannot go on without a result? Say so: `jbx fg -- '<line>'`");
     outln!("      never lets go, and `jbx gain` counts what that cost.");
     // THE THIRD BEAT IS A WORKAROUND SEEN IN THE READINGS, not a guess.

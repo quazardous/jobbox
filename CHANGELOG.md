@@ -43,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to cap lines just under the cut, and behind a pipe a check killed half
   way exits 0: on one machine, 1449 lines read as clean that never
   finished. `jbx how` says the same.
+- **Under Claude Code, every text an agent reads now sends the waiting to
+  Monitor.** The session rule and `jbx how` said to run `jbx wait <id>`
+  "as a BACKGROUND command" — and a bare `jbx wait` from Bash, in the
+  background or not, is refused for Monitor. An agent obeying the rule
+  it read first was refused by the next step. Other clients keep the
+  background-command wording, where nothing refuses it.
 - **Unreadable job records are collected.** An empty record left by an
   interrupted write was skipped by the daily sweep and stayed for ever.
 - **The `config.yaml` template states the real defaults** — `slots`

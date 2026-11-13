@@ -4644,3 +4644,48 @@ fn readings_expire_at_ninety_days_without_rereading_the_file_on_every_command() 
     assert!(after.lines().count() >= young.len(), "young readings were pruned");
     assert!(after.lines().count() < young.len() + 2, "the 92-day-old reading survived");
 }
+
+#[test]
+fn what_an_agent_is_told_to_wait_with_is_what_jbx_accepts() {
+    // THE RULE READ FIRST CONTRADICTED THE REFUSAL READ SECOND. The
+    // session rule and `jbx how` said to run `jbx wait <id>` "as a
+    // BACKGROUND command"; under Claude Code the hook marks a bare
+    // `jbx wait` from Bash, in the background or not, and `wait` refuses
+    // it for Monitor. An agent obeying the first text met the second.
+    let s = Scratch::new("waitwith");
+    let in_claude = |args: &[&str], stdin: &str| -> String {
+        let mut child = Command::new(JBX)
+            .env_remove("JBX_WRAPPED")
+            .env("CLAUDE_CODE_SESSION_ID", "waitwith")
+            .env("JBX_DIR", &s.0)
+            .env("JBX_CONFIG", s.0.join("global.yaml"))
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        use std::io::Write;
+        child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        String::from_utf8_lossy(&out.stdout).into_owned() + &String::from_utf8_lossy(&out.stderr)
+    };
+
+    // WHAT IS REFUSED: a backgrounded `jbx wait`, exactly as obeying
+    // "a BACKGROUND command" would write it.
+    let bg = serde_json::json!({
+        "hook_event_name": "PreToolUse", "tool_name": "Bash",
+        "tool_input": {"command": "jbx wait j1234567", "run_in_background": true},
+    });
+    let answer = in_claude(&["hook", "claude"], &bg.to_string());
+    assert!(answer.contains("--via-agent"), "a backgrounded wait is no longer refused: {answer}");
+
+    // SO NOTHING AN AGENT READS MAY RECOMMEND IT — and both name Monitor.
+    let rule = in_claude(&["hook", "claude"], r#"{"hook_event_name":"SessionStart"}"#);
+    let how = in_claude(&["how"], "");
+    for (name, text) in [("the session rule", &rule), ("`jbx how`", &how)] {
+        assert!(text.contains("to Monitor"), "{name} does not name Monitor:\n{text}");
+        assert!(!text.contains("BACKGROUND command"),
+                "{name} recommends the gesture jbx refuses:\n{text}");
+    }
+}

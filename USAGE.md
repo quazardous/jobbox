@@ -76,19 +76,22 @@ costs a turn's delay — and an agent with nothing else queued has no next
 turn at all, so it is left with idling or polling, which are the same
 waiting in different clothes.
 
-**Monitored**, it arrives the moment it happens. Hand the waiting to
-whatever runs your commands and it wakes you then rather than later:
+**Monitored**, it arrives the moment it happens. Under Claude Code that
+means **Monitor**: hand it the waiting and it wakes you then rather than
+later. Not a Bash call — in the background or not, a bare `jbx wait`
+from Bash is refused (see *`jbx wait` is Monitor's* below). A client
+with no Monitor runs it as a background command instead:
 
 ```console
-# one wake-up, when this job ends
-jbx wait j7f3a91c            ← as a BACKGROUND command, not a foreground one
+# one wake-up, when this job ends — given to Monitor
+jbx wait j7f3a91c
 
-# one line per ending, until nothing is running — for a monitor
+# one line per ending, until nothing is running — for Monitor too
 jbx watch --json
 ```
 
-`jbx wait` exits when the job does and carries its exit code, so a
-background command ends exactly when there is something to say — and it
+`jbx wait` exits when the job does and carries its exit code, so it
+ends exactly when there is something to say — and it
 **clears that job's ending** on the way out, since waiting is the
 delivery. Only that job's: the endings nobody has collected stay. `jbx
 watch` streams an event per job as it changes and **ends by itself** when
