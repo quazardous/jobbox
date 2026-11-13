@@ -5272,7 +5272,9 @@ fn the_parent_is_told_where_the_left_job_ran() {
     event(&s, stop.clone(), &[]);
     event(&s, stop, &[]);
     let told = event(&s, serde_json::json!({"hook_event_name": "Stop"}), &["--no-endings"]);
-    let here = std::env::current_dir().unwrap().display().to_string();
+    // AS JSON SPELLS IT: on Windows every backslash of the path is doubled.
+    let here = serde_json::to_string(&std::env::current_dir().unwrap().display().to_string()).unwrap();
+    let here = here.trim_matches('"');
     assert!(told.contains(&id) && told.contains(&format!("in {here}")),
             "the notice did not say where the job ran: {told}");
     s.stop_everything();
@@ -5285,7 +5287,7 @@ fn an_fg_inside_a_wrapped_line_holds_the_line() {
     // SEEN 13/11/2026: `cd x && env -u V jbx fg -- '…'` was wrapped whole,
     // and the `fg` stepped aside into a job that let go at the cut.
     let s = Scratch::new("innerfg");
-    let line = |verb: &str| format!("true && env -u NOTHING {JBX} {verb} -- 'sleep 3; exit 7'");
+    let line = |verb: &str| format!("true && env -u NOTHING {} {verb} -- 'sleep 3; exit 7'", jbx_in_line());
     let held = s.run(&["run", "--after", "1", "--", &line("fg")]);
     assert_eq!(held.status.code(), Some(7), "the inner fg was let go of:\n{}", text(&held));
     assert!(!text(&held).contains("BACKGROUND"), "it detached:\n{}", text(&held));
@@ -5302,7 +5304,7 @@ fn a_run_inside_a_wrapped_line_says_it_stepped_aside_where_no_pipe_reaches() {
     // SEEN 13/11/2026: the inner run's output went into the line's own
     // `grep`, which found no detachment: exit 1, an empty log.
     let s = Scratch::new("stepaside");
-    let line = format!("true && {JBX} run -- 'echo work' | grep 'BACKGROUND as'");
+    let line = format!("true && {} run -- 'echo work' | grep 'BACKGROUND as'", jbx_in_line());
     let out = s.run(&["run", "--after", "10", "--", &line]);
     assert_eq!(out.status.code(), Some(1), "the grep's code was not the line's");
     let said = text(&out);
