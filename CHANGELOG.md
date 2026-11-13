@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   down` like any lost job. It now says `stopped by jbx kill`, and
   `--json` carries `killed_at`.
 - **`slots: auto`** names the default (half the cores) in a config file.
+- **`jbx queue --lane <name>[:n]`: one queue per resource.** Jobs that
+  name the same lane run one at a time (or n), in filing order; other
+  lanes and unnamed jobs are not held back. Two deliveries from one
+  clone no longer cross their `git fetch`, and no `slots 1` throttles
+  every build to get there. `jbx ps` shows the lane and the place in it.
 
 ### Fixed
 

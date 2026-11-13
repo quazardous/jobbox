@@ -75,6 +75,11 @@ fn dispatch(args: Vec<String>) -> i32 {
                     // BEFORE THE `--` ONLY: after it is the line, and a line
                     // that happens to say `--no-input` is not asking for it.
                     rest.iter().take_while(|a| a.as_str() != "--").any(|a| a == "--no-input"),
+                    rest.iter()
+                        .take_while(|a| a.as_str() != "--")
+                        .position(|a| a == "--lane")
+                        .and_then(|i| rest.get(i + 1))
+                        .and_then(|v| jobbox::slots::Lane::parse(v).ok()),
                 )
             }
             None => 2,
@@ -143,7 +148,7 @@ fn dispatch(args: Vec<String>) -> i32 {
         "queue" => match Flags::of("queue", rest) {
             Err(code) => code,
             Ok(how) => match how.free.first() {
-                Some(intent) => run::queue(intent, &tail(rest), how.expect),
+                Some(intent) => run::queue(intent, &tail(rest), how.expect, how.lane.as_deref()),
                 None => usage_error("queue needs an intent and a line: `jbx queue build -- make`"),
             },
         },
@@ -343,7 +348,21 @@ fn held_or(r: &store::Record, state: &store::State) -> String {
         store::State::Running { for_secs, detached: Some(false) } if r.held => {
             format!("held       {for_secs:.0}s")
         }
+        // WHICH LINE IT STANDS IN, AND WHERE. A queued job in a lane is
+        // waiting for the job ahead of it in that lane, not for a slot —
+        // and "queued" alone sends the reader to `jbx slots`.
+        store::State::Queued if r.lane.is_some() => lane_word(r),
         other => describe(other),
+    }
+}
+
+/// `queued deliver 2/3`, or `queued deliver` once its turn has come
+/// and it waits for a global slot instead.
+fn lane_word(r: &store::Record) -> String {
+    let name = r.lane.as_deref().unwrap_or("");
+    match jobbox::slots::lane_position(name, r.pid) {
+        Some((at, of)) => format!("queued     {name} {at}/{of}"),
+        None => format!("queued     {name}"),
     }
 }
 
@@ -409,6 +428,8 @@ pub struct Flags {
     force: bool,
     /// `jbx queue --expect 4h`: how long this one should take.
     expect: Option<f64>,
+    /// `jbx queue --lane deliver[:1]`: the lane it waits its turn in.
+    lane: Option<String>,
     /// Written by the hook onto a `jbx wait` the AGENT typed, never onto
     /// one the harness backgrounds for it. See `allow_wait`.
     via_agent: bool,
@@ -483,6 +504,10 @@ impl Flags {
                     _ => return Err(usage_error(
                         "`--expect` wants how long it should take: 30m, 4h — a bare number means minutes",
                     )),
+                },
+                "--lane" => match value() {
+                    Some(v) if !v.trim().is_empty() => flags.lane = Some(v),
+                    _ => return Err(usage_error("`--lane` wants a name: `--lane deliver`, or `deliver:2`")),
                 },
                 "--undo" => flags.undo = true,
                 "--global-only" => flags.global_only = true,
@@ -1000,6 +1025,12 @@ fn status(id: &str, how: &Flags) -> i32 {
             "id": r.id,
             "state": describe(&state),
             "queued": matches!(state, store::State::Queued),
+            "lane": r.lane,
+            "lane_position": match (&state, &r.lane) {
+                (store::State::Queued, Some(name)) => jobbox::slots::lane_position(name, r.pid)
+                    .map(|(at, of)| serde_json::json!({ "at": at, "of": of })),
+                _ => None,
+            },
             "lost": matches!(state, store::State::Lost),
             "killed_at": store::killed_at(&r.id),
             "exit": match state { store::State::Finished { code } => Some(code), _ => None },
@@ -1020,7 +1051,13 @@ fn status(id: &str, how: &Flags) -> i32 {
     .show(how, |v| {
         jobbox::outln!("  id       {}", text(v, "id"));
         jobbox::outln!("  state    {}", text(v, "state"));
-        if v["queued"] == true {
+        if let Some(lane) = v["lane"].as_str() {
+            match (v["lane_position"]["at"].as_u64(), v["lane_position"]["of"].as_u64()) {
+                (Some(at), Some(of)) => jobbox::outln!("  lane     {lane} — {at} of {of} in line"),
+                _ => jobbox::outln!("  lane     {lane}"),
+            }
+        }
+        if v["queued"] == true && v["lane"].is_null() {
             // "QUEUED IS NOT STUCK." It is waiting its turn, and saying
             // which is the difference between leaving it alone and going
             // to look for a fault that is not there.

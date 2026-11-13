@@ -62,6 +62,8 @@ pub struct Record {
     /// and two sessions open on the same project are working on the same
     /// thing: scoping by session would hide half of it from each.
     pub project: String,
+    /// `jbx queue --lane`: the lane this job waits its turn in, if any.
+    pub lane: Option<String>,
 }
 
 /// What a record looks like right now, which is not stored anywhere: it
@@ -430,6 +432,7 @@ pub fn write_record(r: &Record) -> io::Result<()> {
         "queued": r.queued, "mirror_cut": r.mirror_cut, "detached": r.detached,
         "held": r.held,
         "project": r.project,
+        "lane": r.lane,
     });
     fs::write(record_path(&r.id), value.to_string())
 }
@@ -477,6 +480,7 @@ pub fn read_record(id: &str) -> Option<Record> {
                 .display()
                 .to_string()
             }),
+        lane: v["lane"].as_str().map(str::to_string),
     })
 }
 

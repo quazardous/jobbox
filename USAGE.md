@@ -199,6 +199,15 @@ at once. It is also the only place a name is required — somebody choosing
 to hand work over has one in mind, and three words at that moment make a
 list readable three hours later.
 
+**A lane is a queue per resource.** `jbx queue <intent> --lane deliver
+-- '<line>'`: jobs naming the same lane run one at a time, in the order
+they were filed, and nothing else waits for them — where `jbx slots 1`
+would serialise every build and test along with the two deliveries that
+must not overlap. `--lane deliver:2` lets two through. A lane already in
+use keeps its width, and says so, rather than letting a second job in
+beside the first. The turn in the lane is taken before a global slot, so
+a busy lane holds back nothing else. `jbx ps` shows `queued deliver 2/3`.
+
 ## Two numbers, and they answer different halves
 
 `given back` is time that ran while you were free. `reached for` is how

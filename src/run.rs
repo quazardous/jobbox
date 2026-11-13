@@ -234,7 +234,15 @@ fn detach(cmd: &mut Command) {
 /// It is the same binary re-invoked rather than a shell trap, because a
 /// trap is a shell feature and `cmd.exe` has no equivalent. One
 /// mechanism on both platforms beats two that drift apart.
-pub fn supervise(id: &str, after: f64, queued: bool, fg: bool, line: &str, no_input: bool) -> i32 {
+pub fn supervise(
+    id: &str,
+    after: f64,
+    queued: bool,
+    fg: bool,
+    line: &str,
+    no_input: bool,
+    lane: Option<crate::slots::Lane>,
+) -> i32 {
     // OPENED FOR WRITING AND SEEKED, NOT APPENDED — and on Windows that
     // is the difference between a working program and twenty silent
     // failures.
@@ -286,6 +294,16 @@ pub fn supervise(id: &str, after: f64, queued: bool, fg: bool, line: &str, no_in
     // over and left; standing in line is this process's work, not
     // theirs. The slot is released when `held` falls out of scope, so it
     // is released whichever way this function ends.
+    // THE LANE FIRST, THEN THE GLOBAL SLOT — see `slots`: waiting in a
+    // lane holds nothing anybody else could use. Both are held until the
+    // line ends, and released whichever way this function returns.
+    let _lane = match &lane {
+        Some(lane) => match crate::slots::wait_for_lane(lane, || store::log_path(id).exists()) {
+            Some(held) => Some(held),
+            None => return 1,
+        },
+        None => None,
+    };
     let _held = if queued {
         // A JOB NOBODY CAN FIND ANY MORE IS NOT WAITED FOR. Its log is
         // made by `queue` before this process exists — the record is
@@ -538,6 +556,7 @@ fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>, no_input: b
         client: store::client(),
         cwd: std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default(),
         project: crate::gain::project().1,
+        lane: None,
     };
     // WRITTEN NOW AND NOT AT DETACHMENT, so that a front process killed
     // by a harness timeout still leaves something findable behind. It is
@@ -846,11 +865,19 @@ impl<T: std::io::IsTerminal> TerminalLike for T {
 /// after the fact, from its first words, because nobody chose to
 /// background it. Somebody choosing to has a name in mind, and three
 /// words at that moment are what makes a list readable three hours later.
-pub fn queue(intent: &str, line: &str, expect: Option<f64>) -> i32 {
+pub fn queue(intent: &str, line: &str, expect: Option<f64>, lane: Option<&str>) -> i32 {
     if intent.trim().is_empty() || line.trim().is_empty() {
         eprintln!("jbx: `jbx queue <intent> -- '<line>'` — both are required");
         return 2;
     }
+    let lane = match lane.map(crate::slots::Lane::parse) {
+        None => None,
+        Some(Ok(lane)) => Some(lane),
+        Some(Err(why)) => {
+            eprintln!("jbx: --lane: {why}");
+            return 2;
+        }
+    };
     let dir = store::dir();
     if let Err(e) = std::fs::create_dir_all(&dir) {
         eprintln!("jbx: cannot use {}: {e}", dir.display());
@@ -868,14 +895,24 @@ pub fn queue(intent: &str, line: &str, expect: Option<f64>) -> i32 {
     if let Some(secs) = expect {
         let _ = store::write_expected(&id, secs);
     }
+    // THE WIDTH IS SETTLED HERE, where somebody can still be told. The
+    // supervisor's own output goes nowhere.
+    let lane = lane.map(|asked| {
+        let (lane, refused) = crate::slots::settle(&asked);
+        if let Some(width) = refused {
+            eprintln!(
+                "jbx: lane `{}` is in use at width {} — kept; `:{width}` applies once it is idle",
+                lane.name, lane.width
+            );
+        }
+        lane
+    });
     let mut cmd = Command::new(std::env::current_exe().unwrap_or_else(|_| "jbx".into()));
-    cmd.arg("supervise")
-        .arg(&id)
-        .arg("--after")
-        .arg("0")
-        .arg("--queued")
-        .arg("--")
-        .arg(line);
+    cmd.arg("supervise").arg(&id).arg("--after").arg("0").arg("--queued");
+    if let Some(lane) = &lane {
+        cmd.arg("--lane").arg(lane.spec());
+    }
+    cmd.arg("--").arg(line);
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     // THE SAME HANDLE LOAN `run` REVOKES, AND FOR THE SAME REASON.
     //
@@ -913,6 +950,7 @@ pub fn queue(intent: &str, line: &str, expect: Option<f64>) -> i32 {
         client: store::client(),
         cwd: std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default(),
         project: crate::gain::project().1,
+        lane: lane.as_ref().map(|l| l.name.clone()),
     };
     let _ = store::write_record(&record);
     // THE ID FIRST AND ALONE ON ITS LINE: it is what every other verb
@@ -924,6 +962,19 @@ pub fn queue(intent: &str, line: &str, expect: Option<f64>) -> i32 {
     // an id and nothing else lets somebody believe the work has begun —
     // and a job held back by a full queue looks exactly like one that is
     // already running, until they go and look.
+    // A LANE SPEAKS FIRST: when it is the one holding the job back, the
+    // global slots are not the reason, and saying them would send the
+    // reader to look at the wrong queue.
+    if let Some(lane) = &lane {
+        let (running, waiting) = crate::slots::lane_load(&lane.name, record.pid);
+        if running >= lane.width {
+            outln!(
+                "  NOT STARTED — lane `{}` is busy ({running} running, {waiting} waiting ahead). It begins in turn.",
+                lane.name
+            );
+            return 0;
+        }
+    }
     let (busy, cap) = crate::slots::busy();
     let ahead = store::all()
         .iter()

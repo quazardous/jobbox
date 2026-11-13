@@ -1669,6 +1669,90 @@ fn the_head_of_the_line_goes_first_even_when_slots_are_free() {
     assert!(text(&s.run_with(&[("JBX_SLOTS", "4")], &["tail", &id])).contains("RAN"));
 }
 
+#[test]
+fn a_lane_runs_its_jobs_one_at_a_time_and_leaves_the_rest_alone() {
+    // WHAT IT IS FOR: two deliveries from one clone, filed seconds apart,
+    // crossed their `git fetch` and the second failed on a ref lock.
+    // `slots 1` would have serialised every test and build with them.
+    let s = Scratch::new("lane");
+    let env = [("JBX_SLOTS", "4")];
+    let at = |name: &str| s.0.join(name).display().to_string();
+    // ORDER BY A MARKER, NOT A CLOCK: `date +%N` is GNU's, and macOS
+    // prints the letter. B records whether A had already finished.
+    let first = format!("sleep 2; touch {}", at("a"));
+    let second = format!("if [ -e {} ]; then echo after > {}; else echo before > {}; fi", at("a"), at("b"), at("b"));
+    let id = |out: Output| text(&out).lines().next().unwrap().trim().to_string();
+
+    let a = id(s.run_with(&env, &["queue", "deliver A", "--lane", "deliver", "--", &first]));
+    let b = id(s.run_with(&env, &["queue", "deliver B", "--lane", "deliver", "--", &second]));
+    let other = id(s.run_with(&env, &["queue", "tests", "--lane", "tests", "--", "echo OTHER"]));
+
+    // ANOTHER LANE DOES NOT WAIT for this one.
+    assert_eq!(s.run_with(&env, &["wait", &other]).status.code(), Some(0));
+    let behind = text(&s.run_with(&env, &["status", &b]));
+    assert!(behind.contains("lane     deliver"), "B is not shown in its lane:\n{behind}");
+    assert!(!behind.contains("waiting for a slot"),
+            "a lane job sent its reader to `jbx slots`:\n{behind}");
+    assert!(!s.0.join("b").exists(), "B ran beside A in the same lane");
+
+    // AND IN ITS TURN, after A — not merely eventually.
+    for job in [&a, &b] {
+        assert_eq!(s.run_with(&env, &["wait", job]).status.code(), Some(0));
+    }
+    let b_saw = std::fs::read_to_string(s.0.join("b")).unwrap();
+    assert_eq!(b_saw.trim(), "after", "B started before A had finished");
+}
+
+#[test]
+fn a_lane_of_width_two_lets_two_through() {
+    let s = Scratch::new("lanewide");
+    let env = [("JBX_SLOTS", "4")];
+    for n in ["one", "two"] {
+        s.run_with(&env, &["queue", n, "--lane", "box:2", "--", "sleep 3"]);
+    }
+    until("both to be running", || {
+        let ps = text(&s.run_with(&env, &["ps"]));
+        ps.matches("background").count() == 2
+    });
+
+    // A WIDTH ASKED OF A LANE IN USE IS NOT TAKEN: changing it under jobs
+    // already running would let in the very overlap the lane prevents.
+    let narrower = s.run_with(&env, &["queue", "three", "--lane", "box:1", "--", "true"]);
+    let said = String::from_utf8_lossy(&narrower.stderr).into_owned();
+    assert!(said.contains("in use at width 2"), "a different width passed silently: {said}");
+}
+
+#[test]
+fn a_dead_holder_does_not_close_a_lane() {
+    // THE SAME GUARANTEE THE GLOBAL SLOTS GIVE: a holder that died keeps
+    // its lock until somebody looks, and a waiter looks.
+    let s = Scratch::new("lanedead");
+    let lane = s.0.join("cache/slots/lanes/shop");
+    std::fs::create_dir_all(&lane).unwrap();
+    let mut gone = Command::new("true").spawn().unwrap();
+    let pid = gone.id();
+    gone.wait().unwrap();
+    std::fs::write(lane.join("0.lock"), pid.to_string()).unwrap();
+
+    let out = s.run(&["queue", "after a crash", "--lane", "shop", "--", "echo RAN"]);
+    let id = text(&out).lines().next().unwrap().trim().to_string();
+    assert_eq!(s.run(&["wait", &id]).status.code(), Some(0), "the lane stayed closed");
+    assert!(text(&s.run(&["tail", &id])).contains("RAN"));
+}
+
+#[test]
+fn a_lane_name_is_a_name_not_a_path() {
+    let s = Scratch::new("lanename");
+    // THE CONTROL FIRST: refusing everything would pass the loop below.
+    let fine = s.run(&["queue", "x", "--lane", "legacy-box_2.0:2", "--", "true"]);
+    assert_eq!(fine.status.code(), Some(0), "a good lane name was refused:\n{}", text(&fine));
+    for bad in ["../up", "a/b", ".hidden", "", "box:0", "box:two"] {
+        let out = s.run(&["queue", "x", "--lane", bad, "--", "true"]);
+        assert_eq!(out.status.code(), Some(2), "`--lane {bad}` was accepted:\n{}", text(&out));
+    }
+    assert!(!s.0.join("cache/slots/up").exists(), "a lane name walked out of its directory");
+}
+
 // ── SAYING WHAT WE ARE, TO A MACHINE ────────────────────────────────────
 
 #[test]
