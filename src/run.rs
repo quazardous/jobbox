@@ -830,6 +830,16 @@ fn announce(id: &str, after: f64, seen: Observation) -> i32 {
              does, and that ending wakes you. Do not run it in front of you."
         );
     }
+    // THE GESTURE FOR THE NEXT ONE, NOT THIS ONE (#5033). An agent that
+    // needed this result waited for it — 6175 `jbx wait` in two months,
+    // against 178 lines declared up front with `jbx fg --` — and found
+    // `fg` at the end of a day of deliveries, in `jbx help`. Offering
+    // `fg <id>` here would be offering the wait this message exists to
+    // prevent; saying how to ask up front is not.
+    let _ = writeln!(
+        out,
+        "Needed the result before going on? Say so next time: `jbx fg -- '<line>'`."
+    );
     // A HAND-WRITTEN WAIT, RECOGNISED BY ITS SHAPE (#5037). What it waits
     // for has a gesture of its own, which ends when the sign appears and
     // gives up at a deadline — where this loop runs until somebody kills

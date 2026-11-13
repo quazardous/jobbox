@@ -47,6 +47,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The detach message says how to ask for a result up front** — `jbx fg
+  -- '<line>'` next time — for the agent that waited on a day of
+  deliveries one by one and found `fg` only in `jbx help`. It still does
+  not offer to wait for the job it just let go of.
 - **A hand-written wait loop is called out after 30 minutes**, not the two
   hours every other job gets: past half an hour it is usually waiting for
   something that will not come, and deliveries were announced "in

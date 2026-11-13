@@ -4936,3 +4936,16 @@ fn a_wait_loop_is_called_out_at_thirty_minutes_and_a_build_is_not() {
         s.run_as("me", &["kill", id]);
     }
 }
+
+#[test]
+fn the_detach_message_says_how_to_ask_for_the_result_up_front() {
+    // #5033: a day of deliveries waited on one by one, because `jbx fg --`
+    // was only to be found in `jbx help`. Named for the NEXT line — and
+    // never `fg <id>`, which would be the wait this message prevents.
+    let s = Scratch::new("askfirst");
+    let said = text(&s.run(&["run", "--after", "1", "--", "sleep 3"]));
+    assert_eq!(said.matches("jbx fg -- '<line>'").count(), 1, "not said exactly once:\n{said}");
+    let id = announced(&said);
+    assert!(!said.contains(&format!("jbx fg {id}")), "it offered to wait for this one:\n{said}");
+    s.run(&["kill", &id]);
+}
