@@ -1676,7 +1676,10 @@ fn a_lane_runs_its_jobs_one_at_a_time_and_leaves_the_rest_alone() {
     // `slots 1` would have serialised every test and build with them.
     let s = Scratch::new("lane");
     let env = [("JBX_SLOTS", "4")];
-    let at = |name: &str| s.0.join(name).display().to_string();
+    // FORWARD SLASHES, QUOTED: on Windows the line runs under Git's
+    // bash, where `C:\Users\…` unquoted is a string of escapes — the
+    // marker was written somewhere else, and this test failed there alone.
+    let at = |name: &str| format!("'{}'", s.0.join(name).display().to_string().replace('\\', "/"));
     // ORDER BY A MARKER, NOT A CLOCK: `date +%N` is GNU's, and macOS
     // prints the letter. B records whether A had already finished.
     let first = format!("sleep 2; touch {}", at("a"));
