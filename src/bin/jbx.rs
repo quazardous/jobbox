@@ -2275,7 +2275,13 @@ WHEN THE WORK HAS NOT STARTED YET
       jbx queue '<intent>' -- '<line>'
       jbx queue '<intent>' --lane <name> -- '<line>'
                                one at a time with every job naming <name>
+      jbx queue '<intent>' -- 'a && b'
+                               b only once a has succeeded: one job
       jbx slots 4              how many queued jobs may run at once
+
+  NOT `while pgrep -f <name>; do sleep …` to wait for another job. The
+  loop's own command line holds <name>, so it finds itself and never
+  ends. A lane, or one job, says the same thing and cannot.
 
 READING WHAT HAPPENED
       jbx ps                   what is running, here

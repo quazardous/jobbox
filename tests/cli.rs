@@ -4725,6 +4725,10 @@ fn what_an_agent_is_told_to_wait_with_is_what_jbx_accepts() {
     // SO NOTHING AN AGENT READS MAY RECOMMEND IT — and both name Monitor.
     let rule = in_claude(&["hook", "claude"], r#"{"hook_event_name":"SessionStart"}"#);
     let how = in_claude(&["how"], "");
+    // AND HOW TO RUN ONE THING AFTER ANOTHER WITHOUT A LOOP (#5030): a
+    // lane, or one job — and why not `while pgrep -f`, which sees itself.
+    assert!(how.contains("--lane <name>") && how.contains("'a && b'") && how.contains("pgrep -f"),
+            "`jbx how` does not say how to chain work without a loop:\n{how}");
     // AND THE OTHER REFUSAL AN AGENT MEETS (#5035): auto mode's, for a
     // line rewritten after its review. `jbx how` says what to do with it.
     assert!(how.contains("EXACTLY as the refusal quotes it") && how.contains("ALONE"),
