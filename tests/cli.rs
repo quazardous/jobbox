@@ -1682,7 +1682,11 @@ fn a_lane_runs_its_jobs_one_at_a_time_and_leaves_the_rest_alone() {
     let at = |name: &str| format!("'{}'", s.0.join(name).display().to_string().replace('\\', "/"));
     // ORDER BY A MARKER, NOT A CLOCK: `date +%N` is GNU's, and macOS
     // prints the letter. B records whether A had already finished.
-    let first = format!("sleep 2; touch {}", at("a"));
+    // A LONG ENOUGH THAT NOTHING HERE IS A RACE AGAINST IT. It was two
+    // seconds, and on windows-latest the other lane's `echo` took longer
+    // than that to start under Git's bash — so B had run, correctly after
+    // A, by the time this looked, and the test called it overlap.
+    let first = format!("sleep 10; touch {}", at("a"));
     let second = format!("if [ -e {} ]; then echo after > {}; else echo before > {}; fi", at("a"), at("b"), at("b"));
     let id = |out: Output| text(&out).lines().next().unwrap().trim().to_string();
 
@@ -1690,13 +1694,13 @@ fn a_lane_runs_its_jobs_one_at_a_time_and_leaves_the_rest_alone() {
     let b = id(s.run_with(&env, &["queue", "deliver B", "--lane", "deliver", "--", &second]));
     let other = id(s.run_with(&env, &["queue", "tests", "--lane", "tests", "--", "echo OTHER"]));
 
-    // ANOTHER LANE DOES NOT WAIT for this one.
+    // ANOTHER LANE DOES NOT WAIT for this one: it is done while A is not.
     assert_eq!(s.run_with(&env, &["wait", &other]).status.code(), Some(0));
+    assert!(!s.0.join("a").exists(), "the other lane waited for this one to finish");
     let behind = text(&s.run_with(&env, &["status", &b]));
     assert!(behind.contains("lane     deliver"), "B is not shown in its lane:\n{behind}");
     assert!(!behind.contains("waiting for a slot"),
             "a lane job sent its reader to `jbx slots`:\n{behind}");
-    assert!(!s.0.join("b").exists(), "B ran beside A in the same lane");
 
     // AND IN ITS TURN, after A — not merely eventually.
     for job in [&a, &b] {
