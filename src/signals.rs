@@ -470,7 +470,7 @@ pub fn signals(audience: &str, as_json: bool, who: Option<&str>) -> i32 {
 ///
 /// On a session's first hook and nowhere else. A rule repeated every
 /// turn is a banner, and a banner is not read.
-pub fn discipline() -> i32 {
+pub fn discipline(again: bool) -> i32 {
     // ONCE PER SESSION, ACROSS PROCESSES — not once per registration.
     //
     // The rule was already said once per hook. It is now possible to be
@@ -483,7 +483,19 @@ pub fn discipline() -> i32 {
     // A marker in the store settles it. `create_new` is the atomic
     // gesture on both platforms: whoever creates it speaks, the other
     // finds it there and says nothing.
-    let said = store::dir().join(format!("said-{}", crate::signals::client()));
+    //
+    // AGAIN, AFTER A COMPACTION OR A RESUME: the session is the same, so
+    // its marker is already there — but the rule went with the context.
+    // The two registrations still fire together, so the second marker
+    // is keyed to the minute: one copy per compaction, not one per hook.
+    let said = match again {
+        false => store::dir().join(format!("said-{}", crate::signals::client())),
+        true => store::dir().join(format!(
+            "said-{}-again-{}",
+            crate::signals::client(),
+            (store::now() / 60.0) as u64
+        )),
+    };
     let _ = std::fs::create_dir_all(store::dir());
     if std::fs::OpenOptions::new().write(true).create_new(true).open(&said).is_err() {
         return 0;
@@ -534,9 +546,97 @@ pub fn discipline() -> i32 {
     0
 }
 
+/// WHAT IS STILL RUNNING, said to a session that no longer remembers
+/// starting it — after a compaction or a resume. Its own jobs only:
+/// another session's are not this one's to act on.
+pub fn still_running() {
+    let me = client();
+    let mine: Vec<_> = store::all()
+        .into_iter()
+        .filter(|r| r.client == me && matches!(store::state_of(r), store::State::Running { .. }))
+        .collect();
+    if mine.is_empty() {
+        return;
+    }
+    outln!("[jbx] Still running from before — this session started them:");
+    for r in &mine {
+        outln!("      {}  {:>7}  {}", r.id, store::how_long(store::now() - r.started), r.intent);
+    }
+    outln!("      Waiting on something that will no longer come? `jbx kill <id>`.");
+}
+
+/// WHERE A SESSION IS TOLD ITS AGENTS LEFT WORK BEHIND. A file of its
+/// own, not the endings mailbox: on the default install that mailbox is
+/// `jbx wait`'s to read, and emptying it here would steal an ending.
+fn orphans_path(client: &str) -> PathBuf {
+    store::dir().join(format!("orphans-{client}.jsonl"))
+}
+
+/// AN AGENT ENDED. Mark what it left running, and leave a notice for its
+/// session. Marked, never stopped — the plan accepted on #4907: an agent
+/// sometimes leaves a build running on purpose for the session to use,
+/// and stopping it would destroy that. The marker is what lets the
+/// session — and a permission check — tell these from live work.
+pub fn agent_ended(agent: &str) {
+    let me = client();
+    for r in store::all() {
+        if r.agent.as_deref() != Some(agent) || r.client != me {
+            continue;
+        }
+        if !matches!(store::state_of(&r), store::State::Running { .. } | store::State::Queued) {
+            continue;
+        }
+        store::mark_orphaned(&r.id);
+        let line = serde_json::json!({ "id": r.id, "intent": r.intent, "agent": agent }).to_string();
+        store::append_line(&orphans_path(&me), &line);
+    }
+}
+
+/// The notices left for this session, taken — read and erased in one
+/// gesture, by renaming, like an ending. `None` when there are none.
+fn orphan_notice(me: &str) -> Option<String> {
+    let path = orphans_path(me);
+    let claimed = path.with_extension(format!("jsonl.taken-{}", std::process::id()));
+    fs::rename(&path, &claimed).ok()?;
+    let raw = fs::read_to_string(&claimed).unwrap_or_default();
+    let _ = fs::remove_file(&claimed);
+    let mut by_agent: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for v in raw.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()) {
+        let (Some(agent), Some(id)) = (v["agent"].as_str(), v["id"].as_str()) else { continue };
+        // GONE SINCE? Then there is nothing left to say about it.
+        if !store::read_record(id).is_some_and(|r| matches!(store::state_of(&r), store::State::Running { .. } | store::State::Queued)) {
+            continue;
+        }
+        by_agent.entry(agent.into()).or_default().push(format!("{id} ({})", v["intent"].as_str().unwrap_or("")));
+    }
+    if by_agent.is_empty() {
+        return None;
+    }
+    Some(
+        by_agent
+            .iter()
+            .map(|(agent, jobs)| {
+                let (what, it) = match jobs.len() {
+                    1 => ("a job".to_string(), ["It was", "it"]),
+                    n => (format!("{n} jobs"), ["They were", "them"]),
+                };
+                format!(
+                    "jbx: agent {agent} ended and left {what} running: {}. {} not stopped — \
+                     if nothing will use {}, `jbx kill --agent {agent}`.",
+                    jobs.join(", "), it[0], it[1]
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
 /// The informative shape: plain lines, for a hook whose output is read
 /// as context rather than as a decision.
 pub fn announce_text() -> i32 {
+    if let Some(notice) = orphan_notice(&client()) {
+        outln!("[jbx] {}", notice.trim_start_matches("jbx: "));
+    }
     let pending = take(&client(), "agent");
     if pending.is_empty() {
         return 0; // silence is the normal case, and by far
@@ -607,7 +707,7 @@ pub fn announce_stop(hold: &str, endings: bool) -> i32 {
     let pending = if endings { take(&me, "agent") } else { Vec::new() };
     let endless = endless(&me);
     if pending.is_empty() {
-        return say_endless(serde_json::json!({}), &endless, hold);
+        return say_endless(serde_json::json!({}), &endless, hold, orphan_notice(&me));
     }
     let summary = pending
         .iter()
@@ -658,7 +758,7 @@ pub fn announce_stop(hold: &str, endings: bool) -> i32 {
              and fix it if it is within reach."
         ));
     }
-    say_endless(out, &endless, hold)
+    say_endless(out, &endless, hold, orphan_notice(&me))
 }
 
 /// Add the lines left running to whatever `Stop` was going to say, and
@@ -670,7 +770,19 @@ pub fn announce_stop(hold: &str, endings: bool) -> i32 {
 /// waiting for verdicts that had been overwritten ran for hours that
 /// way. Held open, the agent has to do something about them — and the
 /// cooldown is what keeps a hold from turning into a loop.
-fn say_endless(mut out: Value, endless: &[(String, f64)], hold: &str) -> i32 {
+fn say_endless(mut out: Value, endless: &[(String, f64)], hold: &str, orphans: Option<String>) -> i32 {
+    // AN AGENT'S ABANDONED WORK IS THIS SESSION'S TO DECIDE ABOUT, and
+    // the turn's end is the one place the model hears it unasked — the
+    // same reasoning as the hours-long jobs below, said once per agent.
+    if let Some(notice) = orphans {
+        let before = out["reason"].as_str().map(|r| format!("{r} ")).unwrap_or_default();
+        out["decision"] = Value::String(hold.into());
+        out["reason"] = Value::String(format!("{before}{notice}"));
+        out["systemMessage"] = Value::String(match out["systemMessage"].as_str() {
+            Some(said) => format!("{said} {notice}"),
+            None => notice,
+        });
+    }
     if !endless.is_empty() {
         let named = endless
             .iter()

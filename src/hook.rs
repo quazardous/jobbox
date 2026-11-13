@@ -175,8 +175,27 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect, endings: bool) -> i
         // THE SESSION'S FIRST HOOK CARRIES THE RULE; every later one
         // carries only what has finished. Saying the rule again each turn
         // would make it wallpaper.
+        // AN AGENT ENDED. Its jobs still running are marked and named to
+        // the session at its next turn — never stopped: an agent may
+        // leave a build running on purpose for the session to use.
+        Some(e) if Some(e) == dialect.agent_end => {
+            if let Some(agent) = event["agent_id"].as_str().filter(|a| !a.is_empty()) {
+                crate::signals::agent_ended(agent);
+            }
+            return 0;
+        }
         Some(e) if Some(e) == dialect.session_start => {
-            crate::signals::discipline();
+            // A COMPACTED OR RESUMED SESSION IS THE SAME SESSION — the
+            // harness keeps its id — WITH THE RULE GONE FROM ITS CONTEXT.
+            // Probed 13/11/2026: `source` is `resume`, then `compact`,
+            // and the session id is unchanged across both. So the rule
+            // is said again, and so is what is still running: the
+            // session no longer remembers starting it.
+            let again = matches!(event["source"].as_str(), Some("compact" | "resume"));
+            crate::signals::discipline(again);
+            if again {
+                crate::signals::still_running();
+            }
             return crate::signals::announce_text();
         }
         Some(e) if Some(e) == dialect.turn_start => return crate::signals::announce_text(),
@@ -281,6 +300,15 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect, endings: bool) -> i
     // the truth. jbx saved nothing here; the harness did. It is not
     // marked as a deliberate foreground either, because nobody chose
     // one: `jbx fg` counts a decision, and this is not one.
+    // WHOSE LINE IT IS, when a subagent runs it — see `Record::agent`.
+    // Probed 13/11/2026: a subagent's `PreToolUse` carries `agent_id`,
+    // and its `SubagentStop` the same one. Held to a plain word, since
+    // it is written into a shell line.
+    let agent = event["agent_id"]
+        .as_str()
+        .filter(|a| !a.is_empty() && a.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+        .map(|a| format!("--agent {a} "))
+        .unwrap_or_default();
     let held = if tool_input.get("run_in_background").and_then(Value::as_bool) == Some(true) {
         "--after inf "
     } else {
@@ -295,7 +323,7 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect, endings: bool) -> i
     updated.insert(
         "command".into(),
         Value::String(format!(
-            "{} run --no-input {held}{described}-- {}",
+            "{} run --no-input {held}{described}{agent}-- {}",
             shell_word(binary),
             quote(&through_rtk(line))
         )),

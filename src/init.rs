@@ -601,6 +601,19 @@ pub fn init(
             warns_at = Some(end);
         }
     }
+    // THE END OF A SUBAGENT, ON EVERY INSTALL BUT `--core`. It says
+    // nothing — it marks the jobs the agent left running, so the `Stop`
+    // above can name them. Without it, a dozen abandoned waits under one
+    // session were indistinguishable from live work, and a permission
+    // check refused to let them be stopped for exactly that reason (#4907).
+    if !core {
+        if let Some(event) = d.agent_end {
+            if !declared(&settings, event, &binary) {
+                declare(&mut settings, event, "*", &binary, d.name, "");
+                outln!("  also declared {event} — jobs a subagent leaves running are named, not stopped");
+            }
+        }
+    }
 
     if !displaced.is_empty() {
         let _ = fs::create_dir_all(crate::store::dir());
@@ -808,7 +821,7 @@ fn restore(path: &Path, binary: &str, client: &str) -> i32 {
     // EVERY EVENT WE EVER DECLARED, not just the one we came for: an
     // undo that leaves three of four behind is worse than no undo, since
     // what stays points at a binary that may not be there any more.
-    for event in ["PreToolUse", "Stop", "UserPromptSubmit", "SessionStart"] {
+    for event in ["PreToolUse", "Stop", "UserPromptSubmit", "SessionStart", "SubagentStop"] {
         let Some(matchers) = settings
             .pointer_mut(&format!("/hooks/{event}"))
             .and_then(Value::as_array_mut)

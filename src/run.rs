@@ -421,11 +421,23 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 /// there is nothing to return YET — so we return 0, which is the truth
 /// about what THIS process did, and the real code is written where
 /// `status` and `wait` read it.
-pub fn run(after: f64, line: &str, intent: Option<&str>, no_input: bool) -> i32 {
-    run_inner(after, line, false, intent, no_input)
+pub fn run(after: f64, line: &str, intent: Option<&str>, no_input: bool, agent: Option<&str>) -> i32 {
+    run_inner(after, line, false, intent, no_input, agent)
 }
 
-fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>, no_input: bool) -> i32 {
+/// THE AGENT A LINE BELONGS TO: named by the hook on the line itself,
+/// or inherited from the wrapped line around it. A `jbx queue` a
+/// subagent types is wrapped like any other line, and the job it files
+/// is that agent's as much as the line that filed it.
+fn agent_of(named: Option<&str>) -> Option<String> {
+    named
+        .map(str::to_string)
+        .or_else(|| std::env::var("JBX_AGENT").ok())
+        .filter(|a| !a.trim().is_empty())
+}
+
+fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>, no_input: bool, agent: Option<&str>) -> i32 {
+    let agent = agent_of(agent);
     if line.trim().is_empty() {
         eprintln!("jbx: nothing to run. `jbx run -- '<command line>'`");
         return 2;
@@ -498,6 +510,10 @@ fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>, no_input: b
     if fg {
         cmd.arg("--fg");
     }
+    // HANDED DOWN, so whatever the line files carries the same agent.
+    if let Some(agent) = &agent {
+        cmd.env("JBX_AGENT", agent);
+    }
     if no_input {
         cmd.arg("--no-input");
     }
@@ -557,6 +573,7 @@ fn run_inner(after: f64, line: &str, fg: bool, intent: Option<&str>, no_input: b
         cwd: std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default(),
         project: crate::gain::project().1,
         lane: None,
+        agent: agent.clone(),
     };
     // WRITTEN NOW AND NOT AT DETACHMENT, so that a front process killed
     // by a harness timeout still leaves something findable behind. It is
@@ -951,6 +968,7 @@ pub fn queue(intent: &str, line: &str, expect: Option<f64>, lane: Option<&str>) 
         cwd: std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default(),
         project: crate::gain::project().1,
         lane: lane.as_ref().map(|l| l.name.clone()),
+        agent: agent_of(None),
     };
     let _ = store::write_record(&record);
     // THE ID FIRST AND ALONE ON ITS LINE: it is what every other verb
@@ -1004,7 +1022,7 @@ pub fn queue(intent: &str, line: &str, expect: Option<f64>, lane: Option<&str>) 
 /// loud is the point: `jbx gain` counts what it cost, so a habit of
 /// reaching for it shows up as time that was never saved.
 pub fn foreground(line: &str, intent: Option<&str>) -> i32 {
-    run_inner(f64::INFINITY, line, true, intent, false)
+    run_inner(f64::INFINITY, line, true, intent, false, None)
 }
 
 /// `jbx fg <id>` — BRING A DETACHED JOB BACK.

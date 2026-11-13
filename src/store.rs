@@ -64,6 +64,11 @@ pub struct Record {
     pub project: String,
     /// `jbx queue --lane`: the lane this job waits its turn in, if any.
     pub lane: Option<String>,
+    /// THE SUBAGENT THAT RAN IT, as the harness names it (`agent_id`).
+    /// Without it, every job a session's agents left behind read as the
+    /// session's own: nothing could say whose they were, so nothing could
+    /// say they had been abandoned.
+    pub agent: Option<String>,
 }
 
 /// What a record looks like right now, which is not stored anywhere: it
@@ -295,6 +300,20 @@ pub fn mark_killed(id: &str) {
     let _ = fs::write(killed_path(id), format!("{}", now()));
 }
 
+/// WHEN THE AGENT THAT RAN THIS ONE ENDED, while it was still running.
+/// Written by the harness's `SubagentStop`, never guessed: an agent that
+/// is merely quiet is not an agent that has gone.
+pub fn orphaned_path(id: &str) -> PathBuf { dir().join(format!("{id}.orphaned")) }
+
+pub fn mark_orphaned(id: &str) {
+    let _ = fs::write(orphaned_path(id), format!("{}", now()));
+}
+
+/// When this job's agent ended under it, if it did.
+pub fn orphaned_at(id: &str) -> Option<f64> {
+    fs::read_to_string(orphaned_path(id)).ok()?.trim().parse().ok()
+}
+
 /// When `jbx kill` stopped this job, if it did.
 pub fn killed_at(id: &str) -> Option<f64> {
     fs::read_to_string(killed_path(id)).ok()?.trim().parse().ok()
@@ -433,6 +452,7 @@ pub fn write_record(r: &Record) -> io::Result<()> {
         "held": r.held,
         "project": r.project,
         "lane": r.lane,
+        "agent": r.agent,
     });
     fs::write(record_path(&r.id), value.to_string())
 }
@@ -481,6 +501,7 @@ pub fn read_record(id: &str) -> Option<Record> {
                 .to_string()
             }),
         lane: v["lane"].as_str().map(str::to_string),
+        agent: v["agent"].as_str().map(str::to_string),
     })
 }
 
@@ -865,6 +886,7 @@ pub fn forget(id: &str) -> bool {
         warned_path(id),
         expected_path(id),
         killed_path(id),
+        orphaned_path(id),
         dir().join(format!("{id}.code.part")),
     ] {
         any |= fs::remove_file(path).is_ok();

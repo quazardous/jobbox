@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   down` like any lost job. It now says `stopped by jbx kill`, and
   `--json` carries `killed_at`.
 - **`slots: auto`** names the default (half the cores) in a config file.
+- **What a subagent leaves running is named, not lost.** Under Claude
+  Code a subagent's lines are recorded as its own; when it ends, the jobs
+  it left are marked `orphaned`, named to the session at its next turn
+  end, and stopped only on `jbx kill --agent <id>`. `jbx list --agent`
+  shows one agent's work. A compacted or resumed session is told the
+  rule again, and what it left running. `jbx init` now also declares
+  `SubagentStop` — run it again to add it to an existing install.
 - **`jbx queue --lane <name>[:n]`: one queue per resource.** Jobs that
   name the same lane run one at a time (or n), in filing order; other
   lanes and unnamed jobs are not held back. Two deliveries from one

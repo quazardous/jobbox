@@ -539,6 +539,26 @@ And the command doing the stopping is never among the casualties: `jbx
 kill` is itself wrapped, so a wrapper above it has a record like any
 other.
 
+### What a subagent leaves behind
+
+Under Claude Code, a line a **subagent** runs is recorded as that agent's
+(`--agent <id>`, written by the hook from the `agent_id` the harness
+sends). When the agent ends — `SubagentStop` — the jobs it left running
+are **marked, not stopped**: an agent sometimes leaves a build running on
+purpose for the session to use. `jbx ps` shows them `orphaned`, and the
+session's next turn end names them once:
+
+```console
+jbx: agent a26d4df9972edc54b ended and left a job running: j2628a39 (bench wait).
+It was not stopped — if nothing will use it, `jbx kill --agent a26d4df9972edc54b`.
+```
+
+`jbx list --agent <id>` shows one agent's work; `jbx kill --agent <id>`
+stops it and nothing else. A **compacted or resumed** session keeps its
+id but loses its context, so on that `SessionStart` the rule is said
+again and the jobs it started are listed — where `SessionStart` is
+declared (`--announce`, or the plugin).
+
 ### `held` — the silence somebody chose
 
 A line the harness is already running in the background is wrapped with

@@ -52,6 +52,7 @@ fn dispatch(args: Vec<String>) -> i32 {
                 &tail(rest),
                 how.intent.as_deref(),
                 how.no_input,
+                how.agent.as_deref(),
             ),
             Err(code) => code,
         },
@@ -219,7 +220,8 @@ fn dispatch(args: Vec<String>) -> i32 {
                 kill(id, how.force)
             }
             (None, Some(age)) => kill_older_than(age, how.all, how.force),
-            (None, None) => usage_error("kill needs an id, or `--too-old`"),
+            (None, None) if how.agent.is_some() => kill_agent(how.agent.as_deref().unwrap_or(""), how.force),
+            (None, None) => usage_error("kill needs an id, `--too-old`, or `--agent <id>`"),
         }),
         // A FLAG IS NOT A VERB, and saying so is the difference between
         // "you spelled the verb wrong" and "that flag goes after one".
@@ -352,6 +354,11 @@ fn held_or(r: &store::Record, state: &store::State) -> String {
         // waiting for the job ahead of it in that lane, not for a slot —
         // and "queued" alone sends the reader to `jbx slots`.
         store::State::Queued if r.lane.is_some() => lane_word(r),
+        // ITS AGENT ENDED UNDER IT. Said in the state column, because
+        // that is the column read when deciding what to stop.
+        store::State::Running { for_secs, .. } if store::orphaned_at(&r.id).is_some() => {
+            format!("orphaned   {for_secs:.0}s")
+        }
         other => describe(other),
     }
 }
@@ -430,6 +437,9 @@ pub struct Flags {
     expect: Option<f64>,
     /// `jbx queue --lane deliver[:1]`: the lane it waits its turn in.
     lane: Option<String>,
+    /// `--agent <id>`: written by the hook on a subagent's line; on
+    /// `list` and `kill`, the agent whose jobs are meant.
+    agent: Option<String>,
     /// Written by the hook onto a `jbx wait` the AGENT typed, never onto
     /// one the harness backgrounds for it. See `allow_wait`.
     via_agent: bool,
@@ -504,6 +514,10 @@ impl Flags {
                     _ => return Err(usage_error(
                         "`--expect` wants how long it should take: 30m, 4h — a bare number means minutes",
                     )),
+                },
+                "--agent" => match value() {
+                    Some(v) if !v.trim().is_empty() => flags.agent = Some(v.trim().to_string()),
+                    _ => return Err(usage_error("`--agent` wants the agent's id, as `jbx ps` shows it")),
                 },
                 "--lane" => match value() {
                     Some(v) if !v.trim().is_empty() => flags.lane = Some(v),
@@ -811,6 +825,8 @@ fn listing(only_alive: bool, how: &Flags) -> i32 {
     let records: Vec<store::Record> = everything
         .iter()
         .filter(|r| (!only_alive || alive(r)) && (all || r.project == me))
+        // ONE AGENT'S WORK, wherever it ran: an agent is not a project.
+        .filter(|r| how.agent.is_none() || r.agent == how.agent)
         .cloned()
         .collect();
     // WHAT IS HIDDEN AND STILL RUNNING, counted. The tool this replaces
@@ -1026,6 +1042,8 @@ fn status(id: &str, how: &Flags) -> i32 {
             "state": describe(&state),
             "queued": matches!(state, store::State::Queued),
             "lane": r.lane,
+            "agent": r.agent,
+            "orphaned_at": store::orphaned_at(&r.id),
             "lane_position": match (&state, &r.lane) {
                 (store::State::Queued, Some(name)) => jobbox::slots::lane_position(name, r.pid)
                     .map(|(at, of)| serde_json::json!({ "at": at, "of": of })),
@@ -1051,6 +1069,15 @@ fn status(id: &str, how: &Flags) -> i32 {
     .show(how, |v| {
         jobbox::outln!("  id       {}", text(v, "id"));
         jobbox::outln!("  state    {}", text(v, "state"));
+        if let Some(agent) = v["agent"].as_str() {
+            match v["orphaned_at"].as_f64() {
+                Some(at) => jobbox::outln!(
+                    "  agent    {agent} — ended {} ago, and this outlived it; `jbx kill --agent {agent}`",
+                    store::how_long(store::now() - at)
+                ),
+                None => jobbox::outln!("  agent    {agent}"),
+            }
+        }
         if let Some(lane) = v["lane"].as_str() {
             match (v["lane_position"]["at"].as_u64(), v["lane_position"]["of"].as_u64()) {
                 (Some(at), Some(of)) => jobbox::outln!("  lane     {lane} — {at} of {of} in line"),
@@ -1228,6 +1255,31 @@ fn kill_older_than(age: f64, all: bool, force: bool) -> i32 {
         jobbox::outln!("{}", jobbox::paint::dim(&format!(
             "{stopped} stopped. Their logs are still here — `jbx prune` clears the records."
         )));
+    }
+    0
+}
+
+/// `jbx kill --agent <id>` — STOP WHAT ONE SUBAGENT LEFT RUNNING.
+///
+/// The gesture #4907 was missing: a dozen waits under one session, and a
+/// permission check that would not let them be stopped in bulk because
+/// nothing proved they were not some live agent's work. The agent's id
+/// is that proof, and this stops that agent's jobs and nobody else's.
+/// Never ourselves or what runs us, for the same reason as `--too-old`.
+fn kill_agent(agent: &str, force: bool) -> i32 {
+    let mine = jobbox::store::ancestors();
+    let mut stopped = 0;
+    for r in store::all() {
+        if r.agent.as_deref() != Some(agent) || !store::alive_and_ours(&r) || mine.contains(&r.pid) {
+            continue;
+        }
+        note_grip(&r.id, "killed");
+        jobbox::outln!("  {} {} — stopping it", r.id, r.intent);
+        kill(&r.id, force);
+        stopped += 1;
+    }
+    if stopped == 0 {
+        jobbox::outln!("nothing of agent {agent} is running.");
     }
     0
 }

@@ -91,6 +91,10 @@ pub struct Dialect {
     pub turn_start: Option<&'static str>,
     /// The session is beginning — where the discipline is said once.
     pub session_start: Option<&'static str>,
+    /// A subagent has ended — Claude `SubagentStop`, carrying the same
+    /// `agent_id` as the subagent's tool calls (probed 13/11/2026). The
+    /// jobs it left running are marked then, not guessed at later.
+    pub agent_end: Option<&'static str>,
     /// THE WORD THAT HOLDS A SESSION OPEN, and it is not the same word.
     /// Claude wants `decision: "block"`; Gemini's `AfterAgent` wants
     /// `"deny"`, with the `reason` sent back to the agent as a fresh
@@ -145,6 +149,7 @@ pub const DIALECTS: &[Dialect] = &[
         turn_end: Some("Stop"),
         turn_start: Some("UserPromptSubmit"),
         session_start: Some("SessionStart"),
+        agent_end: Some("SubagentStop"),
         hold: "block",
     },
     Dialect {
@@ -169,6 +174,7 @@ pub const DIALECTS: &[Dialect] = &[
         turn_end: Some("AfterAgent"),
         turn_start: Some("BeforeAgent"),
         session_start: Some("SessionStart"),
+        agent_end: None,
         hold: "deny",
     },
     Dialect {
@@ -191,6 +197,7 @@ pub const DIALECTS: &[Dialect] = &[
         turn_end: Some("Stop"),
         turn_start: Some("UserPromptSubmit"),
         session_start: Some("SessionStart"),
+        agent_end: None,
         hold: "block",
     },
     Dialect {
@@ -215,6 +222,7 @@ pub const DIALECTS: &[Dialect] = &[
         turn_end: None,
         turn_start: None,
         session_start: None,
+        agent_end: None,
         hold: "deny",
     },
     Dialect {
@@ -243,6 +251,7 @@ pub const DIALECTS: &[Dialect] = &[
         turn_end: Some("agentStop"),
         turn_start: Some("userPromptSubmitted"),
         session_start: Some("sessionStart"),
+        agent_end: None,
         hold: "deny",
     },
 ];

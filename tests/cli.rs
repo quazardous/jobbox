@@ -2491,8 +2491,14 @@ fn the_plugin_declares_what_init_declares_and_says_the_same_version() {
     // install never declared. `Stop` came back for that alone, with
     // `--no-endings`, so the unasked announcements stay what `--announce`
     // is for.
+    //
+    // `SubagentStop` JOINED THEM FOR THE SAME REASON (#4907): it says
+    // nothing itself, it marks the jobs a subagent left running so that
+    // `Stop` can name them. Left to `--announce`, a dozen abandoned waits
+    // under one session stayed indistinguishable from live work on
+    // exactly the installs that never ask for more.
     let plain = events(&[]);
-    assert_eq!(plain, ["PreToolUse", "Stop"].map(String::from).into_iter()
+    assert_eq!(plain, ["PreToolUse", "Stop", "SubagentStop"].map(String::from).into_iter()
                    .collect::<std::collections::BTreeSet<_>>(),
                "`jbx init` with no flag wrote {plain:?}");
 
@@ -4688,4 +4694,109 @@ fn what_an_agent_is_told_to_wait_with_is_what_jbx_accepts() {
         assert!(!text.contains("BACKGROUND command"),
                 "{name} recommends the gesture jbx refuses:\n{text}");
     }
+}
+
+// ── WHAT A SUBAGENT LEAVES BEHIND (#4907) ───────────────────────────────
+
+/// A hook event, as Claude Code sends it, under a pinned client.
+fn event(s: &Scratch, payload: serde_json::Value, args: &[&str]) -> String {
+    let mut child = Command::new(JBX)
+        .env_remove("JBX_WRAPPED")
+        .env_remove("CLAUDE_CODE_SESSION_ID")
+        .env("JBX_DIR", &s.0)
+        .env("JBX_CONFIG", s.0.join("global.yaml"))
+        .env("JBX_CLIENT", "me")
+        .env("PATH", "/nonexistent")
+        .arg("hook").arg("claude").args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    use std::io::Write;
+    child.stdin.take().unwrap().write_all(payload.to_string().as_bytes()).unwrap();
+    String::from_utf8_lossy(&child.wait_with_output().unwrap().stdout).into_owned()
+}
+
+#[test]
+fn a_subagents_line_carries_its_agent_and_the_sessions_does_not() {
+    // PROBED 13/11/2026: a subagent's `PreToolUse` carries `agent_id`.
+    let s = Scratch::new("agentline");
+    let line = |agent: Option<&str>| {
+        let mut e = serde_json::json!({
+            "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "tool_input": {"command": "make", "description": "build"},
+        });
+        if let Some(a) = agent {
+            e["agent_id"] = serde_json::json!(a);
+        }
+        let out: serde_json::Value = serde_json::from_str(event(&s, e, &[]).trim()).unwrap();
+        out["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap().to_string()
+    };
+    assert!(line(Some("a26d4df9972edc54b")).contains("--agent a26d4df9972edc54b "));
+    assert!(!line(None).contains("--agent"), "the session's own line was given an agent");
+    // WRITTEN INTO A SHELL LINE, so anything but a plain word stays out.
+    assert!(!line(Some("x; rm -rf ~")).contains("--agent"), "an id with shell in it was written");
+}
+
+#[test]
+fn an_agents_end_names_what_it_left_and_stops_nothing() {
+    let s = Scratch::new("agentend");
+    let start = |agent: Option<&str>, intent: &str| {
+        let mut args = vec!["run", "--after", "0", "--intent", intent];
+        if let Some(a) = agent {
+            args.extend(["--agent", a]);
+        }
+        args.extend(["--", "sleep 30"]);
+        announced(&text(&s.run_as("me", &args)))
+    };
+    let left = start(Some("agentA"), "agent A's wait");
+    let other = start(Some("agentB"), "agent B's build");
+    let own = start(None, "the session's own");
+
+    // PROBED: `SubagentStop` carries the same `agent_id`. Marked, and
+    // nothing said on the spot — the hook has nobody to say it to.
+    let said = event(&s, serde_json::json!({"hook_event_name": "SubagentStop", "agent_id": "agentA"}), &[]);
+    assert!(said.trim().is_empty(), "SubagentStop spoke: {said}");
+    let ps = text(&s.run_as("me", &["ps"]));
+    let row = |id: &str| ps.lines().find(|l| l.starts_with(id)).unwrap_or("").to_string();
+    assert!(row(&left).contains("orphaned"), "the left job is not marked:\n{ps}");
+    assert!(!row(&other).contains("orphaned") && !row(&own).contains("orphaned"),
+            "another agent's job, or the session's, was marked:\n{ps}");
+
+    // NAMED TO THE MODEL AT THE TURN'S END, ONCE, and STOPPED BY NOBODY.
+    let stop = event(&s, serde_json::json!({"hook_event_name": "Stop"}), &["--no-endings"]);
+    assert!(stop.contains("\"block\"") && stop.contains(&left) && stop.contains("kill --agent agentA"),
+            "the Stop did not name the left job: {stop}");
+    let again = event(&s, serde_json::json!({"hook_event_name": "Stop"}), &["--no-endings"]);
+    assert!(!again.contains(&left), "the same notice was said twice: {again}");
+    assert!(text(&s.run_as("me", &["ps"])).contains(&left), "an agent's end stopped its job");
+
+    // THE GESTURE: that agent's jobs, and nobody else's.
+    assert!(text(&s.run_as("me", &["list", "--agent", "agentA"])).contains(&left));
+    assert!(!text(&s.run_as("me", &["list", "--agent", "agentA"])).contains(&own));
+    s.run_as("me", &["kill", "--agent", "agentA"]);
+    let after = text(&s.run_as("me", &["ps"]));
+    assert!(!after.contains(&left), "`kill --agent` left it running:\n{after}");
+    assert!(after.contains(&other) && after.contains(&own), "`kill --agent` stopped others:\n{after}");
+    for id in [&other, &own] {
+        s.run_as("me", &["kill", id]);
+    }
+}
+
+#[test]
+fn a_compacted_session_is_told_the_rule_again_and_what_it_left_running() {
+    // PROBED: after a compaction the session id is unchanged and
+    // `SessionStart` says `source: compact`. The once-per-session marker
+    // was therefore already there, and the rule was never said again.
+    let s = Scratch::new("compacted");
+    let start = |source: &str| event(&s, serde_json::json!({"hook_event_name": "SessionStart", "source": source}), &[]);
+    assert!(start("startup").contains("Every command here is wrapped"));
+    assert!(!start("startup").contains("Every command here is wrapped"), "said twice on one start");
+
+    let id = announced(&text(&s.run_as("me", &["run", "--after", "0", "--intent", "the bench wait", "--", "sleep 30"])));
+    let compacted = start("compact");
+    assert!(compacted.contains("Every command here is wrapped"), "the rule was not said again:\n{compacted}");
+    assert!(compacted.contains(&id) && compacted.contains("the bench wait"),
+            "what it left running was not listed:\n{compacted}");
+    s.run_as("me", &["kill", &id]);
 }

@@ -110,6 +110,7 @@ const LISTING: &[Flag] = &[
     ("--full", "the line as recorded, wrappers and all, never cut"),
     ("--json", "every field of every record, cut nothing"),
     ("--width", "columns to draw in; `auto` asks the terminal"),
+    ("--agent", "only the jobs this subagent ran, by the id the harness gave it"),
 ];
 const JSON_ONLY: &[Flag] = &[("--json", "answer as JSON rather than as a table")];
 const NOTHING: &[Flag] = &[];
@@ -123,7 +124,8 @@ pub const VERBS: &[Verb] = &[
         tags: &["execute"], effect: "runs an arbitrary command line",
         flags: &[("--after", "seconds to hold the caller before detaching"),
                  ("--intent", "what this job is for, in a few words"),
-                 ("--no-input", "give the line no standard input; the hook writes it for an agent")] },
+                 ("--no-input", "give the line no standard input; the hook writes it for an agent"),
+                 ("--agent", "the subagent this line belongs to; the hook writes it")] },
     Verb { name: "fg", notes: "", summary: "run a line and never let go, or bring a detached job back",
         tags: &["execute", "block"],
         effect: "runs a line without ever letting go, or attaches to one",
@@ -146,6 +148,7 @@ pub const VERBS: &[Verb] = &[
         flags: &[("--too-old", "instead of an id: everything running over an hour"),
                  ("--older-than", "the same, at an age you choose: 30s, 45m, 2h"),
                  ("--force", "KILL at once, without asking it to stop first"),
+                 ("--agent", "instead of an id: every job this subagent left running"),
                  ("--all", "every project on this machine, not only this one")] },
     Verb { name: "slots", notes: "", summary: "how many queued jobs may run at once",
         tags: &["read", "capacity"],
