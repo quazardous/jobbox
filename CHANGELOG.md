@@ -56,6 +56,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   background or not, is refused for Monitor. An agent obeying the rule
   it read first was refused by the next step. Other clients keep the
   background-command wording, where nothing refuses it.
+- **`jbx how` says what to do when Claude Code's auto mode refuses a
+  rewritten line** unreviewed: resend it exactly as quoted, alone. It
+  reads like a judgment on the command and is not one.
 - **Unreadable job records are collected.** An empty record left by an
   interrupted write was skipped by the daily sweep and stayed for ever.
 - **The `config.yaml` template states the real defaults** — `slots`

@@ -4689,6 +4689,10 @@ fn what_an_agent_is_told_to_wait_with_is_what_jbx_accepts() {
     // SO NOTHING AN AGENT READS MAY RECOMMEND IT — and both name Monitor.
     let rule = in_claude(&["hook", "claude"], r#"{"hook_event_name":"SessionStart"}"#);
     let how = in_claude(&["how"], "");
+    // AND THE OTHER REFUSAL AN AGENT MEETS (#5035): auto mode's, for a
+    // line rewritten after its review. `jbx how` says what to do with it.
+    assert!(how.contains("EXACTLY as the refusal quotes it") && how.contains("ALONE"),
+            "`jbx how` does not say how to resend a refused rewrite:\n{how}");
     for (name, text) in [("the session rule", &rule), ("`jbx how`", &how)] {
         assert!(text.contains("to Monitor"), "{name} does not name Monitor:\n{text}");
         assert!(!text.contains("BACKGROUND command"),

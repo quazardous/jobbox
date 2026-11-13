@@ -2108,7 +2108,22 @@ Hand the waiting to whatever runs your commands:
                                ENDS BY ITSELF when nothing is left running."
             .to_string(),
     };
-    let text = text.replace("{WAITING}", &waiting);
+    let mut text = text.replace("{WAITING}", &waiting);
+    // UNDER CLAUDE CODE'S AUTO MODE, A REWRITTEN LINE IS SOMETIMES REFUSED
+    // UNREVIEWED: the classifier read the line before the hook rewrote it,
+    // and says its review does not cover what would run (#5035). Seen
+    // twice in a session of several dozen rewritten calls, and resending
+    // the rewritten line went through each time. Said here because the
+    // harness's own message reads like a judgment on the command, and an
+    // agent that takes it for one drops work that was never refused.
+    if jobbox::harness::here().is_some_and(|h| h.client == "claude") {
+        text.push_str("\n\n\
+WHEN AUTO MODE SAYS A HOOK CHANGED THE INPUT
+  Not a judgment on the command: the review ran before jbx rewrote it.
+  Send the rewritten line back EXACTLY as the refusal quotes it, and ALONE
+  in that message — calls sent beside it are refused with it. It goes
+  through; if it is refused a second time, stop and say so.");
+    }
     Answer(serde_json::json!({ "text": text }), 0)
         .show(how, |v| jobbox::outln!("{}", v["text"].as_str().unwrap_or("")))
 }
