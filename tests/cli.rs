@@ -1707,6 +1707,35 @@ fn a_lane_runs_its_jobs_one_at_a_time_and_leaves_the_rest_alone() {
 }
 
 #[test]
+fn a_lanes_order_is_taken_when_the_job_is_filed() {
+    // FILING ORDER WAS A RACE BETWEEN SUPERVISORS STARTING. It held on
+    // Linux because processes start fast; on windows-latest the second
+    // job's supervisor came up first and ran first, in a lane. `queue`
+    // now takes the place itself, so it is there before `queue` returns.
+    let s = Scratch::new("laneorder");
+    let env = [("JBX_SLOTS", "4")];
+    let id = |out: Output| text(&out).lines().next().unwrap().trim().to_string();
+    let first = id(s.run_with(&env, &["queue", "first", "--lane", "box", "--", "sleep 5"]));
+    let second = id(s.run_with(&env, &["queue", "second", "--lane", "box", "--", "true"]));
+
+    // RIGHT AFTER `queue` RETURNED, before anything was given time to
+    // start: the second job already stands in line, under its
+    // supervisor's pid, behind whatever the first holds.
+    let record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(s.jobs().join(format!("{second}.json"))).unwrap(),
+    ).unwrap();
+    let pid = record["pid"].as_u64().unwrap();
+    let tickets = s.jobs().join("slots/lanes/box/tickets");
+    let held: Vec<String> = std::fs::read_dir(&tickets).unwrap()
+        .flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    assert!(held.iter().any(|t| t.ends_with(&format!(".{pid}"))),
+            "the second job had no place in line when `queue` returned: {held:?}");
+    for job in [&first, &second] {
+        s.run_with(&env, &["kill", job]);
+    }
+}
+
+#[test]
 fn a_lane_of_width_two_lets_two_through() {
     let s = Scratch::new("lanewide");
     let env = [("JBX_SLOTS", "4")];

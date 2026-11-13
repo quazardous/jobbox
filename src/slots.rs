@@ -237,6 +237,11 @@ fn wait_in(dir: &Path, cap: Option<usize>, still_wanted: impl Fn() -> bool) -> O
         return Some(Held(None));
     }
     let ticket = take_ticket(dir)?;
+    wait_with(dir, cap, ticket, still_wanted)
+}
+
+/// Stand in line with a number already held, until it is our turn.
+fn wait_with(dir: &Path, cap: Option<usize>, ticket: Ticket, still_wanted: impl Fn() -> bool) -> Option<Held> {
     loop {
         // ASKED FIRST, before anything below recreates a directory for a
         // job that nobody can find any more.
@@ -364,9 +369,51 @@ pub fn lane_load(name: &str, ours: u32) -> (usize, usize) {
     (held_in(&dir), waiting)
 }
 
+/// A PLACE IN A LANE'S LINE, TAKEN WHEN THE JOB IS FILED.
+///
+/// The number used to be taken by the supervisor when it started, and
+/// filing order held only because processes start fast: on Windows the
+/// second job's supervisor came up first and ran first, in a lane whose
+/// whole promise is that it does not (the 0.29.0 CI, windows-latest
+/// alone). `queue` now takes the number itself — it runs in the order it
+/// is called — under its own pid, and hands it to the supervisor by
+/// renaming it once the supervisor's pid is known.
+pub struct Reservation(PathBuf, u64);
+
+pub fn reserve(lane: &Lane) -> Option<Reservation> {
+    let ticket = take_ticket(&lane.dir())?;
+    let found = Reservation(ticket.path.clone()?, ticket.number);
+    std::mem::forget(ticket); // ours to hand over, not to drop
+    Some(found)
+}
+
+impl Reservation {
+    /// Give the place to the supervisor `pid`. A failure leaves the
+    /// reservation under our pid, which the reclaiming of the dead
+    /// clears once we exit; the supervisor then takes a number of its own.
+    pub fn hand_to(self, lane: &Lane, pid: u32) {
+        let _ = fs::rename(&self.0, tickets_dir(&lane.dir()).join(format!("{}.{pid}", self.1)));
+    }
+}
+
+/// The place `queue` reserved for us, if it did. Looked for briefly: the
+/// rename happens just after our own spawn, so it is milliseconds away.
+fn adopt(dir: &Path) -> Option<Ticket> {
+    let me = std::process::id();
+    for _ in 0..50 {
+        if let Some((number, _)) = outstanding(dir).into_iter().find(|(_, pid)| *pid == me) {
+            return Some(Ticket { number, path: Some(tickets_dir(dir).join(format!("{number}.{me}"))) });
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    None
+}
+
 /// WAIT FOR A TURN IN A LANE. Held for as long as the job runs.
 pub fn wait_for_lane(lane: &Lane, still_wanted: impl Fn() -> bool) -> Option<Held> {
-    wait_in(&lane.dir(), Some(lane.width), still_wanted)
+    let dir = lane.dir();
+    let ticket = adopt(&dir).or_else(|| take_ticket(&dir))?;
+    wait_with(&dir, Some(lane.width), ticket, still_wanted)
 }
 
 /// Where the supervisor `pid` stands in a lane's line: `(place, of)`,

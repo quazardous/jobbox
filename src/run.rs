@@ -924,6 +924,9 @@ pub fn queue(intent: &str, line: &str, expect: Option<f64>, lane: Option<&str>) 
         }
         lane
     });
+    // THE PLACE IN THE LANE, TAKEN NOW — in the order `queue` is called,
+    // not the order supervisors happen to start in. See `slots::reserve`.
+    let reserved = lane.as_ref().and_then(crate::slots::reserve);
     let mut cmd = Command::new(std::env::current_exe().unwrap_or_else(|_| "jbx".into()));
     cmd.arg("supervise").arg(&id).arg("--after").arg("0").arg("--queued");
     if let Some(lane) = &lane {
@@ -950,6 +953,9 @@ pub fn queue(intent: &str, line: &str, expect: Option<f64>, lane: Option<&str>) 
             return 2;
         }
     };
+    if let (Some(place), Some(lane)) = (reserved, &lane) {
+        place.hand_to(lane, child.id());
+    }
     let record = Record {
         id: id.clone(),
         queued: true,
