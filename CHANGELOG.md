@@ -39,8 +39,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lanes and unnamed jobs are not held back. Two deliveries from one
   clone no longer cross their `git fetch`, and no `slots 1` throttles
   every build to get there. `jbx ps` shows the lane and the place in it.
+- **`jbx wait --file <path> [--text <text>]` and `jbx wait <id> --text
+  <text>`: waiting for a sign, not a job.** The two shapes behind 72 % of
+  the wait loops agents write by hand, handed to Monitor like any wait,
+  with a deadline of an hour by default (exit 124, saying what never
+  came). A wait loop that detaches is offered it on the spot.
 
 ### Fixed
+
+- **A hand-written wait loop is called out after 30 minutes**, not the two
+  hours every other job gets: past half an hour it is usually waiting for
+  something that will not come, and deliveries were announced "in
+  progress" that never started.
 
 - **Every wrapped command was 0.45s slower than it needed to be** once
   the readings file passed a few megabytes: the 90-day expiry parsed the

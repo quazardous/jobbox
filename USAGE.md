@@ -596,6 +596,30 @@ frame behind on exit, which is what `watch(1)` does too.
 **Piped, it is one snapshot.** There is nothing to redraw into, and a
 loop that never ends is how a pipe becomes a hang.
 
+## Waiting for a sign, not a job
+
+Most waits agents write by hand are not for a job at all: `until grep -q
+'exit' x.out; do sleep 15; done` waits for a line, `until [ -s x.out ]`
+for a file. Of 1621 such loops measured, those two shapes were 72 %.
+They have a gesture of their own, handed to Monitor like any wait:
+
+```console
+jbx wait --file bench.out --text 'exit 0 in'   # ends when the line appears
+jbx wait --file bench.out                      # ends when the file is there
+jbx wait j7f3a91c --text READY                 # a line in a job's log
+```
+
+**A wait on a sign has a deadline — an hour unless `--deadline` says
+otherwise** — and exits 124 then, saying what never came. A job ends; a
+line that is never written does not, and two hand-written loops ran two
+hours past a compaction waiting for one. A plain `jbx wait <id>` keeps no
+deadline: a long build is not a dead one.
+
+A wait loop that detaches is offered this gesture on the spot. One left
+running is called out at the turn's end after **thirty minutes** rather
+than the two hours other jobs get: of the loops that ended on their own,
+4.8 % ran that long. `jbx expect <id> <age>` still says it is meant to.
+
 ## `jbx wait` is Monitor's
 
 Waiting is a good gesture in one place. **Handed to Monitor**, `jbx wait

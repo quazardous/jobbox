@@ -679,7 +679,7 @@ fn endless(me: &str) -> Vec<(String, f64)> {
             continue;
         }
         let ran_for = now - r.started;
-        if ran_for < store::allowed_to_run(&r.id) {
+        if ran_for < store::allowed_to_run_record(&r) {
             continue;
         }
         if store::warned_at(&r.id).is_some_and(|said| now - said < again) {
@@ -800,7 +800,9 @@ fn say_endless(mut out: Value, endless: &[(String, f64)], hold: &str, orphans: O
              and a reboot ends it without a trace. For each one: waiting on something \
              that will not come — stop it, `jbx kill <id>`; a daemon, worker or \
              watcher — it belongs under systemd or docker; one long piece of work \
-             that is going fine — say so, `jbx expect <id> <age>`."
+             that is going fine — say so, `jbx expect <id> <age>`. A loop waiting \
+             for a file or a line: `jbx wait --file <path> --text '<text>'` ends by \
+             itself, given to Monitor."
         ));
         let line = format!("jbx: running for hours — {named}.");
         out["systemMessage"] = Value::String(match out["systemMessage"].as_str() {

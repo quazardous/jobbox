@@ -363,6 +363,37 @@ pub fn allowed_to_run(id: &str) -> f64 {
     expected_of(id).unwrap_or_else(warn_after)
 }
 
+/// HOW LONG A HAND-WRITTEN WAIT LOOP RUNS BEFORE IT IS CALLED OUT (#5032).
+///
+/// Thirty minutes, chosen on the ticket from the readings: of 1199
+/// detached `until`/`while` loops that ended on their own, 4.8 % ran
+/// longer — about one false call-out a day on the machine measured —
+/// against 0.2 % caught by the two hours every other job gets. A loop
+/// waits on something; past half an hour that something is usually not
+/// coming, and the session had been announcing deliveries "in progress"
+/// that were never going to start.
+pub const WAIT_LOOP_CALLED_OUT_AFTER: f64 = 30.0 * 60.0;
+
+/// The same, for this record: a wait loop nobody vouched for with
+/// `jbx expect` gets the shorter horizon; everything else is unchanged.
+pub fn allowed_to_run_record(r: &Record) -> f64 {
+    match expected_of(&r.id) {
+        Some(said) => said,
+        None if is_wait_loop(&r.command) => WAIT_LOOP_CALLED_OUT_AFTER.min(warn_after()),
+        None => warn_after(),
+    }
+}
+
+/// WHETHER A LINE IS A HAND-WRITTEN WAIT: `until …` or `while …` that
+/// sleeps. Recognised by its shape — a shape already seen, not a guess
+/// at how long anything will take — once any `cd … &&` preamble is
+/// stripped. Shared by the call-out above and by the detach message,
+/// which offers the built-in wait in its place (#5037).
+pub fn is_wait_loop(line: &str) -> bool {
+    let body = crate::gain::without_preamble(line).trim_start();
+    (body.starts_with("until ") || body.starts_with("while ")) && body.contains("sleep")
+}
+
 /// A duration a person reads, not a number of seconds.
 pub fn how_long(secs: f64) -> String {
     match secs.max(0.0) {

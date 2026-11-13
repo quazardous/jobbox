@@ -830,6 +830,22 @@ fn announce(id: &str, after: f64, seen: Observation) -> i32 {
              does, and that ending wakes you. Do not run it in front of you."
         );
     }
+    // A HAND-WRITTEN WAIT, RECOGNISED BY ITS SHAPE (#5037). What it waits
+    // for has a gesture of its own, which ends when the sign appears and
+    // gives up at a deadline — where this loop runs until somebody kills
+    // it, compaction or not. Said where the loop was just let go of.
+    if store::read_record(id).is_some_and(|r| store::is_wait_loop(&r.command)) {
+        let to = crate::harness::here()
+            .and_then(|h| h.backgrounder)
+            .map(|into| format!("give it to {into}"))
+            .unwrap_or_else(|| "run it in the background".into());
+        let _ = writeln!(
+            out,
+            "This is a wait loop. Waiting for a file or a line has its own gesture —\n\
+             `jbx wait --file <path> [--text '<text>']`; {to}. It ends when the\n\
+             sign appears, and gives up after an hour instead of running for ever."
+        );
+    }
     if seen.reading_for >= WORTH_MENTIONING && seen.quiet_for >= WORTH_MENTIONING {
         // SAID AS AN OBSERVATION, AND ONLY ONCE IT HAS LASTED. A
         // pipeline waiting on a slow producer looks exactly like this,

@@ -209,10 +209,30 @@ fn dispatch(args: Vec<String>) -> i32 {
             }
             None => usage_error("tail needs an id"),
         }),
-        "wait" => with("wait", rest, |how| match how.free.first() {
-            Some(id) if how.via_agent && !jobbox::config::allow_wait().0 => refuse_wait(id),
-            Some(id) => wait(id),
-            None => usage_error("wait needs an id"),
+        "wait" => with("wait", rest, |how| {
+            // WHAT IS WAITED FOR, said the way the refusal will repeat it.
+            let what = match (how.free.first(), &how.file) {
+                (Some(id), None) => id.clone(),
+                (None, Some(path)) => format!("--file {path}"),
+                (Some(_), Some(_)) => return usage_error("`jbx wait` takes a job or `--file`, not both"),
+                (None, None) => return usage_error("wait needs an id, or `--file <path>`"),
+            };
+            // THE SAME REFUSAL FOR EVERY WAIT. A file or a pattern does not
+            // change whose waiting this is: it is Monitor's (#5037).
+            if how.via_agent && !jobbox::config::allow_wait().0 {
+                let with_text = how.text.as_ref().map(|t| format!(" --text {t:?}")).unwrap_or_default();
+                return refuse_wait(&format!("{what}{with_text}"));
+            }
+            // A DEADLINE BY DEFAULT WHEN WAITING ON A SIGN, never on a job.
+            // A job ends; a line that never appears does not, and that is
+            // how two waits outlived a compaction by two hours.
+            let deadline = how.deadline.or(
+                (how.file.is_some() || how.text.is_some()).then_some(WAIT_DEADLINE),
+            );
+            match &how.file {
+                Some(path) => wait_file(path, how.text.as_deref(), deadline.unwrap_or(WAIT_DEADLINE)),
+                None => wait(&what, how.text.as_deref(), deadline),
+            }
         }),
         "kill" => with("kill", rest, |how| match (how.free.first(), how.older_than) {
             (Some(id), _) => {
@@ -437,6 +457,12 @@ pub struct Flags {
     expect: Option<f64>,
     /// `jbx queue --lane deliver[:1]`: the lane it waits its turn in.
     lane: Option<String>,
+    /// `jbx wait --file <path>`: a file to wait for, instead of a job.
+    file: Option<String>,
+    /// `jbx wait --text <text>`: end as soon as this appears.
+    text: Option<String>,
+    /// `jbx wait --deadline 2h`: give up after this long.
+    deadline: Option<f64>,
     /// `--agent <id>`: written by the hook on a subagent's line; on
     /// `list` and `kill`, the agent whose jobs are meant.
     agent: Option<String>,
@@ -514,6 +540,18 @@ impl Flags {
                     _ => return Err(usage_error(
                         "`--expect` wants how long it should take: 30m, 4h — a bare number means minutes",
                     )),
+                },
+                "--file" => match value() {
+                    Some(v) if !v.trim().is_empty() => flags.file = Some(v),
+                    _ => return Err(usage_error("`--file` wants the path to wait for")),
+                },
+                "--text" => match value() {
+                    Some(v) if !v.is_empty() => flags.text = Some(v),
+                    _ => return Err(usage_error("`--text` wants the text to wait for")),
+                },
+                "--deadline" => match value().as_deref().map(str::trim).map(parse_age) {
+                    Some(Some(secs)) => flags.deadline = Some(secs),
+                    _ => return Err(usage_error("`--deadline` wants an age: 30m, 2h — a bare number means minutes")),
                 },
                 "--agent" => match value() {
                     Some(v) if !v.trim().is_empty() => flags.agent = Some(v.trim().to_string()),
@@ -1161,14 +1199,133 @@ fn tail_log(id: &str, follow: bool) -> i32 {
 /// only be polled pushes every caller into writing the same sleep loop,
 /// each one slightly wrong. The message printed at detachment names this
 /// verb, so the thing it tells you to do has to exist.
-fn wait(id: &str) -> i32 {
+/// THE DEADLINE A WAIT ON A SIGN GETS WHEN NOBODY NAMES ONE (#5037).
+///
+/// An hour, chosen on the ticket: 1.3 % of the hand-written wait loops
+/// that ended on their own ran longer. A wait for a line that is never
+/// going to be written has nothing else to end it.
+const WAIT_DEADLINE: f64 = 3600.0;
+
+/// WHAT HAS BEEN READ OF A FILE SO FAR, and whether a text has shown up.
+///
+/// Read from where it stopped, never from the top again: a log can be
+/// gigabytes. The last few bytes are carried over, so a text that
+/// straddles two reads is still found.
+struct Watch {
+    path: std::path::PathBuf,
+    offset: u64,
+    carry: Vec<u8>,
+}
+
+impl Watch {
+    fn new(path: impl Into<std::path::PathBuf>) -> Watch {
+        Watch { path: path.into(), offset: 0, carry: Vec::new() }
+    }
+
+    fn saw(&mut self, text: &str) -> bool {
+        use std::io::{Read, Seek};
+        let needle = text.as_bytes();
+        let Ok(mut file) = std::fs::File::open(&self.path) else { return false };
+        let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+        // TRUNCATED OR REPLACED: read it again from the start.
+        if len < self.offset {
+            self.offset = 0;
+            self.carry.clear();
+        }
+        if file.seek(std::io::SeekFrom::Start(self.offset)).is_err() {
+            return false;
+        }
+        let mut fresh = Vec::new();
+        let _ = file.read_to_end(&mut fresh);
+        self.offset += fresh.len() as u64;
+        let mut seen = std::mem::take(&mut self.carry);
+        seen.extend_from_slice(&fresh);
+        let found = !needle.is_empty() && seen.windows(needle.len()).any(|w| w == needle);
+        let keep = needle.len().saturating_sub(1).min(seen.len());
+        self.carry = seen[seen.len() - keep..].to_vec();
+        found
+    }
+}
+
+/// `jbx wait --file <path> [--text <text>]` — WAIT FOR A SIGN, NOT A JOB.
+///
+/// The two shapes behind 72 % of the wait loops agents wrote by hand
+/// (#5037): a file that appears, and a line that appears in one. Handed
+/// to Monitor, it ends the moment the sign is there, and at the deadline
+/// otherwise — exit 124, like `timeout`, saying what never came.
+fn wait_file(path: &str, text: Option<&str>, deadline: f64) -> i32 {
     let began = store::now();
+    let mut watch = Watch::new(path);
+    loop {
+        let there = match text {
+            Some(t) => watch.saw(t),
+            None => std::fs::metadata(path).map(|m| m.len() > 0).unwrap_or(false),
+        };
+        if there {
+            gain::record_wait(store::now() - began);
+            match text {
+                Some(t) => jobbox::outln!("jbx: {t:?} appeared in {path}"),
+                None => jobbox::outln!("jbx: {path} is there"),
+            }
+            return 0;
+        }
+        if store::now() - began >= deadline {
+            gain::record_wait(store::now() - began);
+            let what = match text {
+                Some(t) => format!("{t:?} never appeared in {path}"),
+                None => format!("{path} never appeared"),
+            };
+            eprintln!(
+                "jbx: {what} within {} — given up. Whatever was to write it may have \
+                 stopped; `--deadline` waits longer.",
+                store::how_long(deadline)
+            );
+            return 124;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+}
+
+fn wait(id: &str, text: Option<&str>, deadline: Option<f64>) -> i32 {
+    let began = store::now();
+    let mut watch = Watch::new(store::log_path(id));
     loop {
         let Some(r) = store::read_record(id) else {
             eprintln!("jbx: {id} is unknown");
             return 1;
         };
+        // A LINE IN ITS LOG, NOT ITS END: what `until grep -q … x.log`
+        // was written for. Looked at before the state, so a job that
+        // prints it and ends at once still counts as having printed it.
+        if let Some(t) = text {
+            if watch.saw(t) {
+                gain::record_wait(store::now() - began);
+                jobbox::outln!("jbx: {id} printed {t:?}");
+                return 0;
+            }
+        }
+        if let Some(limit) = deadline {
+            if store::now() - began >= limit {
+                gain::record_wait(store::now() - began);
+                let what = text.map(|t| format!("{t:?} never appeared in its log")).unwrap_or_else(|| "it did not end".into());
+                eprintln!("jbx: {id} — {what} within {} — given up; the job itself was left alone.",
+                          store::how_long(limit));
+                return 124;
+            }
+        }
         match store::settled_state(&r) {
+            // ENDED WITHOUT THE SIGN: the wait is over, and it failed.
+            store::State::Finished { .. } | store::State::Lost if text.is_some() => {
+                // ONE LAST READ: it may have printed it on the way out.
+                if text.is_some_and(|t| watch.saw(t)) {
+                    gain::record_wait(store::now() - began);
+                    jobbox::outln!("jbx: {id} printed {:?}", text.unwrap_or(""));
+                    return 0;
+                }
+                gain::record_wait(store::now() - began);
+                eprintln!("jbx: {id} ended without printing {:?}", text.unwrap_or(""));
+                return 1;
+            }
             // THE BLOCK IS WRITTEN DOWN BEFORE LEAVING, always. Time
             // handed back to a wait is time the wrapper did not save,
             // and a tool that forgot to subtract it would report its own
@@ -1510,7 +1667,7 @@ fn health(how: &Flags) -> i32 {
                 // a state it hid for half an hour would be a state it
                 // got wrong.
                 let ran_for = store::now() - r.started;
-                if store::nobody_is_watching(r) && ran_for >= store::allowed_to_run(&r.id) {
+                if store::nobody_is_watching(r) && ran_for >= store::allowed_to_run_record(r) {
                     endless.push((r.id.clone(), ran_for as i64, store::expected_of(&r.id).is_some()));
                 }
                 if let Some(secs) = store::silence(r) {

@@ -4840,3 +4840,99 @@ fn a_compacted_session_is_told_the_rule_again_and_what_it_left_running() {
             "what it left running was not listed:\n{compacted}");
     s.run_as("me", &["kill", &id]);
 }
+
+// ── WAITING FOR A SIGN, NOT A JOB (#5037, #5032) ────────────────────────
+
+#[test]
+fn a_wait_on_a_file_ends_when_the_sign_appears_and_gives_up_at_its_deadline() {
+    let s = Scratch::new("waitfile");
+    let path = s.0.join("bench.out");
+    let p = path.to_str().unwrap();
+
+    // A LINE THAT APPEARS LATER, the shape of 58 % of the loops measured.
+    let writer = {
+        let path = path.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            std::fs::write(&path, "warming up\n").unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            std::fs::write(&path, "warming up\nexit 0 in 12s\n").unwrap();
+        })
+    };
+    let out = s.run(&["wait", "--file", p, "--text", "exit 0 in"]);
+    writer.join().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out));
+    assert!(text(&out).contains("appeared"));
+
+    // A FILE THAT EXISTS, the next 14 %.
+    assert_eq!(s.run(&["wait", "--file", p]).status.code(), Some(0));
+
+    // AND A SIGN THAT NEVER COMES: 124, like `timeout`, saying what.
+    let never = s.run(&["wait", "--file", p, "--text", "never written", "--deadline", "1s"]);
+    assert_eq!(never.status.code(), Some(124));
+    assert!(String::from_utf8_lossy(&never.stderr).contains("never appeared"),
+            "the give-up did not say what never came: {}", text(&never));
+}
+
+#[test]
+fn a_wait_on_a_jobs_text_ends_before_the_job_does() {
+    let s = Scratch::new("waittext");
+    let id = announced(&text(&s.run(&["run", "--after", "0", "--", "echo start; sleep 1; echo READY; sleep 30"])));
+    let began = std::time::Instant::now();
+    let out = s.run(&["wait", &id, "--text", "READY"]);
+    assert_eq!(out.status.code(), Some(0), "{}", text(&out));
+    assert!(began.elapsed().as_secs() < 20, "it waited for the job instead of the line");
+    s.run(&["kill", &id]);
+
+    // A JOB THAT ENDS WITHOUT THE SIGN ENDS THE WAIT, AS A FAILURE.
+    let quiet = announced(&text(&s.run(&["run", "--after", "0", "--", "sleep 1; echo other"])));
+    assert_eq!(s.run(&["wait", &quiet, "--text", "READY"]).status.code(), Some(1));
+}
+
+#[test]
+fn a_wait_on_a_sign_is_monitors_like_any_other() {
+    // THE SAME REFUSAL: a file or a pattern does not change whose waiting
+    // this is. Marked by the hook as a bare `jbx wait` from Bash, then
+    // refused with the line to give Monitor instead.
+    let s = Scratch::new("waitsign");
+    let out = s.run(&["wait", "--file", "/x/out", "--text", "done", "--via-agent"]);
+    assert_eq!(out.status.code(), Some(2));
+    let said = String::from_utf8_lossy(&out.stderr).into_owned();
+    assert!(said.contains("Monitor") && said.contains("--file /x/out"),
+            "the refusal does not hand the right line to Monitor: {said}");
+}
+
+#[test]
+fn a_detached_wait_loop_is_offered_the_wait_that_ends_by_itself() {
+    let s = Scratch::new("loophint");
+    let lp = text(&s.run(&["run", "--after", "1", "--", "until [ -e /nonexistent-jbx ]; do sleep 1; done"]));
+    assert!(lp.contains("jbx wait --file"), "a wait loop was not offered the built-in wait:\n{lp}");
+    let plain = text(&s.run(&["run", "--after", "1", "--", "sleep 3"]));
+    assert!(!plain.contains("wait loop"), "an ordinary line was called a wait loop:\n{plain}");
+    for id in [announced(&lp), announced(&plain)] {
+        s.run(&["kill", &id]);
+    }
+}
+
+#[test]
+fn a_wait_loop_is_called_out_at_thirty_minutes_and_a_build_is_not() {
+    // N = 30 min, chosen on #5032: a hand-written wait past half an hour
+    // is usually waiting for something that is not coming. Every other
+    // job keeps the two hours.
+    let s = Scratch::new("loopcall");
+    let start = |line: &str| announced(&text(&s.run_as("me", &["run", "--after", "0", "--", line])));
+    let lp = start("until [ -e /nonexistent-jbx ]; do sleep 1; done");
+    let build = start("sleep 3000");
+    for id in [&lp, &build] {
+        let record = s.jobs().join(format!("{id}.json"));
+        let mut v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&record).unwrap()).unwrap();
+        v["started"] = serde_json::json!(v["started"].as_f64().unwrap() - 31.0 * 60.0);
+        std::fs::write(&record, v.to_string()).unwrap();
+    }
+    let stop = event(&s, serde_json::json!({"hook_event_name": "Stop"}), &["--no-endings"]);
+    assert!(stop.contains(&lp), "the 31-minute wait loop was not called out: {stop}");
+    assert!(!stop.contains(&build), "a 31-minute build was called out with it: {stop}");
+    for id in [&lp, &build] {
+        s.run_as("me", &["kill", id]);
+    }
+}

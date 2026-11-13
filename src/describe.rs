@@ -177,7 +177,10 @@ pub const VERBS: &[Verb] = &[
         // never marked. Documented rather than hidden: it shows up in
         // `jbx ps`, and a flag nobody can look up is worse than one that
         // explains itself.
-        flags: &[("--via-agent", "set by the hook on a wait the agent typed itself")] },
+        flags: &[("--via-agent", "set by the hook on a wait the agent typed itself"),
+                 ("--file", "instead of a job: wait for this file to exist and be non-empty"),
+                 ("--text", "end as soon as this text appears — in the job's log, or in --file"),
+                 ("--deadline", "give up after this long, exit 124: 30m, 2h — 1h by default with --file or --text")] },
     Verb { name: "signals", notes: "", summary: "endings not yet read", tags: &["consume"],
         effect: "reports each ending once and then forgets it",
         flags: &[("--json", "answer as JSON rather than as a table"),
