@@ -1,44 +1,10 @@
 # JobBox
 
-### Time is money. Your agent spends both, standing still.
+### An agent that has to wait should hand the waiting to Monitor.
 
-A five-minute build runs. The agent waits. You wait. Nothing else
-happens — and you are billed for all of it twice: your hour, and the
-tokens burning in a session doing nothing.
-
-No single wait is worth stopping for. **It is their sum that costs**, and
-the sum is invisible until something counts it.
-
-```console
-$ jbx gain
-jbx gain — last 30d
-
-  commands wrapped         142
-  of those, detached        11  (7.7% of them)
-  they took              3h04m
-  you stood still       35m12s
-  given back             2h29m  ███████████████████░░░░░  81.0%
-
-project  calls  detached  elapsed  waited  saved        impact
-acme     142    11        3h04m    35m12s  2h29m (81%)  ████████████████████████
-  api    96     7         2h11m    18m03s  1h53m (86%)  ██████████████████░░░░░░
-  front  34     4         39m      3m17s   36m (92%)    ██████░░░░░░░░░░░░░░░░░░
-  *self  12     0         14m      13m52s  8.0s (1%)    ░░░░░░░░░░░░░░░░░░░░░░░░
-
-last hour       6 calls ·    1 detached ·   8m12s saved (73%)
-last day       38 calls ·    4 detached ·  40m05s saved (77%)
-last week     142 calls ·   11 detached ·   2h29m saved (81%)
-last month    142 calls ·   11 detached ·   2h29m saved (81%)
-```
-
-That is one week. Put your own rate on it.
-
----
-
-**The aim is one habit: an agent that has to wait hands the waiting to
-Monitor.** Not sitting on a command, not a `sleep` loop, not polling —
-Monitor runs the wait in the background and wakes the agent the moment
-the job ends, with the answer. Agents do not do it by themselves: on one
+Not sitting on a command, not a `sleep` loop, not polling — Monitor runs
+the wait in the background and wakes the agent the moment the job ends,
+with the answer. Agents do not do it by themselves: on one
 machine, two months held 1621 hand-written `until … sleep` loops, each an
 agent waiting on its own. JobBox exists to make Monitor the path of least
 resistance.
@@ -50,7 +16,7 @@ back, and tell it where the waiting goes.
 
 Nobody judges in advance which is which. That judgement is the thing
 everybody gets wrong, so JobBox does not make it: it runs the line and
-finds out.
+finds out. `jbx gain` counts what that gave back.
 
 JobBox is the project; `jbx` is the command. One binary — Rust,
 `serde_json` and `yaml-rust2`, nothing else. Linux, macOS, Windows.
