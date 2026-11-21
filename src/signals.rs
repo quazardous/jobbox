@@ -527,14 +527,16 @@ pub fn discipline(again: bool) -> i32 {
             outln!("      Polling is waiting with extra steps; with nothing else to do, hand");
             outln!("      `jbx wait <id>` to {into} — not to a Bash call, background or not, which");
             outln!("      is refused. It ends when the job does, and that ending wakes you.");
+            outln!("      Cannot go on without the result? That is still Monitor's: its wake-up");
+            outln!("      carries it. `jbx fg` is refused here, as `jbx wait` is.");
         }
         None => {
             outln!("      Polling is waiting with extra steps; with nothing else to do, run");
             outln!("      `jbx wait <id>` as a BACKGROUND command and its ending wakes you.");
+            outln!("      Genuinely cannot go on without a result? Say so: `jbx fg -- '<line>'`");
+            outln!("      never lets go, and `jbx gain` counts what that cost.");
         }
     }
-    outln!("      Genuinely cannot go on without a result? Say so: `jbx fg -- '<line>'`");
-    outln!("      never lets go, and `jbx gain` counts what that cost.");
     // THE THIRD BEAT IS A WORKAROUND SEEN IN THE READINGS, not a guess.
     // Agents learned to cap lines just under the cut — `timeout 28
     // cargo check | grep error` — and in two months 1473 such lines were

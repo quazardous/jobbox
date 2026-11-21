@@ -349,7 +349,12 @@ pub fn supervise(
     // a script — so a wait anywhere inside it knows whose it is, where
     // the hook's own mark reached only a line that was a bare `jbx wait`.
     // Monitor's commands never pass the hook, so they never carry it.
-    if no_input {
+    // AND THE JUDGEMENT IS MADE HERE, ONCE, with the environment the
+    // person gave the client — not redone inside the line, where
+    // `JBX_ALLOW_WAIT=1 jbx fg -- …` let the line grant itself the
+    // permission it was being refused. Set only when waiting in front is
+    // refused, so its presence alone is the verdict.
+    if no_input && !crate::config::allow_wait().0 {
         cmd.env(AGENT_SHELL, "1");
     }
     let began = store::now();
@@ -898,10 +903,14 @@ fn announce(id: &str, after: f64, seen: Observation) -> i32 {
     // `fg` at the end of a day of deliveries, in `jbx help`. Offering
     // `fg <id>` here would be offering the wait this message exists to
     // prevent; saying how to ask up front is not.
-    let _ = writeln!(
-        out,
-        "Needed the result before going on? Say so next time: `jbx fg -- '<line>'`."
-    );
+    // NOT WHERE `fg` IS REFUSED: under a Monitor, the wake-up above IS
+    // the result, and naming `fg` there named the way round it.
+    if subagent || crate::harness::here().and_then(|h| h.backgrounder).is_none() {
+        let _ = writeln!(
+            out,
+            "Needed the result before going on? Say so next time: `jbx fg -- '<line>'`."
+        );
+    }
     // A HAND-WRITTEN WAIT, RECOGNISED BY ITS SHAPE (#5037). What it waits
     // for has a gesture of its own, which ends when the sign appears and
     // gives up at a deadline — where this loop runs until somebody kills

@@ -47,6 +47,7 @@ fn dispatch(args: Vec<String>) -> i32 {
             }
         }),
         "run" => match Flags::of("run", rest) {
+            Ok(how) if how.after.is_some_and(|a| a > default_after()) && waiting_is_monitors(false) => refuse_cut(),
             Ok(how) => run::run(
                 how.after.unwrap_or_else(default_after),
                 &tail(rest),
@@ -128,8 +129,18 @@ fn dispatch(args: Vec<String>) -> i32 {
         // `fg` TAKES EITHER, AND THE TWO CANNOT BE CONFUSED: an id is
         // `j` followed by seven hex digits and nothing else, which no
         // command is. A `--` settles it either way.
+        // `fg` IS WAITING TOO, and was used as the way round the refusal
+        // `wait` gives: a line declared up front never lets go, so the
+        // agent sat in front of it exactly as `wait` would have made it.
+        // Same rule, same place: where there is a Monitor to send the
+        // waiting to, an agent's shell is refused both forms.
         "fg" => match Flags::of("fg", rest) {
             Err(code) => code,
+            Ok(_) if waiting_is_monitors(false) => match rest.first() {
+                Some(first) if looks_like_an_id(first) && rest.len() == 1 => refuse_wait(first),
+                Some(_) => refuse_fg(&tail(rest)),
+                None => usage_error("fg needs a line or a job id"),
+            },
             Ok(how) => match rest.first() {
                 Some(first) if looks_like_an_id(first) && rest.len() == 1 => {
                     note_grip(first, "brought back");
@@ -160,7 +171,10 @@ fn dispatch(args: Vec<String>) -> i32 {
             }
         }),
         "slots" => with("slots", rest, |f| slots_cmd(f.free.first().map(String::as_str), f)),
-        "after" => with("after", rest, |f| after_cmd(f.free.first().map(String::as_str), f)),
+        "after" => with("after", rest, |f| match f.free.first() {
+            Some(_) if waiting_is_monitors(false) => refuse_cut(),
+            value => after_cmd(value.map(String::as_str), f),
+        }),
 
         "describe" => with("describe", rest, |_| jobbox::describe::describe()),
         "how" => with("how", rest, how_to),
@@ -193,16 +207,26 @@ fn dispatch(args: Vec<String>) -> i32 {
             Some(d) => init::init(how.undo, how.global_only, how.core, how.announce, d),
             None => 2,
         }),
-        "watch" => with("watch", rest, |how| jobbox::watch::watch(how.all, how.json)),
+        "watch" => with("watch", rest, |how| match waiting_is_monitors(false) {
+            true => refuse_follow("Hand `jbx watch` to Monitor: one wake-up per job event, the endings included."),
+            false => jobbox::watch::watch(how.all, how.json),
+        }),
         "list" => with("list", rest, |how| listing(false, how)),
         "ps" => with("ps", rest, |how| listing(true, how)),
-        "top" => with("top", rest, top),
+        "top" => with("top", rest, |how| match waiting_is_monitors(false) {
+            true => refuse_follow("`jbx ps` says the same once; `top` redraws it for a person watching."),
+            false => top(how),
+        }),
         "prune" => with("prune", rest, prune),
         "status" => with("status", rest, |how| match how.free.first() {
             Some(id) => status(id, how),
             None => usage_error("status needs an id"),
         }),
         "tail" => with("tail", rest, |how| match how.free.first() {
+            Some(id) if how.follow && waiting_is_monitors(false) => refuse_follow(&format!(
+                "`jbx tail {id}` reads what it printed so far. To know when it ends, hand\n\
+                 \x20 `jbx wait {id}` to Monitor — its wake-up carries the last lines."
+            )),
             Some(id) => {
                 note_grip(id, "read");
                 tail_log(id, how.follow)
@@ -229,11 +253,7 @@ fn dispatch(args: Vec<String>) -> i32 {
             // nowhere better, and nothing is refused.
             // NOT A SUBAGENT'S (#5046): its turn ending ends it, so a
             // Monitor would wake nobody, and its waiting holds only itself.
-            let subagent = std::env::var("JBX_AGENT").is_ok_and(|a| !a.trim().is_empty());
-            let in_agent_shell = std::env::var_os(jobbox::run::AGENT_SHELL).is_some()
-                && !subagent
-                && jobbox::harness::here().and_then(|h| h.backgrounder).is_some();
-            if (how.via_agent || in_agent_shell) && !jobbox::config::allow_wait().0 {
+            if waiting_is_monitors(how.via_agent) {
                 let with_text = how.text.as_ref().map(|t| format!(" --text {t:?}")).unwrap_or_default();
                 return refuse_wait(&format!("{what}{with_text}"));
             }
@@ -1934,6 +1954,63 @@ fn clients(how: &Flags) -> i32 {
     })
 }
 
+/// WHETHER STANDING IN FRONT OF A JOB IS REFUSED HERE — for `wait` and
+/// `fg` alike, since both are the same waiting under two names.
+///
+/// Only an agent's shell (the hook marked the line, or its supervisor
+/// exported JBX_AGENT_SHELL), only under a client with a Monitor to send
+/// the waiting to, and never a subagent's (#5046): its turn ending ends
+/// it, so a Monitor would wake nobody and its waiting holds only itself.
+fn waiting_is_monitors(via_agent: bool) -> bool {
+    // THE VERDICT IS CARRIED, NOT REDONE. The hook marks a line, and the
+    // supervisor exports JBX_AGENT_SHELL, only once each has found waiting
+    // refused — with the person's environment. Asking `allow_wait` again
+    // here read the LINE's environment, and `JBX_ALLOW_WAIT=1 jbx fg`
+    // granted itself the exception.
+    let subagent = std::env::var("JBX_AGENT").is_ok_and(|a| !a.trim().is_empty());
+    (via_agent || std::env::var_os(jobbox::run::AGENT_SHELL).is_some())
+        && !subagent
+        && jobbox::harness::here().and_then(|h| h.backgrounder).is_some()
+}
+
+/// FOLLOWING IS WAITING. `watch`, `top` and `tail -f` run until stopped —
+/// or until nothing runs — and an agent sitting on one stands still as
+/// surely as on `jbx wait`. What it wanted is a wake-up: Monitor's.
+fn refuse_follow(gesture: &str) -> i32 {
+    eprintln!(
+        "jbx: nothing ran. Following is waiting, and waiting is Monitor's job here.\n\
+         \x20 {gesture}"
+    );
+    2
+}
+
+/// THE CUT IS THE PERSON'S. An agent lengthening it — for one line with
+/// `--after`, for the project with `jbx after` — is an agent choosing to
+/// stand still for longer, which is the choice this tool takes away.
+fn refuse_cut() -> i32 {
+    eprintln!(
+        "jbx: nothing changed. How long a line may hold you is not yours to set.\n\
+         \x20 Run the line plainly: long, it detaches and names the `jbx wait` to hand\n\
+         \x20 Monitor — whose wake-up carries the result."
+    );
+    2
+}
+
+/// `fg` REFUSED, AND THE LINE HANDED BACK. Nothing is lost by running it
+/// plainly: a quick line comes back as though jbx were not there, and a
+/// long one detaches with the Monitor gesture in hand — whose wake-up
+/// carries the result `fg` was asked for. Same rule as `refuse_wait`: the
+/// setting is not named.
+fn refuse_fg(line: &str) -> i32 {
+    eprintln!(
+        "jbx: nothing ran. Standing in front of a line is Monitor's job here, not yours.\n\
+         \x20 Run the line as it is: {line}\n\
+         \x20 Quick, it comes back as though jbx were not there. Long, it detaches and\n\
+         \x20 names the `jbx wait` to hand Monitor — whose wake-up carries the result."
+    );
+    2
+}
+
 /// SAY WHAT TO DO INSTEAD, and DO NOT NAME THE SETTING.
 ///
 /// A refusal that only refuses sends the caller looking for another way
@@ -2498,7 +2575,6 @@ fn help_for(id: &str, flags: &Flags) -> i32 {
         (format!("jbx status {id}"), "where it is, and its exit code once it lands"),
         (format!("jbx tail {id}"), "what it has printed so far"),
         (format!("jbx tail {id} -f"), "… and keep watching"),
-        (format!("jbx fg {id}"), "bring it back to the foreground and watch it"),
         (format!("jbx wait {id}"),
          if record.agent.is_some() {
              "run it in front of you: you are a subagent, and your turn ending ends you"
@@ -2507,6 +2583,12 @@ fn help_for(id: &str, flags: &Flags) -> i32 {
          }),
         (format!("jbx kill {id}"), "stop it, and everything it started"),
     ];
+    // `fg <id>` ONLY WHERE IT IS NOT REFUSED: offering it under a Monitor
+    // offered the way round the refusal `wait` gives.
+    let mut offers = offers;
+    if record.agent.is_some() || jobbox::harness::here().and_then(|h| h.backgrounder).is_none() {
+        offers.insert(3, (format!("jbx fg {id}"), "bring it back to the foreground and watch it"));
+    }
 Answer(
         serde_json::json!({
             "id": id,

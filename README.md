@@ -84,7 +84,6 @@ DO NOT WAIT FOR IT, DO SOMETHING ELSE.
 
 With nothing else: hand `jbx wait j7f3a91c` to Monitor — it ends when the job
 does, and that ending wakes you. Do not run it in front of you.
-Needed the result before going on? Say so next time: `jbx fg -- '<line>'`.
   jbx help j7f3a91c
 ```
 
@@ -101,7 +100,9 @@ is something to say. Everything jbx does leans that way:
   being held — and the message names Monitor as where the wait goes.
 - **A `jbx wait` the agent runs itself is refused** — in the foreground
   or as a background shell call — and the refusal hands it the line to
-  give Monitor instead. Polling and sitting are the same waste.
+  give Monitor instead. So is every other way to sit in front of a job:
+  `jbx fg`, `jbx tail -f`, `jbx watch`, a longer cut. Polling and sitting
+  are the same waste.
 - **The wake-up carries the answer.** `jbx wait` prints the exit code and
   the last lines of the log, so the notification is the result — no
   second call to read it.
@@ -121,7 +122,9 @@ Not "will this be long?" — agents get that wrong, and so do people. Only:
 
 > Do you need this result **before you can do anything else**?
 
-Almost always, no — and the wait goes to Monitor. When it is yes, say so:
+Almost always, no — and the wait goes to Monitor. Under Claude Code it
+goes there even when the answer is yes: Monitor's wake-up carries the
+result, so `jbx fg` is refused to the agent. Elsewhere, say so:
 `jbx fg -- '<line>'` never lets go, and `jbx gain` counts what that cost.
 
 ## The rest

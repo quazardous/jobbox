@@ -18,6 +18,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] - 2026-11-21
+
+### Changed
+
+- **Under Claude Code, an agent can no longer stand in front of a job by
+  another name.** `jbx fg` had become the way round the refused `jbx
+  wait`: a line declared up front never lets go, and the agent sat in
+  front of it all the same. It is now refused in the agent's shell,
+  both forms, along with `jbx watch`, `jbx top`, `jbx tail -f`, a
+  `jbx run --after` above the cut and `jbx after <n>`. Each says
+  nothing ran and names Monitor, whose wake-up carries the result. A
+  person, a subagent and a client with no Monitor keep them all, and
+  `allow_wait: true` still hands them back.
+- **The detachment message and `jbx help <id>` no longer offer `jbx fg`
+  where it is refused.**
+- **`/jbx-after` runs `jbx after` itself when it loads**, outside the
+  agent's shell, so setting the cut stays the person's gesture.
+
+### Fixed
+
+- **A line could grant itself the exception.** `JBX_ALLOW_WAIT=1 jbx fg
+  -- …` inside an agent's line lifted its own refusal, because the
+  setting was read again under the line's environment. It is now read
+  once, where the line is marked, with the environment the client was
+  given.
+
 ## [0.29.2] - 2026-11-13
 
 ### Fixed

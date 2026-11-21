@@ -2912,10 +2912,11 @@ fn only_the_agents_own_wait_is_refused() {
     let allowed = s.run(&["wait", "j0000000"]);
     assert_ne!(allowed.status.code(), Some(2), "Monitor's own wait was refused");
 
-    // AND A PROJECT CAN HAND IT BACK.
-    let on = [("JBX_ALLOW_WAIT", "true")];
-    let back = s.run_with(&on, &["wait", "j0000000", "--via-agent"]);
-    assert_ne!(back.status.code(), Some(2), "`allow_wait: true` did not lift the refusal");
+    // AND A PROJECT CAN HAND IT BACK — by the hook not marking the line,
+    // since the mark is the verdict (see `fg_and_every_other_wait_…`).
+    std::fs::write(s.0.join("global.yaml"), "allow_wait: true\n").unwrap();
+    let back = hook(&s, "jbx wait j123abc");
+    assert!(!back.contains("--via-agent"), "`allow_wait: true` did not lift the refusal:\n{back}");
 }
 
 #[test]
@@ -4967,8 +4968,10 @@ fn the_detach_message_says_how_to_ask_for_the_result_up_front() {
     // #5033: a day of deliveries waited on one by one, because `jbx fg --`
     // was only to be found in `jbx help`. Named for the NEXT line — and
     // never `fg <id>`, which would be the wait this message prevents.
+    // ONLY WHERE `fg` IS NOT REFUSED: no Monitor here (see
+    // `fg_is_not_offered_where_it_is_refused` for the other side).
     let s = Scratch::new("askfirst");
-    let said = text(&s.run(&["run", "--after", "1", "--", "sleep 3"]));
+    let said = text(&s.run_with(&[("CLAUDE_CODE_SESSION_ID", "")], &["run", "--after", "1", "--", "sleep 3"]));
     assert_eq!(said.matches("jbx fg -- '<line>'").count(), 1, "not said exactly once:\n{said}");
     let id = announced(&said);
     assert!(!said.contains(&format!("jbx fg {id}")), "it offered to wait for this one:\n{said}");
@@ -5090,9 +5093,14 @@ fn monitor_another_client_and_allow_wait_still_wait() {
     let agent = jbx_in(&s, &[("JBX_AGENT_SHELL", "1"), ("CLAUDE_CODE_SESSION_ID", "x")], &["wait", &short()]);
     assert_eq!(agent.status.code(), Some(2), "the agent's own wait went through: {}", text(&agent));
 
+    // `allow_wait: true` IS READ WHERE THE MARK IS MADE, not under it: a
+    // line the hook wrote then carries no mark, and its wait goes through.
     std::fs::write(s.0.join("global.yaml"), "allow_wait: true\n").unwrap();
-    let allowed = jbx_in(&s, &[("JBX_AGENT_SHELL", "1"), ("CLAUDE_CODE_SESSION_ID", "x")], &["wait", &short()]);
-    assert_eq!(allowed.status.code(), Some(4), "`allow_wait: true` was overruled: {}", text(&allowed));
+    let id = short();
+    let held = announced(&text(&jbx_in(&s, &[], &["run", "--after", "0", "--no-input", "--",
+        &format!("{} wait {id}", jbx_in_line())])));
+    let out = jbx_in(&s, &[], &["wait", &held]);
+    assert_eq!(out.status.code(), Some(4), "`allow_wait: true` was overruled: {}", text(&out));
 }
 
 #[test]
@@ -5318,4 +5326,134 @@ fn a_run_inside_a_wrapped_line_says_it_stepped_aside_where_no_pipe_reaches() {
         .filter(|n| n.ends_with(".note"))
         .collect();
     assert!(left.is_empty(), "a note outlived its job: {left:?}");
+}
+
+
+// ── EVERY OTHER WAY TO STAND STILL (fg, follow, a longer cut) ───────────
+
+#[test]
+fn fg_and_every_other_wait_is_refused_in_an_agents_shell() {
+    // `fg` WAS THE WAY ROUND `wait`: a line declared up front never lets
+    // go, so the agent sat in front of it exactly as `wait` would have
+    // made it. Same for following a job, and for moving the cut.
+    let s = Scratch::new("fgrefused");
+    let agent = [("JBX_AGENT_SHELL", "1"), ("CLAUDE_CODE_SESSION_ID", "x")];
+    let refused: [&[&str]; 7] = [
+        &["fg", "--", "echo RAN"],
+        &["fg", "j0000000"],
+        &["watch"],
+        &["top"],
+        &["tail", "j0000000", "-f"],
+        &["run", "--after", "600", "--", "echo RAN"],
+        &["after", "600"],
+    ];
+    for args in refused {
+        let out = jbx_in(&s, &agent, args);
+        let said = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert_eq!(out.status.code(), Some(2), "`jbx {}` went through:\n{said}{}", args.join(" "), text(&out));
+        assert!(!text(&out).contains("RAN"), "`jbx {}` ran its line before refusing", args.join(" "));
+        assert!(said.contains("Monitor"), "`jbx {}` refused without saying where to go:\n{said}", args.join(" "));
+        assert!(!said.contains("allow_wait"), "`jbx {}` named the setting:\n{said}", args.join(" "));
+    }
+    assert!(!s.0.join("global.yaml").exists() || !std::fs::read_to_string(s.0.join("global.yaml")).unwrap().contains("600"),
+            "`jbx after 600` changed the cut");
+
+    // WHAT STILL GOES THROUGH: a shorter cut, a plain tail, reading the cut.
+    for args in [&["run", "--after", "5", "--", "echo RAN"][..], &["after"], &["tail", "j0000000"]] {
+        let out = jbx_in(&s, &agent, args);
+        assert_ne!(out.status.code(), Some(2), "`jbx {}` was refused:\n{}", args.join(" "),
+                   String::from_utf8_lossy(&out.stderr));
+    }
+
+    // AND THE CONTROLS: a person, a client with no Monitor, a subagent.
+    let free: [&[(&str, &str)]; 3] = [
+        &[("CLAUDE_CODE_SESSION_ID", "x")],
+        &[("JBX_AGENT_SHELL", "1")],
+        &[("JBX_AGENT_SHELL", "1"), ("CLAUDE_CODE_SESSION_ID", "x"), ("JBX_AGENT", "sub1")],
+    ];
+    for env in free {
+        let out = jbx_in(&s, env, &["fg", "--", "echo RAN"]);
+        assert!(text(&out).contains("RAN"), "fg was refused under {env:?}:\n{}", String::from_utf8_lossy(&out.stderr));
+    }
+}
+
+#[test]
+fn a_line_cannot_grant_itself_the_exception() {
+    // `JBX_ALLOW_WAIT=1 jbx fg -- …` inside an agent's line: the verdict
+    // was redone under the line's own environment, and the line won.
+    let s = Scratch::new("selfgrant");
+    let env = [("JBX_AGENT_SHELL", "1"), ("CLAUDE_CODE_SESSION_ID", "x"), ("JBX_ALLOW_WAIT", "1")];
+    let out = jbx_in(&s, &env, &["fg", "--", "echo RAN"]);
+    assert_eq!(out.status.code(), Some(2), "the line lifted its own refusal:\n{}", text(&out));
+}
+
+#[test]
+fn the_hook_marks_every_wait_of_ours_and_not_its_own_line() {
+    let s = Scratch::new("markfg");
+    // (A line that does not START with jbx is wrapped, and marked by its
+    // supervisor at run time: the end-to-end test below covers it.)
+    for line in ["jbx fg -- 'make'", "jbx fg j1234567; jbx ps", "jbx watch", "jbx tail j1234567 -f",
+                 "jbx run --after 900 -- make", "jbx after 900"] {
+        let said = hook(&s, line);
+        assert!(said.contains("JBX_AGENT_SHELL"), "`{line}` was not marked:\n{said}");
+    }
+    // OUR OWN LINE, shown again by a harness that chains hooks: its
+    // `--after inf` is the harness backgrounding it, not an agent.
+    let ours = format!("{} run --no-input --after inf -- 'make'", jbx_in_line());
+    assert!(hook(&s, &ours).trim().is_empty(), "the hook marked its own background line");
+}
+
+#[test]
+#[cfg(unix)]
+fn fg_anywhere_in_an_agents_line_is_refused_before_it_holds() {
+    // THE REAL PATH: the hook rewrites as Claude Code would have it, and
+    // the rewritten line runs. A fg that slipped through holds 40s.
+    let s = Scratch::new("fgpath");
+    let bin_dir = std::path::Path::new(JBX).parent().unwrap().display().to_string();
+    let path = format!("{bin_dir}:/usr/bin:/bin");
+    let claude = [("CLAUDE_CODE_SESSION_ID", "fgpath")];
+    for line in ["jbx fg -- 'sleep 40'", "cd / && jbx fg -- 'sleep 40'",
+                 "cd / && JBX_ALLOW_WAIT=1 jbx fg -- 'sleep 40'", "jbx run --after 900 -- 'sleep 40'"] {
+        let event = serde_json::json!({
+            "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "tool_input": {"command": line, "description": "fg"},
+        });
+        let mut hook = Command::new(JBX)
+            .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL")
+            .env("JBX_DIR", &s.0).env("JBX_CONFIG", s.0.join("global.yaml"))
+            .envs(claude).env("PATH", &path)
+            .args(["hook", "claude"])
+            .stdin(Stdio::piped()).stdout(Stdio::piped())
+            .spawn().unwrap();
+        use std::io::Write;
+        hook.stdin.take().unwrap().write_all(event.to_string().as_bytes()).unwrap();
+        let answer: serde_json::Value =
+            serde_json::from_slice(&hook.wait_with_output().unwrap().stdout).unwrap();
+        let rewritten = answer["hookSpecificOutput"]["updatedInput"]["command"].as_str().unwrap().to_string();
+        let began = std::time::Instant::now();
+        let ran = Command::new("sh")
+            .env_remove("JBX_WRAPPED").env_remove("JBX_AGENT_SHELL").env_remove("JBX_ALLOW_WAIT")
+            .env("JBX_DIR", &s.0).env("JBX_CONFIG", s.0.join("global.yaml"))
+            .envs(claude).env("PATH", &path)
+            .args(["-c", &rewritten])
+            .stdin(Stdio::null())
+            .output().unwrap();
+        let said = format!("{}{}", String::from_utf8_lossy(&ran.stdout), String::from_utf8_lossy(&ran.stderr));
+        assert!(said.contains("nothing ran") || said.contains("nothing changed"),
+                "`{line}` was not refused:\n{said}");
+        assert!(began.elapsed().as_secs() < 20, "`{line}` held before being refused");
+    }
+}
+
+#[test]
+fn fg_is_not_offered_where_it_is_refused() {
+    // NAMING `fg` IN THE DETACH MESSAGE named the way round the refusal.
+    let s = Scratch::new("fgoffer");
+    let claude = text(&s.run_with(&[("CLAUDE_CODE_SESSION_ID", "x")], &["run", "--after", "0", "--", "sleep 2"]));
+    assert!(!claude.contains("jbx fg"), "fg was offered under Monitor:\n{claude}");
+    let id = announced(&claude);
+    let help = text(&s.run_with(&[("CLAUDE_CODE_SESSION_ID", "x")], &["help", &id]));
+    assert!(!help.contains("jbx fg"), "`jbx help` offered fg under Monitor:\n{help}");
+    let plain = text(&s.run_with(&[("CLAUDE_CODE_SESSION_ID", "")], &["run", "--after", "0", "--", "sleep 2"]));
+    assert!(plain.contains("jbx fg"), "fg vanished where it is the right gesture:\n{plain}");
 }

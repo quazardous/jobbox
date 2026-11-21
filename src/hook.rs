@@ -105,6 +105,22 @@ pub fn shell_word(path: &str) -> String {
 /// The FILE NAME is what identifies us — an absolute path, a relative
 /// one, a symlink and a copy on the PATH are all the same tool, and a
 /// string comparison would call three of them somebody else.
+/// THE WORDS THAT MAKE ONE OF OUR LINES A WAIT IN FRONT OF THE AGENT, or
+/// a way to lengthen one: `wait` and `fg` stand still, `watch`, `top` and
+/// `tail -f` follow until stopped, `after` and `--after` move the cut.
+/// A false hit costs nothing — it only exports a variable that nothing
+/// but jbx reads. A line WE wrote (`run --no-input`, shown again by a
+/// harness that chains its hooks) is never marked: its `--after inf` is
+/// the harness backgrounding it, not an agent stretching the cut.
+const WAITS: &[&str] = &["wait", "fg", "watch", "top", "after", "--after"];
+
+/// One of WAITS anywhere in the line, or `tail` with `-f`: a `tail`
+/// alone reads what was printed and returns, which is not waiting.
+fn waits(line: &str) -> bool {
+    let words: Vec<&str> = line.split(|c: char| !c.is_ascii_alphanumeric() && c != '-').collect();
+    words.iter().any(|w| WAITS.contains(w)) || (words.contains(&"tail") && words.contains(&"-f"))
+}
+
 pub fn is_us(line: &str, binary: &str) -> bool {
     let first = line.split_whitespace().next().unwrap_or("");
     let first = first.trim_start_matches('\'').trim_end_matches('\'');
@@ -264,7 +280,8 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect, endings: bool) -> i
                 return 0;
             }
         }
-        // ANYTHING ELSE OF OURS THAT WAITS, whatever its punctuation. A
+        // ANYTHING ELSE OF OURS THAT WAITS, whatever its punctuation —
+        // `fg`, `watch`, `tail -f` and a longer cut included: see WAITS. A
         // line that starts with `jbx` is never wrapped — that is what
         // keeps one command from becoming two jobs — so the supervisor's
         // JBX_AGENT_SHELL never reached it, and `jbx wait x; jbx tail x`
@@ -274,7 +291,8 @@ pub fn hook(binary: &str, dialect: &crate::dialect::Dialect, endings: bool) -> i
         // the one addition that is safe to make to a line we do not parse.
         if !crate::config::allow_wait().0
             && crate::harness::backgrounder_of(dialect.name).is_some()
-            && line.split(|c: char| !c.is_ascii_alphanumeric() && c != '-').any(|w| w == "wait")
+            && !line.contains(" run --no-input ")
+            && waits(line)
         {
             let mut updated = tool_input.clone();
             updated["command"] =

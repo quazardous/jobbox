@@ -160,6 +160,13 @@ When the answer is yes, say so — `jbx fg -- '<line>'` runs without ever
 letting go, and `jbx gain` counts what that cost. A habit of reaching
 for it becomes visible instead of invisible.
 
+**Under Claude Code the agent is not asked even that.** The answer is
+always Monitor's: its wake-up carries the result, so needing it before
+going on is no reason to sit in front of it. `fg` became the way round
+the refusal `jbx wait` gives, and is refused with it — see
+[`jbx wait` is Monitor's](#jbx-wait-is-monitors). A person, a subagent
+and a client with no Monitor keep it.
+
 It holds wherever it stands in the line: `cd x && env -u V jbx fg --
 '…'` is wrapped whole, and the inner `fg` tells the job around it not to
 let go — as long as it is reached before the cut. Put it first and the
@@ -644,9 +651,21 @@ had just removed. It is also the easiest line to reach for right after
 being told a job went to the background.
 
 **So `allow_wait` is off by default, and off means *for the agent*.**
+It covers every way of standing still in front of a job, since an agent
+refused one reaches for the next:
+
+| refused in the agent's shell | what it was doing |
+|---|---|
+| `jbx wait <id>`, `jbx wait --file` | waiting |
+| `jbx fg -- '<line>'`, `jbx fg <id>` | waiting, declared up front |
+| `jbx watch`, `jbx top`, `jbx tail <id> -f` | following until stopped |
+| `jbx run --after <n>` above the cut, `jbx after <n>` | moving the cut |
+
+Each says nothing ran and names Monitor. A plain `jbx tail`, a shorter
+`--after`, and `jbx after` with no value still answer.
 
 ```yaml
-allow_wait: true       # let the agent run `jbx wait` in front of itself
+allow_wait: true       # let the agent stand in front of its jobs
 ```
 
 The discrimination costs nothing to explain: the hook sees every command
@@ -655,9 +674,15 @@ reaches it — so only the agent's shell is ever marked, in one of two ways:
 
 - **A line jbx wraps** runs with `JBX_AGENT_SHELL` set by its supervisor,
   and everything in it inherits it — a `;`, a `&&`, a script it calls.
-- **A line that starts with `jbx`** is never wrapped; when it names
-  `wait`, the hook puts `export JBX_AGENT_SHELL=1;` in front of it (a
-  bare `jbx wait` gets `--via-agent`, as before).
+- **A line that starts with `jbx`** is never wrapped; when it names one
+  of the gestures above, the hook puts `export JBX_AGENT_SHELL=1;` in
+  front of it (a bare `jbx wait` gets `--via-agent`, as before).
+
+**The mark is the verdict.** The hook and the supervisor set it only
+once they have found waiting refused, reading `allow_wait` with the
+environment the person gave the client. Nothing under the mark asks
+again — asking again read the *line's* environment, and
+`JBX_ALLOW_WAIT=1 jbx fg -- …` granted itself the exception.
 
 `wait` refuses either with exit 2 — not a code a job could have returned —
 and names Monitor instead, because a refusal that only refuses sends the
