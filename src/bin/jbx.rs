@@ -1967,10 +1967,15 @@ fn waiting_is_monitors(via_agent: bool) -> bool {
     // refused — with the person's environment. Asking `allow_wait` again
     // here read the LINE's environment, and `JBX_ALLOW_WAIT=1 jbx fg`
     // granted itself the exception.
+    // `--via-agent` STANDS ON ITS OWN: the hook writes it only for a
+    // client with a Monitor and never for a subagent, so it needs neither
+    // asked again — and asking needed the client's environment, which
+    // the line does not always have.
     let subagent = std::env::var("JBX_AGENT").is_ok_and(|a| !a.trim().is_empty());
-    (via_agent || std::env::var_os(jobbox::run::AGENT_SHELL).is_some())
-        && !subagent
-        && jobbox::harness::here().and_then(|h| h.backgrounder).is_some()
+    via_agent
+        || (std::env::var_os(jobbox::run::AGENT_SHELL).is_some()
+            && !subagent
+            && jobbox::harness::here().and_then(|h| h.backgrounder).is_some())
 }
 
 /// FOLLOWING IS WAITING. `watch`, `top` and `tail -f` run until stopped —
